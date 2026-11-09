@@ -1,0 +1,26 @@
+[package]
+name = "dman-aria2"
+description = "Typed aria2 JSON-RPC (WebSocket) client for dman"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["rt", "net", "sync", "time", "macros"] }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+secrecy.workspace = true
+url.workspace = true
+base64 = "0.22"
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "process", "macros", "time", "io-util"] }
+
+[lints]
+workspace = true

@@ -29,14 +29,14 @@ commit this file together with the code it describes.
 
 ### M0 — spikes (5 %)
 - [ ] aria2 behaviour spike: changeOption `out`/`index-out`/`bt-tracker` on paused items; magnet metadata-only → re-add with `select-file`; `bt-detach-seed-only`; session restore of paused items; upload counters after restart
-- [ ] yt-dlp spike: `--progress-template` JSON lines, kill + `--continue` resume, format choice without ffmpeg
+- [x] yt-dlp spike: `--progress-template` JSON lines, kill + `--continue` resume, format choice without ffmpeg
 - [ ] Size baseline: ratatui + axum + reqwest(rustls/ring) + scraper + redb on musl, stripped
 
 ### M1 — foundation (15 %)
-- [ ] Workspace skeleton, lints, release profile, CI script (fmt, clippy, test, size report), cargo-deny config
+- [x] Workspace skeleton, lints, release profile, check script (`scripts/check.sh`) — cargo-deny config still to add in M8
 - [ ] `dman-proto`: Job model, states, options, events, JSON-RPC envelope, error codes
-- [ ] `dman-config`: profiles, TOML load/validate, secrets.toml (0600), paths (`~/.config/dman`)
-- [ ] `dman-aria2`: typed JSON-RPC/WebSocket client, notifications, multicall, option mapping, capability detection
+- [x] `dman-config`: profiles, TOML load/validate, secrets.toml (0600), paths (`~/.config/dman`)
+- [x] `dman-aria2`: typed JSON-RPC/WebSocket client, notifications, multicall, option mapping, capability detection
 - [ ] `dman-aria2` supervisor: spawn/attach, port probe, generated aria2 config, restart with backoff, clean shutdown
 - [ ] `dman-daemon` skeleton: job manager (GID↔JobId), tick poller + deltas, event bus, API server (JSON-RPC over WS + POST), token auth
 - [ ] `dman-client` + CLI: `daemon start|stop|restart|status|run|gen-config`, `add`, `list`, `get`, `pause`, `resume`, `remove`, `purge`, `--json`, exit codes
@@ -99,7 +99,14 @@ scraper 0.29 · quick-xml 0.42 · redb 4.5 · notify-rust 4.19 · insta · asser
 
 ## Spike findings
 
-(filled in by M0)
+### yt-dlp (2026.10.26) — done
+- Progress: `--newline --no-colors --progress-template "download:%(progress)j"` → one JSON object per line on stdout, mixed with log lines; keep only lines starting with `{`. Keys: status, downloaded_bytes, total_bytes, tmpfilename, filename, eta, speed, elapsed (eta/speed null early). Never use `-q` (suppresses progress).
+- Probe: `yt-dlp -J --no-playlist --no-warnings -- URL`; generic extractor gives a single format without vcodec/acodec/size.
+- Pause (D9) works: SIGTERM and SIGKILL both leave `.part`; rerun with `--continue` resumes at the byte offset if the server supports Range; otherwise restarts from 0 and still succeeds.
+- Final path: `--print-to-file after_move:filepath <file>`; but without ffmpeg a `bv*+ba` request exits 0 leaving `name.f0.mp4` + `name.f1.m4a` and after_move prints a path that does not exist.
+- Exit codes: 0 ok, 1 on any failure (404, refused).
+- dman must detect ffmpeg itself: use `bv*+ba/b` only with ffmpeg; without it use `b`, and treat exit 0 with `.fN.` split files as "separate streams" (offered explicitly, D-fallback), never silently.
+- Download template: `yt-dlp --newline --no-colors --no-playlist --continue --part [--limit-rate N] -f SEL -o DIR/TEMPLATE --print-to-file after_move:filepath DIR/.dman-ID.final --progress-template "download:%(progress)j" -- URL`.
 
 ## Session log
 

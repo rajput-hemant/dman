@@ -18,6 +18,7 @@ use url::Url;
 
 use crate::client::{Client, typed_api};
 use crate::error::ClientError;
+use crate::tls::TlsOptions;
 
 const EVENT_CAPACITY: usize = 256;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
@@ -95,6 +96,18 @@ impl ReconnectingClient {
         initial: Duration,
         max: Duration,
     ) -> Self {
+        Self::spawn_tls(url, token, client_name, initial, max, TlsOptions::default())
+    }
+
+    /// Like [`ReconnectingClient::spawn_with_backoff`] with TLS options for `wss://` URLs.
+    pub fn spawn_tls(
+        url: Url,
+        token: SecretString,
+        client_name: &str,
+        initial: Duration,
+        max: Duration,
+        tls: TlsOptions,
+    ) -> Self {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
         let (state_tx, state) = watch::channel(ConnState::Connecting);
         let current = Arc::new(Mutex::new(None));
@@ -104,6 +117,7 @@ impl ReconnectingClient {
             client_name.to_owned(),
             initial,
             max,
+            tls,
             events.clone(),
             current.clone(),
             state_tx,
@@ -180,6 +194,7 @@ async fn supervise(
     name: String,
     initial: Duration,
     max: Duration,
+    tls: TlsOptions,
     events: broadcast::Sender<Event>,
     current: Arc<Mutex<Option<Client>>>,
     state: watch::Sender<ConnState>,
@@ -188,7 +203,8 @@ async fn supervise(
     loop {
         state.send_replace(ConnState::Connecting);
         let attempt = async {
-            let client = Client::connect_with_events(&url, &token, &name, events.clone()).await?;
+            let client =
+                Client::connect_with_events(&url, &token, &name, events.clone(), &tls).await?;
             client.subscribe().await?;
             Ok::<_, ClientError>(client)
         }

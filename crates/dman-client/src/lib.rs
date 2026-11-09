@@ -11,13 +11,16 @@
 //! (that would need either a new dependency or a hand-written HTTP client; the
 //! WebSocket path is simpler and needs neither).
 //!
-//! The URL is generic (`ws://host:port/api/v1/ws`). `wss://` becomes available
-//! by enabling a TLS feature of `tokio-tungstenite` in `Cargo.toml`.
+//! The URL is generic (`ws://host:port/api/v1/ws`). `wss://` uses rustls with the ring
+//! provider; see [`TlsOptions`] for the trust roots (bundled Mozilla roots by default,
+//! a custom CA to pin a private certificate, or `insecure_skip_verify`).
 
 mod client;
 mod error;
 mod reconnect;
+mod tls;
 
 pub use client::Client;
 pub use error::ClientError;
 pub use reconnect::{ConnState, ReconnectingClient};
+pub use tls::TlsOptions;

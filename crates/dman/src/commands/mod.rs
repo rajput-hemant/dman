@@ -8,6 +8,7 @@ pub mod misc;
 pub mod providers;
 pub mod search;
 pub mod serve;
+pub mod update;
 
 use crate::cli::{Cli, Command};
 use crate::connect::Ctx;
@@ -22,7 +23,10 @@ pub fn print_json<T: serde::Serialize>(value: &T) -> Result<(), CliError> {
 /// Run the selected command and return the process exit code.
 pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
     let Some(command) = cli.command.as_ref() else {
-        return daemon::bare(&Ctx::load(&cli)?).await;
+        let ctx = Ctx::load(&cli)?;
+        let code = daemon::bare(&ctx).await?;
+        update::notice(&ctx).await;
+        return Ok(code);
     };
     match command {
         Command::Completions { shell } => misc::completions(*shell),
@@ -32,7 +36,15 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Command::Serve(args) => serve::run(&Ctx::load(&cli)?, args).await,
         Command::Daemon { cmd } => daemon::run(&Ctx::load(&cli)?, cmd).await,
         Command::Add(args) => add::run(&Ctx::load(&cli)?, args).await,
-        Command::List(args) => list::list(&Ctx::load(&cli)?, args).await,
+        Command::List(args) => {
+            let ctx = Ctx::load(&cli)?;
+            let code = list::list(&ctx, args).await?;
+            if !args.watch {
+                update::notice(&ctx).await;
+            }
+            Ok(code)
+        }
+        Command::Update(args) => update::run(&Ctx::load(&cli)?, args).await,
         Command::Get { id, files, peers } => {
             list::get(&Ctx::load(&cli)?, *id, *files, *peers).await
         }

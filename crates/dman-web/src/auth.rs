@@ -229,7 +229,11 @@ async fn guarded(st: &Arc<AppState>, mut req: Request, next: Next, path: &str) -
 
 fn set_cookie(st: &AppState, h: &HeaderMap, value: &str, max_age: u64) -> HeaderValue {
     let path = if st.base.is_empty() { "/" } else { &st.base };
-    let secure = if is_https(h) { "; Secure" } else { "" };
+    let secure = if st.tls || is_https(h) {
+        "; Secure"
+    } else {
+        ""
+    };
     let c = format!(
         "{COOKIE}={value}; Path={path}; Max-Age={max_age}; HttpOnly; SameSite=Strict{secure}"
     );

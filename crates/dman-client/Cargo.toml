@@ -10,7 +10,7 @@ publish.workspace = true
 [dependencies]
 dman-proto.workspace = true
 tokio = { workspace = true, features = ["rt", "net", "sync", "time", "macros"] }
-tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -18,6 +18,9 @@ thiserror.workspace = true
 tracing.workspace = true
 secrecy.workspace = true
 url.workspace = true
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = "1"
+webpki-roots = "0.26"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }

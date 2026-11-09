@@ -14,8 +14,10 @@ mod schedule;
 mod schema;
 mod search;
 mod secrets;
+mod tls;
 mod torrents;
 mod units;
+mod update;
 mod video;
 mod web;
 
@@ -30,8 +32,10 @@ pub use schema::{
 };
 pub use search::{Search, TrackerList};
 pub use secrets::Secrets;
+pub use tls::{TlsFiles, read_certs, read_key};
 pub use torrents::{RemoveUnselected, Torrents};
 pub use units::{ByteLimit, DiskThreshold, format_bytes, parse_bytes};
+pub use update::Update;
 pub use video::{Video, VideoSubtitles};
 pub use web::{Web, parse_bind, validate_base_path};
 

@@ -51,6 +51,9 @@ pub fn resolve_token(web: &Web, secrets: &mut Secrets) -> Result<Option<SecretSt
 /// binding anything. Generates the token for loopback binds.
 pub fn preflight(web: &Web, paths: &Paths) -> Result<(), RpcError> {
     web.validate().map_err(RpcError::invalid)?;
+    if let Some(t) = &web.tls {
+        crate::tls::acceptor(t).map_err(|e| RpcError::invalid(format!("web.tls: {e}")))?;
+    }
     let mut secrets = load_secrets(paths)?;
     resolve_token(web, &mut secrets).map(drop)
 }
@@ -149,6 +152,12 @@ impl WebHost {
             stop_running(r).await;
         }
         let token = resolve_token(&web, &mut load_secrets(&self.paths)?)?;
+        let acceptor = web
+            .tls
+            .as_ref()
+            .map(crate::tls::acceptor)
+            .transpose()
+            .map_err(|e| RpcError::invalid(format!("web.tls: {e}")))?;
         let ip = web
             .bind_ip()
             .ok_or_else(|| RpcError::invalid("invalid bind address"))?;
@@ -181,15 +190,22 @@ impl WebHost {
                 token,
                 title: web.title.clone(),
                 exposed,
+                tls: acceptor.is_some(),
             },
         );
+        if exposed && acceptor.is_none() {
+            tracing::warn!(
+                %url,
+                "web UI is served over plain http beyond loopback: the access token crosses the \
+                 network in clear text; configure web.tls or put it behind a TLS reverse proxy"
+            );
+        }
         let (stop, mut stopped) = watch::channel(false);
         let task = tokio::spawn(async move {
-            let r = axum::serve(listener, router)
-                .with_graceful_shutdown(async move {
-                    let _ = stopped.wait_for(|v| *v).await;
-                })
-                .await;
+            let r = crate::tls::serve(listener, router, acceptor, async move {
+                let _ = stopped.wait_for(|v| *v).await;
+            })
+            .await;
             if let Err(e) = r {
                 tracing::error!("web server failed: {e}");
             }

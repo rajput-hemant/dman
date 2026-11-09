@@ -36,6 +36,7 @@ pub mod schedule;
 pub mod search;
 pub mod server;
 pub mod tick;
+pub mod tls;
 pub mod video;
 pub mod web;
 
@@ -116,9 +117,20 @@ pub async fn run_with_clock(
     config.validate().context("invalid configuration")?;
     let (_, profile) = config.profile(Some(&name))?;
     let profile = profile.clone();
-    let DaemonTarget::Local { listen, secret_ref } = &profile.daemon else {
+    let DaemonTarget::Local {
+        listen,
+        secret_ref,
+        tls,
+    } = &profile.daemon
+    else {
         bail!("profile `{name}` points to a remote daemon; it cannot be served here");
     };
+    tls::install_provider();
+    let acceptor = tls
+        .as_ref()
+        .map(tls::acceptor)
+        .transpose()
+        .map_err(|e| anyhow::anyhow!("daemon.tls: {e}"))?;
     for d in [paths.state_dir(), paths.data_dir()] {
         std::fs::create_dir_all(d).with_context(|| format!("cannot create {}", d.display()))?;
     }
@@ -140,7 +152,15 @@ pub async fn run_with_clock(
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .with_context(|| format!("cannot listen on {listen}"))?;
-    tracing::info!(profile = %name, %listen, "dman daemon starting");
+    let scheme = if acceptor.is_some() { "wss" } else { "ws" };
+    tracing::info!(profile = %name, %listen, scheme, "dman daemon starting");
+    if acceptor.is_none() && !listener.local_addr().is_ok_and(|a| a.ip().is_loopback()) {
+        tracing::warn!(
+            %listen,
+            "API listens beyond loopback WITHOUT TLS: the token and all traffic cross the network in \
+             clear text; configure daemon.tls or use an SSH tunnel (see docs/remote.md)"
+        );
+    }
 
     let mut sigint = signal(SignalKind::interrupt()).context("cannot install signal handlers")?;
     let mut sigterm = signal(SignalKind::terminate()).context("cannot install signal handlers")?;
@@ -258,11 +278,10 @@ pub async fn run_with_clock(
     let web_host = state.web.clone();
     let mut graceful = shutdown_rx.clone();
     let mut server = tokio::spawn(async move {
-        axum::serve(listener, server::router(state))
-            .with_graceful_shutdown(async move {
-                let _ = graceful.wait_for(|v| *v).await;
-            })
-            .await
+        tls::serve(listener, server::router(state), acceptor, async move {
+            let _ = graceful.wait_for(|v| *v).await;
+        })
+        .await
     });
 
     let mut server_done = false;

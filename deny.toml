@@ -1,0 +1,54 @@
+# cargo-deny configuration. Run: cargo deny check
+# Licenses: permissive only (decision Q8, dman itself stays proprietary-capable).
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+
+[licenses]
+confidence-threshold = 0.9
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    # File-level copyleft, approved by the owner (2026-11-09): needed by scraper
+    # (cssparser, selectors, dtoa-short) and nucleo-matcher. Only changes to those
+    # crates' own files would have to be published; dman's code is unaffected.
+    "MPL-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "0BSD",
+    "CC0-1.0",
+    "BSL-1.0",
+    "CDLA-Permissive-2.0",
+]
+[licenses.private]
+# Workspace crates are publish = false / proprietary.
+ignore = true
+
+# Strong copyleft (GPL, AGPL, LGPL) stays disallowed.
+
+[advisories]
+version = 2
+yanked = "deny"
+unmaintained = "workspace"
+ignore = []
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

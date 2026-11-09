@@ -126,6 +126,18 @@ pub enum Command {
     },
     /// Serve the browser UI (enable it on the running daemon, or run a daemon with it).
     Serve(ServeArgs),
+    /// Update dman (installer installs only) or show the right command for your install.
+    Update(UpdateArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct UpdateArgs {
+    /// Only report the installed and latest version; change nothing.
+    #[arg(long)]
+    pub check: bool,
+    /// Do not ask: run the package manager / restart the daemon.
+    #[arg(long, short = 'y')]
+    pub yes: bool,
 }
 
 #[derive(Args, Debug, Default)]

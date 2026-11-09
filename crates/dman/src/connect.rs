@@ -1,6 +1,7 @@
 //! Profile resolution and daemon connections.
 
-use dman_client::{Client, ClientError};
+use dman_client::{Client, ClientError, TlsOptions};
+use dman_config::expand_tilde;
 use dman_config::{Config, DaemonTarget, Paths, Profile, Secrets};
 use secrecy::SecretString;
 use url::Url;
@@ -61,11 +62,18 @@ impl Ctx {
     pub fn endpoint(&self) -> Result<(Url, SecretString), CliError> {
         let mut secrets = Secrets::load(&self.paths)?;
         match &self.profile.daemon {
-            DaemonTarget::Local { listen, secret_ref } => {
-                let url = parse_url(&format!("ws://{listen}{WS_PATH}"))?;
+            DaemonTarget::Local {
+                listen,
+                secret_ref,
+                tls,
+            } => {
+                let scheme = if tls.is_some() { "wss" } else { "ws" };
+                let url = parse_url(&format!("{scheme}://{listen}{WS_PATH}"))?;
                 Ok((url, secrets.ensure(secret_ref)?))
             }
-            DaemonTarget::Remote { url, secret_ref } => {
+            DaemonTarget::Remote {
+                url, secret_ref, ..
+            } => {
                 let mut url = parse_url(url)?;
                 if matches!(url.path(), "" | "/") {
                     url.set_path(WS_PATH);
@@ -81,10 +89,35 @@ impl Ctx {
         }
     }
 
+    /// TLS options for the profile's `wss://` connection: the configured CA, or
+    /// `insecure_skip_verify` (warned about on every connect). A local daemon with
+    /// `daemon.tls` is reached by its listen address, so its own certificate file is the
+    /// trust anchor (works for a self-signed certificate whose SAN covers that address;
+    /// with a public CA certificate use a remote profile with the host name instead).
+    pub fn tls_options(&self) -> Result<TlsOptions, CliError> {
+        match &self.profile.daemon {
+            DaemonTarget::Local { tls: Some(t), .. } => TlsOptions::new()
+                .with_ca_file(&t.cert_path())
+                .map_err(CliError::from),
+            DaemonTarget::Local { .. } => Ok(TlsOptions::new()),
+            DaemonTarget::Remote {
+                ca,
+                insecure_skip_verify,
+                ..
+            } => {
+                let mut o = TlsOptions::new().insecure_skip_verify(*insecure_skip_verify);
+                if let Some(ca) = ca {
+                    o = o.with_ca_file(&expand_tilde(ca))?;
+                }
+                Ok(o)
+            }
+        }
+    }
+
     /// Connect to the daemon, or fail with a hint when none is running.
     pub async fn connect(&self) -> Result<Client, CliError> {
         let (url, token) = self.endpoint()?;
-        Client::connect(&url, token, CLIENT_NAME)
+        Client::connect_tls(&url, token, CLIENT_NAME, &self.tls_options()?)
             .await
             .map_err(|e| self.connect_error(e, &url))
     }
@@ -115,6 +148,57 @@ fn parse_url(s: &str) -> Result<Url, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ctx(daemon: DaemonTarget) -> (Ctx, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = Profile {
+            daemon,
+            ..Profile::default()
+        };
+        let ctx = Ctx {
+            paths: Paths::with_root(dir.path()),
+            config: Config::default(),
+            name: "work".into(),
+            profile,
+            json: false,
+        };
+        (ctx, dir)
+    }
+
+    fn remote(ca: Option<&str>, insecure: bool) -> DaemonTarget {
+        DaemonTarget::Remote {
+            url: "wss://nas.example:6810".into(),
+            secret_ref: "work".into(),
+            ca: ca.map(str::to_owned),
+            insecure_skip_verify: insecure,
+        }
+    }
+
+    #[test]
+    fn remote_profile_options() {
+        let (c, _d) = ctx(remote(None, true));
+        assert!(c.tls_options().is_ok());
+        let (c, _d) = ctx(remote(Some("/nonexistent/ca.pem"), false));
+        assert!(c.tls_options().is_err(), "a missing CA file is an error");
+    }
+
+    #[test]
+    fn remote_endpoint_defaults_ws_path_and_needs_secret() {
+        let (c, d) = ctx(remote(None, false));
+        assert_eq!(c.endpoint().err().unwrap().exit, 4);
+        std::fs::write(d.path().join("secrets.toml"), "[secrets]\nwork = \"tok\"\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(
+                d.path().join("secrets.toml"),
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .unwrap();
+        }
+        let (url, _) = c.endpoint().unwrap();
+        assert_eq!(url.as_str(), "wss://nas.example:6810/api/v1/ws");
+    }
 
     #[test]
     fn bad_url_is_usage_error() {

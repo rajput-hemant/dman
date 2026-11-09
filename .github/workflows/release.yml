@@ -1,0 +1,164 @@
+# Release pipeline, structured like the one `dist generate` emits (cargo-dist 0.34).
+# Hand-maintained (allow-dirty = ["ci"] in dist-workspace.toml). Trigger: push a tag `vX.Y.Z`.
+# Needs the HOMEBREW_TAP_TOKEN secret for the Homebrew formula job.
+name: Release
+
+on:
+  pull_request:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  DIST_VERSION: "0.34.0"
+
+jobs:
+  # Compute what to build; on PRs this only checks that the plan is valid.
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      val: ${{ steps.plan.outputs.manifest }}
+      tag: ${{ !github.event.pull_request && github.ref_name || '' }}
+      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
+      publishing: ${{ !github.event.pull_request }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install dist
+        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${DIST_VERSION}/cargo-dist-installer.sh" | sh
+      - name: Plan
+        id: plan
+        run: |
+          dist plan ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '--allow-dirty' }} --output-format=json > plan-dist-manifest.json
+          echo "manifest=$(jq -c . plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: artifacts-plan-dist-manifest
+          path: plan-dist-manifest.json
+
+  build-local:
+    needs: plan
+    if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix }}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container && matrix.container.image || null }}
+    env:
+      BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - name: Install dist
+        run: ${{ matrix.install_dist.run }}
+      - name: Install musl toolchain
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          echo "CC_x86_64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
+          echo "CC_aarch64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
+      - name: Build artifacts
+        run: |
+          dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
+          echo "dist ran successfully"
+          cat dist-manifest.json
+      - name: Collect upload list
+        id: cargo-dist
+        shell: bash
+        run: |
+          echo "paths<<EOF" >> "$GITHUB_OUTPUT"
+          jq --raw-output ".upload_files[]" dist-manifest.json >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          cp dist-manifest.json "$BUILD_MANIFEST_NAME"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: artifacts-build-local-${{ join(matrix.targets, '_') }}
+          path: |
+            ${{ steps.cargo-dist.outputs.paths }}
+            ${{ env.BUILD_MANIFEST_NAME }}
+
+  # Installer scripts, Homebrew formula, source tarball, combined checksums.
+  build-global:
+    needs: [plan, build-local]
+    if: ${{ needs.plan.outputs.publishing == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - name: Install dist
+        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${DIST_VERSION}/cargo-dist-installer.sh" | sh
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+      - name: Build global artifacts
+        id: build
+        run: |
+          dist build ${{ needs.plan.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
+          echo "paths<<EOF" >> "$GITHUB_OUTPUT"
+          jq --raw-output ".upload_files[]" dist-manifest.json >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: artifacts-build-global
+          path: |
+            ${{ steps.build.outputs.paths }}
+            dist-manifest.json
+
+  host:
+    needs: [plan, build-local, build-global]
+    if: ${{ needs.plan.outputs.publishing == 'true' }}
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install dist
+        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${DIST_VERSION}/cargo-dist-installer.sh" | sh
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: artifacts-*
+          path: target/distrib/
+          merge-multiple: true
+      - id: host
+        run: |
+          dist host ${{ needs.plan.outputs.tag-flag }} --steps=upload --steps=release --output-format=json > dist-manifest.json
+          echo "artifacts uploaded and released"
+      - uses: actions/upload-artifact@v4.6.2
+        with:
+          name: artifacts-dist-manifest
+          path: dist-manifest.json
+
+  publish-homebrew:
+    needs: [plan, host]
+    if: ${{ needs.plan.outputs.publishing == 'true' }}
+    runs-on: ubuntu-24.04
+    env:
+      GITHUB_USER: dman-release
+      GITHUB_EMAIL: noreply@github.com
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          repository: rajput-hemant/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          pattern: artifacts-*
+          path: formulae
+          merge-multiple: true
+      - name: Commit formula
+        run: |
+          git config user.name "${GITHUB_USER}"
+          git config user.email "${GITHUB_EMAIL}"
+          mkdir -p Formula
+          cp formulae/*.rb Formula/
+          git add Formula
+          git commit -m "dman ${{ needs.plan.outputs.tag }}" || echo "nothing to commit"
+          git push

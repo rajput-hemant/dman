@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::schedule::{ScheduleWindow, validate_windows};
+use crate::tls::TlsFiles;
 use crate::units::{ByteLimit, DiskThreshold};
 use crate::{ConfigError, Paths, fsutil};
 
@@ -25,6 +26,9 @@ pub enum DaemonTarget {
         /// Name of the secret holding the API token.
         #[serde(default = "default_local_secret")]
         secret_ref: String,
+        /// Serve the API over `wss://` with this certificate; plain `ws://` when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tls: Option<TlsFiles>,
     },
     /// A daemon elsewhere, reached over `ws://` or `wss://`.
     Remote {
@@ -32,7 +36,20 @@ pub enum DaemonTarget {
         url: String,
         /// Name of the secret holding the API token.
         secret_ref: String,
+        /// PEM file with the CA (or the self-signed certificate) the daemon's certificate
+        /// must chain to. When set it is the only trust anchor (pinning); otherwise the
+        /// bundled Mozilla roots (webpki-roots) are used.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ca: Option<String>,
+        /// Accept any certificate. Disables all protection against interception; only for
+        /// testing. A loud warning is logged on every connection.
+        #[serde(default, skip_serializing_if = "is_false")]
+        insecure_skip_verify: bool,
     },
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 fn default_listen() -> String {
@@ -47,6 +64,7 @@ impl Default for DaemonTarget {
         Self::Local {
             listen: default_listen(),
             secret_ref: default_local_secret(),
+            tls: None,
         }
     }
 }
@@ -211,6 +229,8 @@ pub struct Config {
     pub web: crate::Web,
     /// Torrent settings.
     pub torrents: crate::Torrents,
+    /// Opt-in update check.
+    pub update: crate::Update,
     /// Sections not yet understood by this version.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -230,6 +250,7 @@ impl Default for Config {
             video: crate::Video::default(),
             web: crate::Web::default(),
             torrents: crate::Torrents::default(),
+            update: crate::Update::default(),
             extra: toml::Table::new(),
         }
     }
@@ -255,9 +276,13 @@ listen = "127.0.0.1:6810"
 # Name of the entry in secrets.toml holding the API token.
 secret_ref = "daemon"
 
+# Serve the API over TLS (wss://) with your own certificate:
+# tls = { cert = "/etc/dman/fullchain.pem", key = "/etc/dman/privkey.pem" }
+
 # A remote daemon:
+# (see docs/remote.md; `ca` pins a private CA or self-signed certificate)
 # [profiles.work]
-# daemon = { kind = "remote", url = "wss://host:6810", secret_ref = "work" }
+# daemon = { kind = "remote", url = "wss://host:6810", secret_ref = "work", ca = "~/.config/dman/work-ca.pem" }
 
 [limits]
 # Bytes per second ("10MiB" or an integer); 0 = unlimited.
@@ -451,22 +476,54 @@ impl Config {
                 return bad(format!("profile `{name}`: secret_ref must not be empty"));
             }
             match &p.daemon {
-                DaemonTarget::Local { listen, .. } => {
+                DaemonTarget::Local { listen, tls, .. } => {
                     if listen.parse::<SocketAddr>().is_err() {
                         return bad(format!(
                             "profile `{name}`: listen `{listen}` is not a valid host:port address"
                         ));
                     }
+                    if let Some(t) = tls {
+                        t.validate(&format!("profile `{name}`: daemon.tls"))
+                            .map_err(ConfigError::Invalid)?;
+                    }
                 }
-                DaemonTarget::Remote { url, .. } => match url::Url::parse(url) {
-                    Ok(u) if matches!(u.scheme(), "ws" | "wss") && u.host_str().is_some() => {}
-                    Ok(_) => {
+                DaemonTarget::Remote {
+                    url,
+                    ca,
+                    insecure_skip_verify,
+                    ..
+                } => {
+                    let wss = match url::Url::parse(url) {
+                        Ok(u) if matches!(u.scheme(), "ws" | "wss") && u.host_str().is_some() => {
+                            u.scheme() == "wss"
+                        }
+                        Ok(_) => {
+                            return bad(format!(
+                                "profile `{name}`: url `{url}` must be ws:// or wss:// with a host"
+                            ));
+                        }
+                        Err(e) => {
+                            return bad(format!("profile `{name}`: invalid url `{url}`: {e}"));
+                        }
+                    };
+                    if !wss && (ca.is_some() || *insecure_skip_verify) {
                         return bad(format!(
-                            "profile `{name}`: url `{url}` must be ws:// or wss:// with a host"
+                            "profile `{name}`: `ca` and `insecure_skip_verify` need a wss:// url"
                         ));
                     }
-                    Err(e) => return bad(format!("profile `{name}`: invalid url `{url}`: {e}")),
-                },
+                    if let Some(ca) = ca {
+                        let path = expand_tilde(ca);
+                        match crate::tls::read_certs(&path) {
+                            Ok(c) if !c.is_empty() => {}
+                            Ok(_) => {
+                                return bad(format!(
+                                    "profile `{name}`: ca: no certificate found in {ca}"
+                                ));
+                            }
+                            Err(e) => return bad(format!("profile `{name}`: ca: {e}")),
+                        }
+                    }
+                }
             }
             if p.download_dir.trim().is_empty() {
                 return bad(format!("profile `{name}`: download_dir must not be empty"));
@@ -672,6 +729,7 @@ mod tests {
         c.profiles.get_mut("local").unwrap().daemon = DaemonTarget::Local {
             listen: "not-an-addr".into(),
             secret_ref: "daemon".into(),
+            tls: None,
         };
         assert!(c.validate().is_err());
 
@@ -679,8 +737,19 @@ mod tests {
         c.profiles.get_mut("local").unwrap().daemon = DaemonTarget::Remote {
             url: "http://x:1".into(),
             secret_ref: "s".into(),
+            ca: None,
+            insecure_skip_verify: false,
         };
         assert!(c.validate().is_err());
+
+        let mut c = Config::default();
+        c.profiles.get_mut("local").unwrap().daemon = DaemonTarget::Remote {
+            url: "ws://x:1".into(),
+            secret_ref: "s".into(),
+            ca: None,
+            insecure_skip_verify: true,
+        };
+        assert!(c.validate().is_err(), "insecure_skip_verify needs wss");
 
         let mut c = Config::default();
         let p = c.profiles.get_mut("local").unwrap();

@@ -161,6 +161,7 @@ fn app_with(fake: &Arc<Fake>, token: Option<&str>, base: &str) -> Router {
             token: token.map(|t| SecretString::from(t.to_string())),
             title: "dman".into(),
             exposed: false,
+            tls: false,
         },
     )
 }
@@ -296,6 +297,25 @@ async fn login_cookie_is_secure_behind_https_proxy() {
     req.headers_mut()
         .insert("x-forwarded-proto", "https".parse().unwrap());
     let r = send(&app, req).await;
+    assert!(
+        r.headers[header::SET_COOKIE]
+            .to_str()
+            .unwrap()
+            .contains("; Secure")
+    );
+}
+
+#[tokio::test]
+async fn login_cookie_is_secure_when_listener_has_tls() {
+    let app = router(
+        Fake::new(true),
+        WebConfig {
+            token: Some(SecretString::from("s3cret".to_string())),
+            tls: true,
+            ..WebConfig::default()
+        },
+    );
+    let r = send(&app, login_req("s3cret")).await;
     assert!(
         r.headers[header::SET_COOKIE]
             .to_str()

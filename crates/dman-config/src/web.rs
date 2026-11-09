@@ -4,6 +4,8 @@ use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
 
+use crate::tls::TlsFiles;
+
 /// Browser UI settings. Off by default.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -22,6 +24,9 @@ pub struct Web {
     pub allow_unauthenticated: bool,
     /// Shown in the header and tab title.
     pub title: String,
+    /// Serve https with this certificate; plain http when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls: Option<TlsFiles>,
 }
 
 impl Default for Web {
@@ -34,6 +39,7 @@ impl Default for Web {
             token_ref: "web".into(),
             allow_unauthenticated: false,
             title: "dman".into(),
+            tls: None,
         }
     }
 }
@@ -49,7 +55,7 @@ impl Web {
         self.bind_ip().is_some_and(|ip| ip.is_loopback())
     }
 
-    /// `http://bind:port{base_path}` (IPv6 in brackets; base path without a trailing slash,
+    /// `http(s)://bind:port{base_path}` (IPv6 in brackets; base path without a trailing slash,
     /// `/` for the root).
     pub fn url(&self) -> String {
         let host = match self.bind_ip() {
@@ -63,7 +69,8 @@ impl Web {
         } else {
             format!("/{t}")
         };
-        format!("http://{host}:{}{base}", self.port)
+        let scheme = if self.tls.is_some() { "https" } else { "http" };
+        format!("{scheme}://{host}:{}{base}", self.port)
     }
 
     /// Check the values.
@@ -78,6 +85,9 @@ impl Web {
             return Err("web.port must be non-zero".into());
         }
         validate_base_path(&self.base_path)?;
+        if let Some(t) = &self.tls {
+            t.validate("web.tls")?;
+        }
         if self.token_ref.trim().is_empty() {
             return Err("web.token_ref must not be empty".into());
         }
@@ -123,6 +133,19 @@ mod tests {
             (w.port, w.base_path.as_str(), w.token_ref.as_str()),
             (6811, "/", "web")
         );
+    }
+
+    #[test]
+    fn tls_switches_url_scheme() {
+        let w = Web {
+            tls: Some(TlsFiles {
+                cert: "c".into(),
+                key: "k".into(),
+            }),
+            ..Web::default()
+        };
+        assert_eq!(w.url(), "https://127.0.0.1:6811/");
+        assert!(w.validate().is_err(), "missing files");
     }
 
     #[test]

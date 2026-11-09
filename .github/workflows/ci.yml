@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  fmt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - run: cargo fmt --all --check
+
+  clippy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.7.7
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.7.7
+      - run: cargo test --workspace
+
+  # Tests that need the real engines (skipped locally unless the variables are set).
+  engines:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.7.7
+      - name: Install aria2 and ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y aria2 ffmpeg
+      - name: Install yt-dlp
+        run: |
+          sudo curl -fsSL -o /usr/local/bin/yt-dlp \
+            https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux
+          sudo chmod 0755 /usr/local/bin/yt-dlp
+          aria2c --version | head -1
+          yt-dlp --version
+          ffmpeg -version | head -1
+      - name: Gated engine tests
+        env:
+          DMAN_TEST_ARIA2: "1"
+          DMAN_TEST_YTDLP: "1"
+        run: cargo test --workspace -- --test-threads=1
+
+  deny:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: EmbarkStudios/cargo-deny-action@v2.0.1
+        with:
+          command: check
+          arguments: --all-features
+
+  # Release binary size (decision D23): musl, stripped, as shipped.
+  size:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.7.7
+      - name: Install musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+      - name: Build release (musl)
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: cargo build --release --locked --target x86_64-unknown-linux-musl -p dman
+      - name: Report size
+        run: |
+          bin=target/x86_64-unknown-linux-musl/release/dman
+          bytes=$(stat -c %s "$bin")
+          mib=$(echo "scale=2; $bytes / 1048576" | bc)
+          echo "dman release (x86_64 musl, stripped): $bytes bytes ($mib MiB)"
+          {
+            echo "### Binary size"
+            echo
+            echo "x86_64-unknown-linux-musl, stripped: **$mib MiB** ($bytes bytes)"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -57,3 +57,7 @@ opt-level = 3
 
 [profile.dev]
 debug = "line-tables-only"
+
+# Used by cargo-dist (see dist-workspace.toml): same as release, separate target dir name.
+[profile.dist]
+inherits = "release"

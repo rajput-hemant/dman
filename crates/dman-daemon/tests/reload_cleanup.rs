@@ -30,6 +30,7 @@ fn config(root: &Path) -> Config {
     p.daemon = DaemonTarget::Local {
         listen: format!("127.0.0.1:{}", free_port()),
         secret_ref: "daemon".into(),
+        tls: None,
     };
     p.download_dir = root.join("dl").display().to_string();
     p.min_free = DiskThreshold::Absolute(0);

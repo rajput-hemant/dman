@@ -58,6 +58,8 @@ pub struct WebConfig {
     pub title: String,
     /// The listener is reachable beyond loopback; warns when no token is set.
     pub exposed: bool,
+    /// The listener terminates TLS itself: session cookies are always `Secure`.
+    pub tls: bool,
 }
 
 impl Default for WebConfig {
@@ -67,6 +69,7 @@ impl Default for WebConfig {
             token: None,
             title: "dman".into(),
             exposed: false,
+            tls: false,
         }
     }
 }
@@ -81,6 +84,7 @@ pub(crate) struct AppState {
     pub title: String,
     pub token: Option<SecretString>,
     pub exposed: bool,
+    pub tls: bool,
     pub sessions: Mutex<HashMap<String, auth::Session>>,
     /// CSRF token used when no access token is configured (no sessions).
     pub open_csrf: String,
@@ -129,6 +133,7 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         title: cfg.title,
         token: cfg.token,
         exposed: cfg.exposed,
+        tls: cfg.tls,
         sessions: Mutex::new(HashMap::new()),
         open_csrf: auth::random_id(),
         video_cache: Mutex::new(None),

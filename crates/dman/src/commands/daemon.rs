@@ -59,7 +59,14 @@ pub async fn bare(ctx: &Ctx) -> Result<i32, CliError> {
     }
     let (url, token) = ctx.endpoint()?;
     let name = concat!("dman-tui/", env!("CARGO_PKG_VERSION"));
-    let client = dman_client::ReconnectingClient::spawn(url, token, name);
+    let client = dman_client::ReconnectingClient::spawn_tls(
+        url,
+        token,
+        name,
+        std::time::Duration::from_millis(250),
+        std::time::Duration::from_secs(10),
+        ctx.tls_options()?,
+    );
     let opts = dman_tui::TuiOptions::from_config(&ctx.config, &ctx.name);
     dman_tui::run(client, opts)
         .await

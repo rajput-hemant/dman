@@ -23,6 +23,7 @@ use tokio_tungstenite::tungstenite::Message;
 use url::Url;
 
 use crate::error::ClientError;
+use crate::tls::{TlsOptions, connect_error};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -117,8 +118,22 @@ impl Client {
         token: SecretString,
         client_name: &str,
     ) -> Result<Self, ClientError> {
+        Self::connect_tls(url, token, client_name, &TlsOptions::default()).await
+    }
+
+    /// Like [`Client::connect`] with explicit TLS options for `wss://` URLs.
+    ///
+    /// # Errors
+    /// As [`Client::connect`]; certificate problems are [`ClientError::Connect`] with a
+    /// message starting `certificate not trusted`.
+    pub async fn connect_tls(
+        url: &Url,
+        token: SecretString,
+        client_name: &str,
+        tls: &TlsOptions,
+    ) -> Result<Self, ClientError> {
         let (events, _) = broadcast::channel(EVENT_CAPACITY);
-        Self::connect_with_events(url, &token, client_name, events).await
+        Self::connect_with_events(url, &token, client_name, events, tls).await
     }
 
     /// Connect, perform one call and close the connection (for the CLI).
@@ -144,12 +159,19 @@ impl Client {
         token: &SecretString,
         client_name: &str,
         events: broadcast::Sender<Event>,
+        tls: &TlsOptions,
     ) -> Result<Self, ClientError> {
-        let connecting = tokio_tungstenite::connect_async(url.as_str());
+        let connector = if url.scheme() == "wss" {
+            Some(tls.connector()?)
+        } else {
+            None
+        };
+        let connecting =
+            tokio_tungstenite::connect_async_tls_with_config(url.as_str(), None, false, connector);
         let (ws, _) = tokio::time::timeout(CONNECT_TIMEOUT, connecting)
             .await
             .map_err(|_| ClientError::Connect("connection attempt timed out".into()))?
-            .map_err(|e| ClientError::Connect(e.to_string()))?;
+            .map_err(|e| connect_error(&e))?;
 
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let (closed_tx, closed_rx) = watch::channel(false);

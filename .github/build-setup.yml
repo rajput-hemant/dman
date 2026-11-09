@@ -1,0 +1,9 @@
+# Steps cargo-dist inserts before building (github-build-setup in dist-workspace.toml).
+# Musl targets: ring compiles C code, so point cc at musl-gcc on Linux runners.
+- name: Install musl toolchain
+  if: runner.os == 'Linux'
+  run: |
+    sudo apt-get update
+    sudo apt-get install -y musl-tools
+    echo "CC_x86_64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
+    echo "CC_aarch64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"

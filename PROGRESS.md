@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 87 %** · Current milestone: **M7 — web UI leftovers, then M8** · Last updated: 2026-11-09
+**Overall: 92 %** · Current milestone: **M7 — web UI leftovers, then M8** · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -104,11 +104,11 @@ commit this file together with the code it describes.
 - [ ] Missing web features vs TUI: magnet file selection (preview_magnet), daemon folder picker (fs.list), multi-select
 
 ### M8 — Remote and release (11 %)
-- [ ] Built-in TLS (D24) for the API listener and web listener (rustls, user cert/key paths in config; `wss://`/`https://` in client + remote profiles) + docs for SSH tunnel / reverse proxy
-- [ ] Remote profiles end to end: TUI/CLI against a remote daemon (paths are daemon-side; uploads for local .torrent), reconnect hardening tests (kill/restart daemon while TUI attached)
+- [x] Built-in TLS (D24) for the API listener and web listener (rustls, user cert/key paths in config; `wss://`/`https://` in client + remote profiles) + docs for SSH tunnel / reverse proxy
+- [x] Remote profiles end to end (TLS + custom CA pin, reconnect across daemon restart, docs/remote.md): TUI/CLI against a remote daemon (paths are daemon-side; uploads for local .torrent), reconnect hardening tests (kill/restart daemon while TUI attached)
 - [ ] CLI robustness: SIGPIPE-safe output, consistent exit codes audit
-- [ ] Packaging: cargo-dist config (Linux musl x86_64/aarch64, macOS universal), Homebrew tap formula, install receipt; `dman update` with install-method detection (D22) + `--check`; opt-in update check (D27)
-- [ ] cargo-deny (licenses permissive only — Q8, advisories), CI workflow (GitHub Actions: fmt, clippy, test, gated aria2/yt-dlp jobs, size report)
+- [x] Packaging: cargo-dist config (Linux musl x86_64/aarch64, macOS universal), Homebrew tap formula, install receipt; `dman update` with install-method detection (D22) + `--check`; opt-in update check (D27)
+- [x] cargo-deny (licenses permissive only + MPL-2.0 exception — Q8, advisories), CI workflow (GitHub Actions: fmt, clippy, test, gated aria2/yt-dlp jobs, size report)
 - [ ] README (install, quick start, config reference, security notes), `dman --help` polish, man page optional
 - [ ] Security review: secrets never logged (grep logs in tests), path traversal (rename/delete/cleanup), webhook SSRF note, web auth, CSP; fix findings
 - [ ] Final size pass: measure, consider optional features (notify-rust/web/search/video as cargo features, default all on)
@@ -161,7 +161,7 @@ commit this file together with the code it describes.
 | Q5 | Settings writes via toml_edit, preserving comments |
 | Q6 | File browser: local FS for uploads, daemon FS for directories |
 | Q7 | aria2c ≥ 1.36; yt-dlp ≤ 12 months old; MSRV = stable at start (1.97) |
-| Q8 | License undecided/proprietary; deps permissive only (cargo-deny) |
+| Q8 | License undecided/proprietary; deps permissive only (cargo-deny) — exception: MPL-2.0 allowed (file-level copyleft; scraper deps, nucleo-matcher), approved 2026-11-09 |
 | Q9 | CLI output: table + `--json` |
 
 ## Key dependencies (versions checked 2026-11-09)

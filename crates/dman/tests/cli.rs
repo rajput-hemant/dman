@@ -158,3 +158,33 @@ fn cleanup_and_config_reload_need_a_daemon_and_arguments() {
     dman(&dir).args(["cleanup"]).assert().code(2);
     dman(&dir).args(["config"]).assert().failure();
 }
+
+#[tokio::test]
+async fn update_check_reads_latest_release_and_changes_nothing() {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/rajput-hemant/dman/releases/latest"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "tag_name": "v99.0.0", "assets": [] })),
+        )
+        .mount(&server)
+        .await;
+    let uri = server.uri();
+    let out = tokio::task::spawn_blocking(move || {
+        let dir = config_dir();
+        dman(&dir)
+            .env("DMAN_UPDATE_API", uri)
+            .args(["update", "--check", "--json"])
+            .output()
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["latest"], "99.0.0");
+    assert_eq!(v["update_available"], true);
+}

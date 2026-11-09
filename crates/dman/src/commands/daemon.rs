@@ -37,21 +37,33 @@ fn say(ctx: &Ctx, human: &str, status: &str) {
     }
 }
 
-/// Bare `dman`: make sure a daemon is up, then show the placeholder message.
+/// Bare `dman`: make sure a daemon is up, then open the interactive UI.
+///
+/// Without a terminal on stdout (or with `--json`) it only reports the daemon
+/// version, so scripts can use bare `dman` to start a daemon.
 pub async fn bare(ctx: &Ctx) -> Result<i32, CliError> {
     let client = match ctx.connect().await {
         Ok(c) => c,
         Err(e) if Ctx::is_not_running(&e) && ctx.is_local() => spawn_and_wait(ctx).await?,
         Err(e) => return Err(e),
     };
-    let version = client.daemon_version();
-    if ctx.json {
-        print_json(&serde_json::json!({ "daemon_version": version }))?;
-    } else {
-        println!(
-            "connected to daemon {version} \u{2014} the interactive UI arrives in milestone M2; try `dman list`"
-        );
+    let version = client.daemon_version().to_owned();
+    drop(client);
+    if ctx.json || !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        if ctx.json {
+            print_json(&serde_json::json!({ "daemon_version": version }))?;
+        } else {
+            println!("connected to daemon {version}");
+        }
+        return Ok(0);
     }
+    let (url, token) = ctx.endpoint()?;
+    let name = concat!("dman-tui/", env!("CARGO_PKG_VERSION"));
+    let client = dman_client::ReconnectingClient::spawn(url, token, name);
+    let opts = dman_tui::TuiOptions::from_config(&ctx.config, &ctx.name);
+    dman_tui::run(client, opts)
+        .await
+        .map_err(|e| CliError::general(format!("{e:#}")))?;
     Ok(0)
 }
 

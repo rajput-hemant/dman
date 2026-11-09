@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+  Name                       Status  Progress             Down    ETA       Size
+  Active (3)
+  ubuntu-24.04.1-desktop-am… active  █████░░░  66%  12.0 MiB/s  2m51s    6.0 GiB
+  big-dataset-2026.tar.zst   active  ░░░░░░░░  10%   3.0 MiB/s  1h42m   20.0 GiB
+  debian-13.2.0-amd64-netin… seeding ████████ 100%           -      -  700.0 MiB
+  Waiting (2)
+  Big Buck Bunny (1080p).mp4 waiting ░░░░░░░░    -           -      -          -
+  archli┌ Command palette ─────────────────────────────────────────────┐ 1.2 GiB
+  Stoppe│> pause                                                       │
+  report│Pause                                           p             │ 3.0 MiB
+  missin│Pause all                                       P             │       -
+        └──────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+ Connected to daemon 0.1.0
+ Enter run  ↑↓ choose  Esc close

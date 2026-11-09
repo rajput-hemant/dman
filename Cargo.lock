@@ -488,6 +488,7 @@ dependencies = [
  "dman-config",
  "dman-daemon",
  "dman-proto",
+ "dman-tui",
  "nix",
  "predicates",
  "secrecy",

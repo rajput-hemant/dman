@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+┌ Download #7 ─────────────────────────────────────────────────────────────────┐
+│      Name  missing-file.zip                                                  │
+│    Status  error                                                             │
+│  Progress  ░░░░░░░░░░░░░░░░░░░░    -  0 B / -                                │
+│     Speed  ▼ 0 B/s  ▲ 0 B/s  ETA -                                           │
+│     Peers  -  ratio -                                                        │
+│ Directory  /home/me/Downloads                                                │
+│    Source  https://example.org/missing-file.zip                              │
+│     Error  404 Not Found                                                     │
+│                                                                              │
+│Files, peers, trackers, piece map and speed history arrive in a later version.│
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ Esc back  ? help  q quit

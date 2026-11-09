@@ -1,0 +1,295 @@
+//! The async runtime: terminal lifecycle, event sources, the update/render loop
+//! and command execution.
+//!
+//! All inputs (crossterm events, daemon events, connection state, ticks, signals,
+//! command results) are funnelled into one mpsc channel of [`Msg`]s. The loop
+//! applies each message with [`update`], spawns the returned [`Cmd`]s as tasks
+//! (so a slow call never blocks input or rendering) and redraws when the state
+//! is dirty, at most every [`MIN_FRAME`].
+
+use std::io::{self, Stdout, stdout};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    Event as TermEvent, EventStream, KeyEventKind, MouseEventKind,
+};
+use crossterm::execute;
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
+use dman_client::{ConnState, ReconnectingClient};
+use dman_proto::method::{Event, Level, ListParams};
+use futures_util::StreamExt;
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use tokio::sync::{broadcast, mpsc};
+use tokio::task::JoinHandle;
+use tokio::time::{Instant, MissedTickBehavior};
+
+use crate::app::{Cmd, Msg, State, update};
+use crate::views;
+
+/// Minimum time between two frames (20 fps).
+pub const MIN_FRAME: Duration = Duration::from_millis(50);
+
+const CHANNEL_CAPACITY: usize = 512;
+
+/// Whether the terminal is currently in TUI mode (checked by the panic hook).
+static ACTIVE: AtomicBool = AtomicBool::new(false);
+static HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
+
+/// Restore the terminal if the TUI owns it. Idempotent; safe from a panic hook.
+pub fn restore_terminal() {
+    if !ACTIVE.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    let mut out = stdout();
+    let _ = execute!(
+        out,
+        DisableMouseCapture,
+        DisableBracketedPaste,
+        LeaveAlternateScreen,
+        crossterm::cursor::Show
+    );
+    let _ = disable_raw_mode();
+}
+
+fn install_panic_hook() {
+    if HOOK_INSTALLED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        restore_terminal();
+        previous(info);
+    }));
+}
+
+/// Puts the terminal into TUI mode; restores it on drop.
+pub struct TerminalGuard {
+    _private: (),
+}
+
+impl TerminalGuard {
+    /// Raw mode, alternate screen, bracketed paste and (optionally) mouse capture.
+    ///
+    /// # Errors
+    /// When the terminal cannot be configured; it is restored first.
+    pub fn enter(mouse: bool) -> io::Result<Self> {
+        install_panic_hook();
+        ACTIVE.store(true, Ordering::SeqCst);
+        let guard = Self { _private: () };
+        enable_raw_mode()?;
+        let mut out = stdout();
+        execute!(out, EnterAlternateScreen, EnableBracketedPaste)?;
+        if mouse {
+            execute!(out, EnableMouseCapture)?;
+        }
+        Ok(guard)
+    }
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        restore_terminal();
+    }
+}
+
+/// Aborts the wrapped tasks on drop.
+struct Tasks(Vec<JoinHandle<()>>);
+
+impl Drop for Tasks {
+    fn drop(&mut self) {
+        for t in &self.0 {
+            t.abort();
+        }
+    }
+}
+
+/// Run the loop until the user quits or a signal arrives.
+///
+/// # Errors
+/// Terminal I/O errors.
+pub async fn run_loop(client: ReconnectingClient, mut state: State) -> anyhow::Result<()> {
+    // Subscribe before looking at the state so no snapshot is missed.
+    let events = client.subscribe();
+    let (tx, mut rx) = mpsc::channel(CHANNEL_CAPACITY);
+    let _tasks = Tasks(vec![
+        tokio::spawn(input_task(tx.clone())),
+        tokio::spawn(events_task(events, tx.clone())),
+        tokio::spawn(conn_task(client.clone(), tx.clone())),
+        tokio::spawn(tick_task(state.tick, tx.clone())),
+        tokio::spawn(signal_task(tx.clone())),
+    ]);
+    if matches!(*client.state().borrow(), ConnState::Connected { .. }) {
+        spawn_cmd(Cmd::Resync, &client, &tx);
+    }
+
+    let mouse = state.mouse;
+    let _guard = TerminalGuard::enter(mouse)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
+    let size = terminal.size()?;
+    state.size = (size.width, size.height);
+    state.refresh_list();
+    draw(&mut terminal, &mut state)?;
+    let mut last_draw = Instant::now();
+
+    loop {
+        let msg = if state.dirty {
+            tokio::select! {
+                m = rx.recv() => m,
+                () = tokio::time::sleep_until(last_draw + MIN_FRAME) => {
+                    draw(&mut terminal, &mut state)?;
+                    last_draw = Instant::now();
+                    continue;
+                }
+            }
+        } else {
+            rx.recv().await
+        };
+        let Some(msg) = msg else { break };
+        let was_dirty = state.dirty;
+        let cmds = update(&mut state, msg);
+        state.dirty |= was_dirty;
+        let mut quit = false;
+        for cmd in cmds {
+            if cmd == Cmd::Quit {
+                quit = true;
+            } else {
+                spawn_cmd(cmd, &client, &tx);
+            }
+        }
+        if quit {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn draw(terminal: &mut Terminal<CrosstermBackend<Stdout>>, state: &mut State) -> io::Result<()> {
+    terminal.draw(|f| views::render(state, f))?;
+    state.dirty = false;
+    Ok(())
+}
+
+fn spawn_cmd(cmd: Cmd, client: &ReconnectingClient, tx: &mpsc::Sender<Msg>) {
+    let client = client.clone();
+    let tx = tx.clone();
+    tokio::spawn(async move {
+        let msg = match cmd {
+            Cmd::Api(call) => {
+                let result = call.clone().execute(&client).await;
+                Msg::ActionResult { call, result }
+            }
+            Cmd::Resync => resync(&client).await,
+            Cmd::Quit => return,
+        };
+        let _ = tx.send(msg).await;
+    });
+}
+
+async fn resync(client: &ReconnectingClient) -> Msg {
+    let fetched = async {
+        let jobs = client.list(ListParams::default()).await?;
+        let stats = client.stats().await?;
+        let limits = client.limits_get().await?;
+        Ok::<_, dman_client::ClientError>(Event::Snapshot {
+            jobs,
+            stats,
+            limits,
+        })
+    }
+    .await;
+    match fetched {
+        Ok(e) => Msg::Event(e),
+        Err(e) => Msg::Event(Event::Message {
+            level: Level::Error,
+            text: format!("Reload failed: {e}"),
+        }),
+    }
+}
+
+async fn input_task(tx: mpsc::Sender<Msg>) {
+    let mut stream = EventStream::new();
+    while let Some(ev) = stream.next().await {
+        let msg = match ev {
+            Ok(TermEvent::Key(k)) if k.kind != KeyEventKind::Release => Msg::Key(k),
+            Ok(TermEvent::Mouse(m))
+                if !matches!(m.kind, MouseEventKind::Moved | MouseEventKind::Drag(_)) =>
+            {
+                Msg::Mouse(m)
+            }
+            Ok(TermEvent::Paste(s)) => Msg::Paste(s),
+            Ok(TermEvent::Resize(w, h)) => Msg::Resize(w, h),
+            Ok(_) => continue,
+            Err(e) => {
+                tracing::warn!(error = %e, "terminal input failed");
+                Msg::Terminate
+            }
+        };
+        let stop = msg == Msg::Terminate;
+        if tx.send(msg).await.is_err() || stop {
+            break;
+        }
+    }
+}
+
+async fn events_task(mut events: broadcast::Receiver<Event>, tx: mpsc::Sender<Msg>) {
+    loop {
+        let msg = match events.recv().await {
+            Ok(e) => Msg::Event(e),
+            Err(broadcast::error::RecvError::Lagged(_)) => Msg::Lagged,
+            Err(broadcast::error::RecvError::Closed) => break,
+        };
+        if tx.send(msg).await.is_err() {
+            break;
+        }
+    }
+}
+
+async fn conn_task(client: ReconnectingClient, tx: mpsc::Sender<Msg>) {
+    let mut watch = client.state();
+    loop {
+        let s = watch.borrow_and_update().clone();
+        if tx.send(Msg::Conn(s)).await.is_err() || watch.changed().await.is_err() {
+            break;
+        }
+    }
+}
+
+async fn tick_task(every: Duration, tx: mpsc::Sender<Msg>) {
+    let mut interval = tokio::time::interval(every);
+    interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    loop {
+        interval.tick().await;
+        if tx.send(Msg::Tick).await.is_err() {
+            break;
+        }
+    }
+}
+
+#[cfg(unix)]
+async fn signal_task(tx: mpsc::Sender<Msg>) {
+    use tokio::signal::unix::{SignalKind, signal};
+    let (Ok(mut term), Ok(mut hup)) = (
+        signal(SignalKind::terminate()),
+        signal(SignalKind::hangup()),
+    ) else {
+        tracing::warn!("cannot install signal handlers");
+        return;
+    };
+    tokio::select! {
+        _ = term.recv() => {}
+        _ = hup.recv() => {}
+    }
+    let _ = tx.send(Msg::Terminate).await;
+}
+
+#[cfg(not(unix))]
+async fn signal_task(tx: mpsc::Sender<Msg>) {
+    if tokio::signal::ctrl_c().await.is_ok() {
+        let _ = tx.send(Msg::Terminate).await;
+    }
+}

@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman [local]  ▼ 0 B/s ▲ 0 B/s  0 active · 0 waiting · 0 stopped   ◌ connecting
+ sort queue  limit ▼ unlimited ▲ unlimited  max 0
+ Connecting to the daemon…
+  Name                       Status  Progress             Down    ETA       Size
+
+
+
+
+
+
+
+
+                        No data — waiting for the daemon
+
+
+
+
+
+
+
+
+
+ 0 downloads · press ? for help
+ p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit

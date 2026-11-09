@@ -41,8 +41,9 @@ fn report(err: &CliError, json: bool) {
 }
 
 async fn run(cli: Cli, is_daemon_run: bool) -> Result<i32, CliError> {
-    if is_daemon_run {
-        // The daemon handles SIGINT/SIGTERM itself so it can flush state.
+    if is_daemon_run || cli.command.is_none() {
+        // The daemon handles SIGINT/SIGTERM itself so it can flush state, and
+        // the TUI reads Ctrl-C as a key and restores the terminal itself.
         return commands::dispatch(cli).await;
     }
     tokio::select! {
@@ -60,7 +61,12 @@ fn main() -> ExitCode {
             cmd: DaemonCmd::Run { .. }
         })
     );
-    init_tracing(&cli, is_daemon_run);
+    // Log output would corrupt the full-screen UI, so the TUI runs without it.
+    let is_tui =
+        cli.command.is_none() && !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout());
+    if !is_tui {
+        init_tracing(&cli, is_daemon_run);
+    }
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

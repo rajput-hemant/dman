@@ -1,0 +1,44 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 120, 40)"
+---
+ dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
+┌ Help — key bindings ─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Global keys                                                                                                           │
+│  : Ctrl-p              Command palette                                                                               │
+│  ? F1                  Help (key bindings)                                                                           │
+│  q Ctrl-c              Quit the TUI (daemon keeps running)                                                           │
+│  Q                     Shut down the daemon and engines                                                              │
+│                                                                                                                      │
+│Downloads keys                                                                                                        │
+│  k ↑                   Move up                                                                                       │
+│  j ↓                   Move down                                                                                     │
+│  PgUp Ctrl-u           Page up                                                                                       │
+│  PgDn Ctrl-d           Page down                                                                                     │
+│  g Home                Go to top                                                                                     │
+│  G End                 Go to bottom                                                                                  │
+│  Space                 Toggle selection                                                                              │
+│  Ctrl-a                Select all                                                                                    │
+│  Esc u                 Clear selection                                                                               │
+│  v                     Select range (anchor to cursor)                                                               │
+│  s                     Cycle sort key                                                                                │
+│  S                     Reverse sort order                                                                            │
+│  /                     Filter by name (fuzzy)                                                                        │
+│  Ctrl-l                Clear filter                                                                                  │
+│  ]                     Next page of stopped downloads                                                                │
+│  [                     Previous page of stopped downloads                                                            │
+│  p                     Pause                                                                                         │
+│  r                     Resume                                                                                        │
+│  P                     Pause all                                                                                     │
+│  R                     Resume all                                                                                    │
+│  d Del                 Remove (keep files)                                                                           │
+│  D                     Remove and delete files                                                                       │
+│  x                     Purge stopped downloads (keep files)                                                          │
+│  K                     Move up in queue                                                                              │
+│  J                     Move down in queue                                                                            │
+│  T                     Move to top of queue                                                                          │
+│  B                     Move to bottom of queue                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ j down  k up  PgDn pgdn  Esc back

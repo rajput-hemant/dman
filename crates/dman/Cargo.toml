@@ -16,6 +16,7 @@ dman-proto.workspace = true
 dman-client.workspace = true
 dman-config.workspace = true
 dman-daemon.workspace = true
+dman-tui.workspace = true
 clap = { version = "4.6", default-features = false, features = ["std", "derive", "env", "help", "usage", "color", "suggestions", "error-context"] }
 clap_complete = "4.6"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time", "process", "io-std", "io-util"] }

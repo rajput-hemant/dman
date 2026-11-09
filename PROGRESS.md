@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 20 %** · Current milestone: **M2 — TUI core** · Last updated: 2026-11-09
+**Overall: 29 %** · Current milestone: **M2 — TUI core** · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -46,13 +46,13 @@ commit this file together with the code it describes.
 - [x] CLI (`dman` binary): `daemon start|stop|restart|status|run|gen-config`, `add`, `list`, `get`, `pause`, `resume`, `remove`, `purge`, `--json`, exit codes
 
 ### M2 — TUI core (12 %)
-- [ ] `dman-tui` crate skeleton: Elm-style App (state/msg/update/view), terminal setup/restore (panic-safe), event loop merging crossterm input + ReconnectingClient events + ticks, render only when dirty (≤ 20 fps)
-- [ ] Keymap system: Action enum, per-view contexts, vim + arrow defaults, config overrides (crokey), help screen (`?`), contextual footer; test: every Action has a binding and a palette entry
-- [ ] Downloads view: table (name, status, progress, speed, ETA, sizes, peers/seeds, ratio, dir, source), sort keys, fuzzy filter (nucleo-matcher), multi-select, paged stopped section, global status line (speeds, counts, last result/error, disk free)
-- [ ] Command palette (fuzzy, every operation) + confirmation dialogs (double confirm for delete-files)
+- [x] `dman-tui` crate skeleton: Elm-style App (state/msg/update/view), terminal setup/restore (panic-safe), event loop merging crossterm input + ReconnectingClient events + ticks, render only when dirty (≤ 20 fps)
+- [x] Keymap system: Action enum, per-view contexts, vim + arrow defaults, config overrides (crokey), help screen (`?`), contextual footer; test: every Action has a binding and a palette entry
+- [x] Downloads view: table (name, status, progress, speed, ETA, sizes, peers/seeds, ratio, dir, source), sort keys, fuzzy filter (nucleo-matcher), multi-select, paged stopped section, global status line (speeds, counts, last result/error, disk free)
+- [x] Command palette (fuzzy, every operation) + confirmation dialogs (double confirm for delete-files)
 - [ ] Add view: text input (tui-input, bracketed paste), multiple links, file browser for .torrent/.metalink starting at cwd, clipboard (arboard), per-add options form, preview before confirm
-- [ ] Disconnected state (greyed, actions disabled), engine-unavailable banner, theme + NO_COLOR, optional mouse
-- [ ] Wire bare `dman` to start/attach the daemon and open the TUI; insta snapshot tests at 80×24 and 120×40
+- [x] Disconnected state (greyed, actions disabled), engine-unavailable banner, theme + NO_COLOR, optional mouse
+- [x] Wire bare `dman` to start/attach the daemon and open the TUI; insta snapshot tests at 80×24 and 120×40
 
 ### M3 — Detail and control (10 %) — pulled-forward backend
 - [x] Backend: `jobs.detail` (files, peers, trackers [status unknown, D13], piece map, comment, options, per-job speed history), `stats.history`; CLI `dman get <id> --files --peers`

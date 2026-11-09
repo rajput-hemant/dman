@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ✖ failed
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+ Connection failed, not retrying (q quits): incompatible API version (daemon 2,…
+ Engine aria2 unavailable: aria2c not found in PATH
+  Name                       Status  Progress             Down    ETA       Size
+  Active (3)
+  ubuntu-24.04.1-desktop-am… active  █████░░░  66%  12.0 MiB/s  2m51s    6.0 GiB
+  big-dataset-2026.tar.zst   active  ░░░░░░░░  10%   3.0 MiB/s  1h42m   20.0 GiB
+  debian-13.2.0-amd64-netin… seeding ████████ 100%           -      -  700.0 MiB
+  Waiting (2)
+  Big Buck Bunny (1080p).mp4 waiting ░░░░░░░░    -           -      -          -
+  archlinux-2026.11.01-x86_… paused  ██░░░░░░  25%           -      -    1.2 GiB
+  Stopped (2)
+  report-q3.pdf              done    ████████ 100%           -      -    3.0 MiB
+  missing-file.zip (404 Not… error   ░░░░░░░░    -           -      -          -
+
+
+
+
+
+
+
+ Cannot connect: incompatible API version (daemon 2, client 1)
+ p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit

@@ -1,0 +1,30 @@
+[package]
+name = "dman-tui"
+description = "Terminal user interface (ratatui) for the dman daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dman-proto.workspace = true
+dman-client.workspace = true
+dman-config.workspace = true
+ratatui = { version = "0.30", default-features = false, features = ["crossterm_0_29"] }
+crossterm = { version = "0.29", default-features = false, features = ["event-stream", "bracketed-paste"] }
+tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "signal"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+nucleo-matcher = "0.3"
+crokey = { version = "1.5", default-features = false }
+bytesize.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+insta = { version = "1.49", default-features = false }
+tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "test-util"] }
+
+[lints]
+workspace = true

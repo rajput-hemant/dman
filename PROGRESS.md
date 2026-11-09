@@ -36,10 +36,11 @@ commit this file together with the code it describes.
 - [x] Workspace skeleton, lints, release profile, check script (`scripts/check.sh`) — cargo-deny config still to add in M8
 - [ ] `dman-proto`: Job model, states, options, events, JSON-RPC envelope, error codes
 - [x] `dman-config`: profiles, TOML load/validate, secrets.toml (0600), paths (`~/.config/dman`)
-- [x] `dman-aria2`: typed JSON-RPC/WebSocket client, notifications, multicall, option mapping, capability detection
-- [ ] `dman-aria2` supervisor: spawn/attach, port probe, generated aria2 config, restart with backoff, clean shutdown
+- [x] `dman-aria2`: typed JSON-RPC/WebSocket client, notifications, multicall
+- [ ] `dman-aria2` supervisor + adapter: JobOptions→aria2 option mapping, capability detection (getVersion features), spawn/attach, port probe, generated aria2 config, restart with backoff, clean shutdown
 - [ ] `dman-daemon` skeleton: job manager (GID↔JobId), tick poller + deltas, event bus, API server (JSON-RPC over WS + POST), token auth
-- [ ] `dman-client` + CLI: `daemon start|stop|restart|status|run|gen-config`, `add`, `list`, `get`, `pause`, `resume`, `remove`, `purge`, `--json`, exit codes
+- [x] `dman-client`: WebSocket JSON-RPC client, hello/auth, typed methods, subscribe, ReconnectingClient (no queued actions)
+- [ ] CLI (`dman` binary): `daemon start|stop|restart|status|run|gen-config`, `add`, `list`, `get`, `pause`, `resume`, `remove`, `purge`, `--json`, exit codes
 
 ### M2 … M8
 Detailed task lists are written when the previous milestone finishes (see the milestone

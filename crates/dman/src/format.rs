@@ -1,7 +1,7 @@
 //! Human-readable formatting: sizes, speeds, ETAs and the job table.
 
 use bytesize::ByteSize;
-use dman_proto::{Job, JobState};
+use dman_proto::{FileInfo, Job, JobState, PeerInfo};
 
 const DEFAULT_WIDTH: usize = 120;
 const MIN_NAME_WIDTH: usize = 10;
@@ -137,6 +137,86 @@ pub fn job_table(jobs: &[Job], width: usize) -> String {
     out
 }
 
+/// Generic table: `left` lists the columns that are left-aligned (the last
+/// column is never padded).
+fn table<const N: usize>(headers: [&str; N], rows: &[[String; N]], left: &[usize]) -> String {
+    let mut widths = headers.map(|h| h.chars().count());
+    for row in rows {
+        for (w, cell) in widths.iter_mut().zip(row) {
+            *w = (*w).max(cell.chars().count());
+        }
+    }
+    let line = |cells: Vec<&str>| {
+        let mut out = String::new();
+        for (i, cell) in cells.iter().enumerate() {
+            let w = widths[i];
+            if i + 1 == N {
+                out.push_str(cell);
+            } else {
+                if left.contains(&i) {
+                    out.push_str(&format!("{cell:<w$}"));
+                } else {
+                    out.push_str(&format!("{cell:>w$}"));
+                }
+                out.push_str(COLUMN_GAP);
+            }
+        }
+        out.push('\n');
+        out
+    };
+    let mut out = line(headers.to_vec());
+    for row in rows {
+        out.push_str(&line(row.iter().map(String::as_str).collect()));
+    }
+    out
+}
+
+/// File table: `#  DONE  SIZE  SEL  PATH`.
+pub fn file_table(files: &[FileInfo]) -> String {
+    let rows: Vec<[String; 5]> = files
+        .iter()
+        .map(|f| {
+            [
+                f.index.to_string(),
+                if f.length == 0 {
+                    "-".into()
+                } else {
+                    format!("{:.1}%", f.completed as f64 / f.length as f64 * 100.0)
+                },
+                if f.length == 0 {
+                    "-".into()
+                } else {
+                    size(f.length)
+                },
+                if f.selected { "yes" } else { "no" }.into(),
+                f.path.clone(),
+            ]
+        })
+        .collect();
+    table(["#", "DONE", "SIZE", "SEL", "PATH"], &rows, &[3])
+}
+
+/// Peer table: `ADDRESS  PROGRESS  DOWN  UP  FLAGS`.
+pub fn peer_table(peers: &[PeerInfo]) -> String {
+    let rows: Vec<[String; 5]> = peers
+        .iter()
+        .map(|p| {
+            [
+                if p.ip.contains(':') {
+                    format!("[{}]:{}", p.ip, p.port)
+                } else {
+                    format!("{}:{}", p.ip, p.port)
+                },
+                format!("{:.1}%", p.progress * 100.0),
+                rate_or_dash(p.download_speed),
+                rate_or_dash(p.upload_speed),
+                if p.seeder { "seeder" } else { "" }.into(),
+            ]
+        })
+        .collect();
+    table(["ADDRESS", "PROGRESS", "DOWN", "UP", "FLAGS"], &rows, &[0])
+}
+
 /// Aligned `key: value` lines.
 pub fn key_values(pairs: &[(&str, String)]) -> String {
     let w = pairs.iter().map(|(k, _)| k.len() + 1).max().unwrap_or(0);
@@ -216,6 +296,41 @@ mod tests {
         assert!(lines.iter().all(|l| l.chars().count() <= 80), "{t}");
         assert!(lines[1].ends_with('…'));
         assert!(lines[2].ends_with("short"));
+    }
+
+    #[test]
+    fn file_and_peer_tables() {
+        let t = file_table(&[
+            FileInfo {
+                index: 1,
+                path: "/dl/a.bin".into(),
+                length: 2 << 20,
+                completed: 1 << 20,
+                selected: true,
+            },
+            FileInfo {
+                index: 12,
+                path: "/dl/b".into(),
+                length: 0,
+                completed: 0,
+                selected: false,
+            },
+        ]);
+        let lines: Vec<&str> = t.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].starts_with(" #   DONE"), "{t}");
+        assert!(lines[1].contains("50.0%") && lines[1].ends_with("/dl/a.bin"));
+        assert!(lines[2].contains("no   /dl/b"), "{t}");
+        let t = peer_table(&[PeerInfo {
+            ip: "::1".into(),
+            port: 6881,
+            download_speed: 0,
+            upload_speed: 1024,
+            seeder: true,
+            progress: 1.0,
+        }]);
+        assert!(t.lines().nth(1).unwrap().starts_with("[::1]:6881"), "{t}");
+        assert!(t.trim_end().ends_with("seeder"));
     }
 
     #[test]

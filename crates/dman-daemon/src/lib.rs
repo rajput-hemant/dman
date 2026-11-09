@@ -18,6 +18,8 @@
 //! the engine as unavailable.
 
 pub mod disk;
+pub mod engine;
+pub mod history;
 pub mod manager;
 pub mod ops;
 pub mod queue;
@@ -31,7 +33,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, bail};
-use dman_aria2::{Aria2Settings, EngineState, Supervisor};
+use dman_aria2::Aria2Settings;
 use dman_config::{Config, DaemonTarget, Paths, Secrets};
 use dman_proto::Limits;
 use dman_store::Store;
@@ -119,33 +121,33 @@ pub async fn run(opts: DaemonOptions) -> anyhow::Result<()> {
     let mut sigterm = signal(SignalKind::terminate()).context("cannot install signal handlers")?;
     let mut sighup = signal(SignalKind::hangup()).context("cannot install signal handlers")?;
 
-    let settings = Aria2Settings {
-        binary: dman_config::expand_tilde(&config.aria2.path),
-        rpc_port: config.aria2.rpc_port,
-        secret: aria2_secret,
-        session_file: paths.aria2_session_file(&name),
-        conf_file: aria2_conf_path(&paths, &name),
-        log_file: Some(paths.state_dir().join(format!("aria2-{name}.log"))),
-        download_dir: profile.download_path(),
-        extra_args: config.aria2.extra_args.clone(),
-        detach_seed_only: true,
+    let make_settings: engine::SettingsFn = {
+        let paths = paths.clone();
+        let name = name.clone();
+        let config = config.clone();
+        let profile = profile.clone();
+        Box::new(move || {
+            // Re-read the config file so a fixed `aria2.path` is picked up on
+            // restart; keep the startup config when there is no readable file.
+            let cfg = if paths.config_file().exists() {
+                Config::load(&paths).unwrap_or_else(|_| config.clone())
+            } else {
+                config.clone()
+            };
+            Aria2Settings {
+                binary: dman_config::expand_tilde(&cfg.aria2.path),
+                rpc_port: cfg.aria2.rpc_port,
+                secret: aria2_secret.clone(),
+                session_file: paths.aria2_session_file(&name),
+                conf_file: aria2_conf_path(&paths, &name),
+                log_file: Some(paths.state_dir().join(format!("aria2-{name}.log"))),
+                download_dir: profile.download_path(),
+                extra_args: cfg.aria2.extra_args.clone(),
+                detach_seed_only: true,
+            }
+        })
     };
-    // Keeps a static "failed" state alive when there is no supervisor.
-    let mut _static_engine: Option<watch::Sender<EngineState>> = None;
-    let (supervisor, engine_rx) = match Supervisor::start(settings).await {
-        Ok(s) => {
-            let rx = s.state();
-            (Some(s), rx)
-        }
-        Err(e) => {
-            tracing::warn!("aria2 unavailable, serving without it: {e}");
-            let (tx, rx) = watch::channel(EngineState::Failed {
-                reason: e.to_string(),
-            });
-            _static_engine = Some(tx);
-            (None, rx)
-        }
-    };
+    let (engine, engine_rx, engine_task) = engine::spawn(make_settings, engine::RETRY_EVERY).await;
 
     let (events, _) = broadcast::channel(EVENT_CAPACITY);
     let (manager, manager_task) = Manager::spawn(ManagerConfig {
@@ -170,6 +172,7 @@ pub async fn run(opts: DaemonOptions) -> anyhow::Result<()> {
         events,
         shutdown: shutdown_rx.clone(),
         shutdown_request: request_tx,
+        engine: engine.clone(),
     });
     let mut graceful = shutdown_rx.clone();
     let mut server = tokio::spawn(async move {
@@ -203,9 +206,8 @@ pub async fn run(opts: DaemonOptions) -> anyhow::Result<()> {
     let _ = shutdown_tx.send(true);
     manager.shutdown().await;
     let _ = manager_task.await;
-    if let Some(s) = supervisor {
-        s.shutdown(true).await;
-    }
+    engine.shutdown().await;
+    let _ = engine_task.await;
     if !server_done
         && tokio::time::timeout(Duration::from_secs(5), &mut server)
             .await

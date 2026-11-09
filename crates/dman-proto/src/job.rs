@@ -220,8 +220,113 @@ pub struct AddParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum AddOutcome {
-    Added { id: JobId },
-    Failed { error: crate::RpcError },
+    /// `id` is the first created job; metalinks that describe several files
+    /// create more, listed in `extra_ids` (in order).
+    Added {
+        id: JobId,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        extra_ids: Vec<JobId>,
+    },
+    Failed {
+        error: crate::RpcError,
+    },
+}
+
+impl AddOutcome {
+    /// Every job created by this outcome (empty for a failure).
+    pub fn ids(&self) -> Vec<JobId> {
+        match self {
+            AddOutcome::Added { id, extra_ids } => std::iter::once(*id)
+                .chain(extra_ids.iter().copied())
+                .collect(),
+            AddOutcome::Failed { .. } => Vec::new(),
+        }
+    }
+}
+
+/// One file of a job (`jobs.detail`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileInfo {
+    /// 1-based index as used by `select_files`.
+    pub index: u32,
+    pub path: String,
+    /// Bytes; 0 when unknown.
+    pub length: u64,
+    pub completed: u64,
+    pub selected: bool,
+}
+
+/// A connected peer of an active torrent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PeerInfo {
+    pub ip: String,
+    pub port: u16,
+    /// Bytes per second from this peer.
+    pub download_speed: u64,
+    /// Bytes per second to this peer.
+    pub upload_speed: u64,
+    pub seeder: bool,
+    /// Fraction `0.0..=1.0` of pieces the peer has (from its bitfield).
+    pub progress: f64,
+}
+
+/// Tracker status. aria2 does not report it (decision D13), so it is always
+/// `Unknown` for now.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackerStatus {
+    #[default]
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrackerInfo {
+    pub url: String,
+    /// 0-based tier of the announce list.
+    pub tier: u32,
+    pub status: TrackerStatus,
+}
+
+/// Piece bitfield of a download.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PieceMap {
+    pub num_pieces: u32,
+    pub piece_length: u64,
+    /// aria2's hex bitfield: most significant bit of the first byte = piece 0.
+    pub bitfield_hex: String,
+}
+
+/// One point of a speed history. Bytes per second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpeedSample {
+    /// Unix milliseconds.
+    pub t: i64,
+    pub down: u64,
+    pub up: u64,
+}
+
+/// Result of `jobs.detail`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JobDetail {
+    pub job: Job,
+    #[serde(default)]
+    pub files: Vec<FileInfo>,
+    #[serde(default)]
+    pub peers: Vec<PeerInfo>,
+    #[serde(default)]
+    pub trackers: Vec<TrackerInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pieces: Option<PieceMap>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub info_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+    /// The options currently stored for the job.
+    #[serde(default)]
+    pub options: JobOptions,
+    /// Oldest first; only kept while the job runs, not persisted.
+    #[serde(default)]
+    pub speed_history: Vec<SpeedSample>,
 }
 
 /// Aggregate figures shown in status lines and `dman stats`.
@@ -298,6 +403,89 @@ mod tests {
     fn options_skip_empty_fields() {
         let json = serde_json::to_string(&JobOptions::default()).unwrap();
         assert_eq!(json, "{}");
+    }
+
+    #[test]
+    fn added_outcome_wire_format() {
+        let one = AddOutcome::Added {
+            id: JobId(3),
+            extra_ids: vec![],
+        };
+        let v = serde_json::to_value(&one).unwrap();
+        assert_eq!(v, serde_json::json!({"status":"added","id":3}));
+        // Old payloads without extra_ids still parse.
+        let back: AddOutcome = serde_json::from_value(v).unwrap();
+        assert_eq!(back, one);
+        let many = AddOutcome::Added {
+            id: JobId(3),
+            extra_ids: vec![JobId(4), JobId(5)],
+        };
+        let v = serde_json::to_value(&many).unwrap();
+        assert_eq!(v["extra_ids"], serde_json::json!([4, 5]));
+        assert_eq!(many.ids(), vec![JobId(3), JobId(4), JobId(5)]);
+        assert_eq!(serde_json::from_value::<AddOutcome>(v).unwrap(), many);
+    }
+
+    #[test]
+    fn detail_round_trip_and_defaults() {
+        let d = JobDetail {
+            job: job(),
+            files: vec![FileInfo {
+                index: 1,
+                path: "/tmp/a".into(),
+                length: 10,
+                completed: 5,
+                selected: true,
+            }],
+            peers: vec![PeerInfo {
+                ip: "1.2.3.4".into(),
+                port: 6881,
+                download_speed: 1,
+                upload_speed: 2,
+                seeder: false,
+                progress: 0.5,
+            }],
+            trackers: vec![TrackerInfo {
+                url: "http://t/announce".into(),
+                tier: 0,
+                status: TrackerStatus::Unknown,
+            }],
+            pieces: Some(PieceMap {
+                num_pieces: 8,
+                piece_length: 1024,
+                bitfield_hex: "f0".into(),
+            }),
+            info_hash: Some("ab".into()),
+            comment: None,
+            options: JobOptions::default(),
+            speed_history: vec![SpeedSample {
+                t: 1,
+                down: 2,
+                up: 3,
+            }],
+        };
+        let v = serde_json::to_value(&d).unwrap();
+        assert_eq!(v["trackers"][0]["status"], "unknown");
+        assert_eq!(v["pieces"]["bitfield_hex"], "f0");
+        assert!(v.get("comment").is_none());
+        assert_eq!(serde_json::from_value::<JobDetail>(v).unwrap(), d);
+        // Only the job is required.
+        let minimal = serde_json::json!({"job": serde_json::to_value(job()).unwrap()});
+        let m: JobDetail = serde_json::from_value(minimal).unwrap();
+        assert!(m.files.is_empty() && m.pieces.is_none() && m.speed_history.is_empty());
+    }
+
+    #[test]
+    fn speed_sample_wire_format() {
+        let s = SpeedSample {
+            t: 1_700_000_000_000,
+            down: 5,
+            up: 6,
+        };
+        assert_eq!(
+            serde_json::to_value(s).unwrap(),
+            serde_json::json!({"t":1_700_000_000_000i64,"down":5,"up":6})
+        );
     }
 
     #[test]

@@ -24,6 +24,7 @@ pub async fn run(ctx: &Ctx, cmd: &DaemonCmd) -> Result<i32, CliError> {
         DaemonCmd::Stop => stop(ctx).await,
         DaemonCmd::Restart => restart(ctx).await,
         DaemonCmd::Status => status(ctx).await,
+        DaemonCmd::EngineRestart => engine_restart(ctx).await,
         DaemonCmd::GenConfig => gen_config(ctx),
     }
 }
@@ -181,7 +182,11 @@ async fn stop(ctx: &Ctx) -> Result<i32, CliError> {
 
 /// Whether another process holds the daemon's single-instance lock.
 fn lock_held(path: &std::path::Path) -> bool {
-    match std::fs::OpenOptions::new().read(true).write(true).open(path) {
+    match std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+    {
         Ok(file) => matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock)),
         Err(_) => false,
     }
@@ -216,6 +221,18 @@ async fn status(ctx: &Ctx) -> Result<i32, CliError> {
         println!("{}", engine_line(e));
     }
     print!("{}", super::misc::stats_text(&stats));
+    Ok(0)
+}
+
+async fn engine_restart(ctx: &Ctx) -> Result<i32, CliError> {
+    let engines = ctx.connect().await?.engine_restart().await?;
+    if ctx.json {
+        print_json(&engines)?;
+    } else {
+        for e in &engines {
+            println!("{}", engine_line(e));
+        }
+    }
     Ok(0)
 }
 

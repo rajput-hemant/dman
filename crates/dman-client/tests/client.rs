@@ -170,6 +170,39 @@ async fn serve(
                     let _ = tx.send(serde_json::to_string(&r).unwrap());
                 });
             }
+            method::JOBS_DETAIL => {
+                let p: IdParams = serde_json::from_value(req.params).unwrap();
+                let d = dman_proto::JobDetail {
+                    job: job(p.id.0),
+                    files: vec![dman_proto::FileInfo {
+                        index: 1,
+                        path: "/tmp/f".into(),
+                        length: 100,
+                        completed: 10,
+                        selected: true,
+                    }],
+                    peers: vec![],
+                    trackers: vec![],
+                    pieces: None,
+                    info_hash: None,
+                    comment: None,
+                    options: Default::default(),
+                    speed_history: vec![dman_proto::SpeedSample {
+                        t: 1,
+                        down: 2,
+                        up: 3,
+                    }],
+                };
+                reply(Response::ok(id, serde_json::to_value(d).unwrap()));
+            }
+            method::STATS_HISTORY => {
+                let h = [dman_proto::SpeedSample {
+                    t: 5,
+                    down: 6,
+                    up: 7,
+                }];
+                reply(Response::ok(id, serde_json::to_value(h).unwrap()));
+            }
             method::STATS_GET => {} // never answered
             _ => reply(Response::err(id, RpcError::not_found(&req.method))),
         }
@@ -213,6 +246,21 @@ async fn hello_and_list() {
     assert!(matches!(&err, ClientError::Rpc(e) if e.code == ErrorCode::NotFound));
     assert_eq!(err.exit_code(), 5);
     assert!(!format!("{c:?}").contains(TOKEN));
+}
+
+#[tokio::test]
+async fn detail_and_history() {
+    let fake = spawn_fake(API_VERSION).await;
+    let c = Client::connect(&fake.url(), secret(TOKEN), "test/0")
+        .await
+        .unwrap();
+    let d = c.detail(JobId(4)).await.unwrap();
+    assert_eq!(d.job, job(4));
+    assert_eq!(d.files.len(), 1);
+    assert_eq!(d.speed_history[0].down, 2);
+    let h = c.stats_history().await.unwrap();
+    assert_eq!(h.len(), 1);
+    assert_eq!((h[0].t, h[0].up), (5, 7));
 }
 
 #[tokio::test]

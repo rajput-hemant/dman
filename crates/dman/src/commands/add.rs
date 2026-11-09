@@ -174,7 +174,10 @@ fn report(labels: &[String], outcomes: &[AddOutcome], json: bool) -> Result<i32,
     let mut failed = 0;
     for (label, outcome) in labels.iter().zip(outcomes) {
         match outcome {
-            AddOutcome::Added { id } if !json => println!("added {id}"),
+            AddOutcome::Added { .. } if !json => {
+                let ids: Vec<String> = outcome.ids().iter().map(ToString::to_string).collect();
+                println!("added {}", ids.join(" "));
+            }
             AddOutcome::Failed { error } => {
                 failed += 1;
                 first_failure.get_or_insert(error.code);

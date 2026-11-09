@@ -284,6 +284,11 @@ macro_rules! typed_api {
             self.call(method::JOBS_GET, IdParams { id }).await
         }
 
+        /// `jobs.detail`: files, peers, trackers, pieces and speed history of one job.
+        pub async fn detail(&self, id: JobId) -> Result<dman_proto::JobDetail, ClientError> {
+            self.call(method::JOBS_DETAIL, IdParams { id }).await
+        }
+
         /// `jobs.pause`
         pub async fn pause(&self, ids: &[JobId]) -> Result<method::BatchResult, ClientError> {
             self.call(method::JOBS_PAUSE, IdsParams { ids: ids.to_vec() })
@@ -351,6 +356,16 @@ macro_rules! typed_api {
         /// `stats.get`
         pub async fn stats(&self) -> Result<GlobalStats, ClientError> {
             self.call(method::STATS_GET, ()).await
+        }
+
+        /// `stats.history`: global speed samples, oldest first.
+        pub async fn stats_history(&self) -> Result<Vec<dman_proto::SpeedSample>, ClientError> {
+            self.call(method::STATS_HISTORY, ()).await
+        }
+
+        /// `engine.restart`: (re)start the aria2 engine; returns the engine status.
+        pub async fn engine_restart(&self) -> Result<Vec<EngineStatus>, ClientError> {
+            self.call(method::ENGINE_RESTART, ()).await
         }
 
         /// `engine.status`

@@ -36,6 +36,12 @@ pub enum Command {
     Get {
         /// Job ID.
         id: JobId,
+        /// Also list the files.
+        #[arg(long)]
+        files: bool,
+        /// Also list the connected peers (active torrents).
+        #[arg(long)]
+        peers: bool,
     },
     /// Pause downloads.
     Pause(TargetArgs),
@@ -86,6 +92,8 @@ pub enum DaemonCmd {
     Restart,
     /// Show daemon, engine and transfer status.
     Status,
+    /// Start (or cleanly restart) the aria2 engine, e.g. after installing it.
+    EngineRestart,
     /// Write the default config file if none exists.
     GenConfig,
 }

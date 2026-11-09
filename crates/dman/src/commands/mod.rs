@@ -28,7 +28,9 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Command::Daemon { cmd } => daemon::run(&Ctx::load(&cli)?, cmd).await,
         Command::Add(args) => add::run(&Ctx::load(&cli)?, args).await,
         Command::List(args) => list::list(&Ctx::load(&cli)?, args).await,
-        Command::Get { id } => list::get(&Ctx::load(&cli)?, *id).await,
+        Command::Get { id, files, peers } => {
+            list::get(&Ctx::load(&cli)?, *id, *files, *peers).await
+        }
         Command::Pause(a) => control::pause(&Ctx::load(&cli)?, a).await,
         Command::Resume(a) => control::resume(&Ctx::load(&cli)?, a).await,
         Command::Remove(a) => control::remove(&Ctx::load(&cli)?, a).await,

@@ -43,6 +43,8 @@ pub struct ServerState {
     pub shutdown: watch::Receiver<bool>,
     /// Asks the daemon to shut down (`daemon.shutdown`).
     pub shutdown_request: mpsc::Sender<()>,
+    /// The engine owner (`engine.restart`).
+    pub engine: crate::engine::EngineHandle,
 }
 
 /// The axum router serving the API.
@@ -87,6 +89,7 @@ fn to_request(method: &str, params: Value) -> Result<Request, WireError> {
         method::JOBS_ADD => p(parse(params).map(Request::Add))?,
         method::JOBS_LIST => p(parse(params).map(Request::List))?,
         method::JOBS_GET => p(parse::<method::IdParams>(params).map(|x| Request::Get(x.id)))?,
+        method::JOBS_DETAIL => p(parse::<method::IdParams>(params).map(|x| Request::Detail(x.id)))?,
         method::JOBS_PAUSE => p(parse::<method::IdsParams>(params).map(|x| Request::Pause(x.ids)))?,
         method::JOBS_RESUME => {
             p(parse::<method::IdsParams>(params).map(|x| Request::Resume(x.ids)))?
@@ -100,6 +103,7 @@ fn to_request(method: &str, params: Value) -> Result<Request, WireError> {
         method::LIMITS_GET => Request::LimitsGet,
         method::LIMITS_SET => p(parse(params).map(Request::LimitsSet))?,
         method::STATS_GET => Request::Stats,
+        method::STATS_HISTORY => Request::StatsHistory,
         method::ENGINE_STATUS => Request::EngineStatus,
         other => {
             return Err(wire(
@@ -276,6 +280,18 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
                 reply(Response::ok(id, Value::Null)).await;
                 tracing::info!("shutdown requested over the API");
                 let _ = state.shutdown_request.try_send(());
+            }
+            method::ENGINE_RESTART => {
+                let engine = state.engine.clone();
+                let out = out_tx.clone();
+                tasks.retain(|t| !t.is_finished());
+                tasks.push(tokio::spawn(async move {
+                    let resp = match engine.restart().await {
+                        Ok(status) => Response::ok(id, json!([status])),
+                        Err(e) => Response::err(id, e),
+                    };
+                    let _ = out.send(encode(&resp)).await;
+                }));
             }
             m => match to_request(m, req.params) {
                 Err(e) => reply(Response::err(id, e)).await,

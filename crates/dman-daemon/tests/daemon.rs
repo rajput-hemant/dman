@@ -13,6 +13,7 @@ use std::time::Duration;
 use dman_client::{Client, ClientError};
 use dman_config::{Config, DaemonTarget, DiskThreshold, Paths, Secrets};
 use dman_daemon::{DaemonOptions, run};
+use dman_proto::method::EngineStatus;
 use dman_proto::method::{Event, Level, LimitsUpdate, ListParams, RemoveParams};
 use dman_proto::{AddOutcome, AddParams, AddSource, ErrorCode, Job, JobId, JobOptions, JobState};
 use secrecy::SecretString;
@@ -218,7 +219,7 @@ fn added(outcomes: &[AddOutcome]) -> Vec<JobId> {
     outcomes
         .iter()
         .map(|o| match o {
-            AddOutcome::Added { id } => *id,
+            AddOutcome::Added { id, .. } => *id,
             AddOutcome::Failed { error } => panic!("add failed: {error}"),
         })
         .collect()
@@ -306,6 +307,39 @@ async fn serves_without_engine_and_enforces_auth_and_lock() {
     d.stop(&c).await;
 }
 
+/// `engine.restart` with a binary that does not exist: EngineUnavailable, and
+/// the daemon keeps serving (also detail/history on what it has).
+#[tokio::test(flavor = "multi_thread")]
+async fn engine_restart_without_binary_keeps_serving() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(
+        root.path(),
+        "/nonexistent/aria2c",
+        DiskThreshold::Absolute(0),
+    );
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    for _ in 0..2 {
+        let err = c.engine_restart().await.unwrap_err();
+        assert!(
+            matches!(&err, ClientError::Rpc(e) if e.code == ErrorCode::EngineUnavailable),
+            "{err:?}"
+        );
+        let status = c.engine_status().await.unwrap();
+        assert!(!status[0].available, "{status:?}");
+        assert!(c.list(ListParams::default()).await.unwrap().is_empty());
+    }
+    // The global history keeps filling even without an engine.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert!(!c.stats_history().await.unwrap().is_empty());
+    let err = c.detail(JobId(1)).await.unwrap_err();
+    assert!(
+        matches!(&err, ClientError::Rpc(e) if e.code == ErrorCode::NotFound),
+        "{err:?}"
+    );
+    d.stop(&c).await;
+}
+
 /// Full lifecycle against a real aria2c.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs aria2c; run with DMAN_TEST_ARIA2=1 and --include-ignored"]
@@ -365,6 +399,26 @@ async fn lifecycle_with_real_aria2() {
         let j = c.list(ListParams::default()).await.unwrap();
         assert!(count(&j, JobState::Active) <= 1, "{j:#?}");
     }
+
+    // Detail of a running HTTP job: one file, no peers, options and history.
+    let det = c.detail(a).await.unwrap();
+    assert_eq!(det.job.id, a);
+    assert_eq!(det.files.len(), 1, "{:?}", det.files);
+    assert_eq!(det.files[0].index, 1);
+    assert!(det.files[0].path.ends_with("a.bin"), "{:?}", det.files);
+    assert_eq!(det.files[0].length, SIZE as u64);
+    assert!(det.peers.is_empty() && det.trackers.is_empty());
+    assert_eq!(det.options.max_download_limit, Some(50 * 1024));
+    assert!(!det.speed_history.is_empty(), "no per-job speed history");
+    assert!(det.speed_history.windows(2).all(|w| w[0].t <= w[1].t));
+    let err = c.detail(JobId(9999)).await.unwrap_err();
+    assert!(
+        matches!(&err, ClientError::Rpc(e) if e.code == ErrorCode::NotFound),
+        "{err:?}"
+    );
+    let hist = c.stats_history().await.unwrap();
+    assert!(hist.len() >= 3, "global history too short: {hist:?}");
+    assert!(hist.iter().any(|s| s.down > 0), "{hist:?}");
 
     // Options that need a paused download are refused while it runs.
     let err = c
@@ -432,6 +486,13 @@ async fn lifecycle_with_real_aria2() {
     }
     let stats = c.stats().await.unwrap();
     assert!(stats.total_downloaded > 0, "{stats:?}");
+    let det = c.detail(cc).await.unwrap();
+    assert_eq!(det.files.len(), 1, "{:?}", det.files);
+    assert_eq!(det.files[0].completed, SIZE as u64);
+    assert!(
+        det.speed_history.is_empty(),
+        "history of a stopped job must be dropped"
+    );
 
     // Remove without deleting files keeps the file.
     let r = c
@@ -526,6 +587,19 @@ async fn lifecycle_with_real_aria2() {
     assert_eq!(jobs.len(), 3, "{jobs:#?}");
     assert_eq!(job(&jobs, dj).state, JobState::Paused);
     assert_eq!(job(&jobs, cc).state, JobState::Complete);
+
+    // engine.restart on a running engine restarts it cleanly and reconciles.
+    let status: Vec<EngineStatus> = c.engine_restart().await.unwrap();
+    assert!(status[0].available, "{status:?}");
+    assert_eq!(aria2_pids(root.path()).len(), 1);
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    let jobs = c.list(ListParams::default()).await.unwrap();
+    assert_eq!(jobs.len(), 3, "{jobs:#?}");
+    assert_eq!(job(&jobs, dj).state, JobState::Paused);
+    // aria2 forgot the finished job; detail falls back to the stored record.
+    let det = c.detail(cc).await.unwrap();
+    assert_eq!(det.files.len(), 1, "{:?}", det.files);
+    assert!(c.engine_status().await.unwrap()[0].available);
     d.stop(&c).await;
 
     // Disk guard: with min_free = 100% nothing may start.

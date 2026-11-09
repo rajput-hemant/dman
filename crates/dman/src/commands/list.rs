@@ -90,12 +90,33 @@ async fn watch(ctx: &Ctx, client: &Client, states: &[JobState]) -> Result<i32, C
     }
 }
 
-pub async fn get(ctx: &Ctx, id: JobId) -> Result<i32, CliError> {
-    let job = ctx.connect().await?.get(id).await?;
+pub async fn get(ctx: &Ctx, id: JobId, files: bool, peers: bool) -> Result<i32, CliError> {
+    let client = ctx.connect().await?;
+    if !files && !peers && !ctx.json {
+        print!("{}", details(&client.get(id).await?));
+        return Ok(0);
+    }
+    let d = client.detail(id).await?;
     if ctx.json {
-        print_json(&job)?;
-    } else {
-        print!("{}", details(&job));
+        print_json(&d)?;
+        return Ok(0);
+    }
+    print!("{}", details(&d.job));
+    if files {
+        println!();
+        if d.files.is_empty() {
+            println!("no files known");
+        } else {
+            print!("{}", format::file_table(&d.files));
+        }
+    }
+    if peers {
+        println!();
+        if d.peers.is_empty() {
+            println!("no peers");
+        } else {
+            print!("{}", format::peer_table(&d.peers));
+        }
     }
     Ok(0)
 }

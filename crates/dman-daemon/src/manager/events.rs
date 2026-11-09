@@ -69,6 +69,22 @@ impl Manager {
         }
     }
 
+    /// Records one speed sample (global and per running job) and drops the
+    /// buffers of jobs that stopped. Called once per poll interval.
+    pub(crate) fn sample_history(&mut self) {
+        let running: Vec<(JobId, u64, u64)> = self
+            .jobs
+            .values()
+            .filter(|e| matches!(e.rec.state, JobState::Active | JobState::Seeding))
+            .map(|e| (e.rec.id, e.live.download_speed, e.live.upload_speed))
+            .collect();
+        let t = super::util::now_ms();
+        self.history.record(t, self.global_speed, &running);
+        let jobs = &self.jobs;
+        self.history
+            .retain_jobs(|id| jobs.get(&id).is_some_and(|e| !e.rec.state.is_stopped()));
+    }
+
     // ----- views -------------------------------------------------------------
 
     pub(super) fn positions(&self) -> HashMap<JobId, u32> {

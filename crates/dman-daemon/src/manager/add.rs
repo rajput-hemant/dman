@@ -45,7 +45,10 @@ impl Manager {
                 .add_one(&client, src, &aopts, &options, &dir_s, p.paused)
                 .await;
             out.push(match r {
-                Ok(id) => AddOutcome::Added { id },
+                Ok(mut ids) => {
+                    let id = ids.remove(0);
+                    AddOutcome::Added { id, extra_ids: ids }
+                }
                 Err(error) => AddOutcome::Failed { error },
             });
         }
@@ -60,7 +63,7 @@ impl Manager {
         options: &JobOptions,
         dir: &str,
         paused: bool,
-    ) -> Result<JobId, RpcError> {
+    ) -> Result<Vec<JobId>, RpcError> {
         let (kind, name, source, uris, blob) = match src {
             AddSource::Uris { uris } => {
                 let uris: Vec<String> = uris
@@ -212,7 +215,7 @@ impl Manager {
             r.gid = Some(gid.as_str().to_owned());
             records.push(r);
         }
-        rec = records[0].clone();
+        let ids: Vec<JobId> = records.iter().map(|r| r.id).collect();
         {
             let recs = records.clone();
             let blob = blob.clone();
@@ -236,6 +239,6 @@ impl Manager {
             self.gids.insert(gid, e.rec.id);
             self.jobs.insert(e.rec.id, e);
         }
-        Ok(rec.id)
+        Ok(ids)
     }
 }

@@ -54,14 +54,18 @@ commit this file together with the code it describes.
 - [ ] Disconnected state (greyed, actions disabled), engine-unavailable banner, theme + NO_COLOR, optional mouse
 - [ ] Wire bare `dman` to start/attach the daemon and open the TUI; insta snapshot tests at 80×24 and 120×40
 
-### M3 … M8
+### M3 — Detail and control (10 %) — pulled-forward backend
+- [x] Backend: `jobs.detail` (files, peers, trackers [status unknown, D13], piece map, comment, options, per-job speed history), `stats.history`; CLI `dman get <id> --files --peers`
+- [ ] (rest of M3 is listed when M2 finishes)
+
+### M4 … M8
 Detailed task lists are written when the previous milestone finishes.
 
 ### Follow-ups noted during M1
 - [x] Split `crates/dman-daemon/src/manager.rs` into `manager/` modules (largest 524 lines).
-- `AddOutcome::Added` carries one id; metalinks that create several jobs report only the first → extend proto (`ids`).
+- [x] `AddOutcome::Added` now has `extra_ids` (metalinks with several files).
 - `limits.set` is runtime-only; persist to config via ConfigDoc (M3 settings work).
-- If aria2c is missing at daemon start, the daemon never retries; add an `engine.restart` method / retry when the binary appears (M3).
+- [x] `engine.restart` method + background retry every 60 s while the engine is unavailable; CLI `dman daemon engine-restart`.
 - Magnet follow-up, seeding, metalink and adoption paths are not yet tested against real aria2 (needs local tracker + seeder fixture from spikes/aria2/lib.py idea) — add in M4.
 - cargo-deny config (M8).
 

@@ -7,6 +7,7 @@
 
 mod add;
 mod control;
+mod detail;
 mod events;
 mod poll;
 mod remove;
@@ -44,6 +45,8 @@ pub enum Request {
     List(ListParams),
     /// `jobs.get`
     Get(JobId),
+    /// `jobs.detail`
+    Detail(JobId),
     /// `jobs.pause`
     Pause(Vec<JobId>),
     /// `jobs.resume`
@@ -66,6 +69,8 @@ pub enum Request {
     LimitsSet(LimitsUpdate),
     /// `stats.get`
     Stats,
+    /// `stats.history`
+    StatsHistory,
     /// `engine.status`
     EngineStatus,
     /// A [`Event::Snapshot`] (for `session.subscribe`).
@@ -196,6 +201,7 @@ pub struct Manager {
     /// A state transition happened: flush at the end of the current step.
     pub(crate) urgent: bool,
     poll_failing: bool,
+    pub(crate) history: crate::history::History,
 }
 
 fn to_value<T: Serialize>(v: T) -> Result<Value, RpcError> {
@@ -231,6 +237,7 @@ impl Manager {
             last_flush: Instant::now(),
             urgent: false,
             poll_failing: false,
+            history: crate::history::History::default(),
         };
         let task = tokio::spawn(mgr.run(rx, cfg.engine));
         (ManagerHandle { tx }, task)
@@ -320,7 +327,10 @@ impl Manager {
                     }
                     self.tick().await;
                 }
-                _ = interval.tick() => self.tick().await,
+                _ = interval.tick() => {
+                    self.tick().await;
+                    self.sample_history();
+                }
             }
         }
     }
@@ -432,6 +442,7 @@ impl Manager {
                     .ok_or_else(|| RpcError::not_found(format!("job {id}")))?;
                 to_value(Self::job_view(e, &self.positions()))
             }
+            Request::Detail(id) => to_value(self.detail(id).await?),
             Request::Pause(ids) => {
                 let r = self.pause(&ids).await;
                 self.emit_changes();
@@ -487,6 +498,7 @@ impl Manager {
                 to_value(l)
             }
             Request::Stats => to_value(self.stats()),
+            Request::StatsHistory => to_value(self.history.global()),
             Request::EngineStatus => to_value(vec![self.engine.clone()]),
             Request::Snapshot => {
                 // Bring every subscriber's baseline in line with what was sent.

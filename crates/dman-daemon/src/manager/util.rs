@@ -14,6 +14,12 @@ pub(crate) fn now() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
+pub(crate) fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
 pub(crate) fn store_err(e: impl std::fmt::Display) -> RpcError {
     RpcError::new(ErrorCode::General, format!("store error: {e}"))
 }

@@ -11,6 +11,7 @@ pub const SUBSCRIBE: &str = "session.subscribe";
 pub const JOBS_ADD: &str = "jobs.add";
 pub const JOBS_LIST: &str = "jobs.list";
 pub const JOBS_GET: &str = "jobs.get";
+pub const JOBS_DETAIL: &str = "jobs.detail";
 pub const JOBS_PAUSE: &str = "jobs.pause";
 pub const JOBS_RESUME: &str = "jobs.resume";
 pub const JOBS_REMOVE: &str = "jobs.remove";
@@ -22,7 +23,9 @@ pub const QUEUE_RESUME_ALL: &str = "queue.resume_all";
 pub const LIMITS_GET: &str = "limits.get";
 pub const LIMITS_SET: &str = "limits.set";
 pub const STATS_GET: &str = "stats.get";
+pub const STATS_HISTORY: &str = "stats.history";
 pub const ENGINE_STATUS: &str = "engine.status";
+pub const ENGINE_RESTART: &str = "engine.restart";
 pub const DAEMON_SHUTDOWN: &str = "daemon.shutdown";
 
 /// Name of the notification carrying [`Event`]s.

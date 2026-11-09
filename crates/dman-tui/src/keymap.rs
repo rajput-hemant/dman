@@ -135,6 +135,17 @@ const DEFAULTS: &[(Context, Action, &[&str])] = &[
     (Context::Help, Action::Bottom, &["G", "end"]),
     (Context::Help, Action::Back, &["esc", "q", "?"]),
     (Context::Add, Action::Back, &["esc"]),
+    (Context::Add, Action::AddSubmit, &["ctrl-s", "alt-enter"]),
+    (Context::Add, Action::AddNextField, &["tab"]),
+    (Context::Add, Action::AddPrevField, &["backtab"]),
+    (Context::Add, Action::AddBrowseFiles, &["ctrl-o"]),
+    (
+        Context::Add,
+        Action::AddPasteClipboard,
+        &["ctrl-v", "alt-v"],
+    ),
+    (Context::Add, Action::AddToggleMirror, &["ctrl-t"]),
+    (Context::Add, Action::AddPickDir, &["ctrl-f"]),
 ];
 
 impl Keymap {

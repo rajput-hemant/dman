@@ -11,6 +11,7 @@
 //!    the global context) to an [`Action`], applied by [`apply_action`].
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use crossterm::event::{KeyEvent, KeyEventKind, MouseEvent};
@@ -24,6 +25,9 @@ use crate::keymap::{Context, Keymap};
 use crate::layout::ScreenLayout;
 use crate::list::DownloadsList;
 use crate::theme::Theme;
+use crate::views::add::browser::LocalListing;
+use crate::views::add::preview::Loaded;
+use crate::views::add::source::PathStatus;
 use crate::views::{self, View};
 use crate::widgets::palette::PaletteState;
 use crate::widgets::prompt::PromptKind;
@@ -51,6 +55,14 @@ pub enum Msg {
         /// The reply, or the error text.
         result: Result<ApiReply, String>,
     },
+    /// A local directory listing for the add view's file browser.
+    LocalDir(Result<LocalListing, String>),
+    /// Local source files were checked.
+    PathsChecked(Vec<(String, PathStatus)>),
+    /// Local source files were read for the preview.
+    FilesRead(Loaded),
+    /// The clipboard text, or why it could not be read.
+    Clipboard(Result<String, String>),
     /// Events were dropped (slow consumer); state must be re-fetched.
     Lagged,
     /// Periodic tick (every `refresh_ms`).
@@ -67,6 +79,15 @@ pub enum Cmd {
     /// Re-fetch jobs, stats and limits; answered with a synthesized
     /// [`Event::Snapshot`].
     Resync,
+    /// List a local directory (`None` = working directory); answered with
+    /// [`Msg::LocalDir`].
+    ReadDir(Option<PathBuf>),
+    /// Check local source paths; answered with [`Msg::PathsChecked`].
+    CheckPaths(Vec<String>),
+    /// Read local source files; answered with [`Msg::FilesRead`].
+    ReadFiles(Vec<String>),
+    /// Read the clipboard; answered with [`Msg::Clipboard`].
+    ReadClipboard,
     /// Leave the TUI.
     Quit,
 }
@@ -256,6 +277,18 @@ impl State {
         self.list.ensure_visible(self.list_height());
     }
 
+    /// Like [`State::call`] but without a status message while it runs (for
+    /// calls whose answer is shown elsewhere, e.g. in a picker).
+    pub fn call_quiet(&mut self, call: ApiCall) -> Vec<Cmd> {
+        if let Some(reason) = self.offline_reason() {
+            self.status
+                .error(format!("{} is disabled: {reason}", call.verb()));
+            return Vec::new();
+        }
+        self.pending += 1;
+        vec![Cmd::Api(call)]
+    }
+
     /// Request a daemon call, or explain why it is disabled.
     pub fn call(&mut self, call: ApiCall) -> Vec<Cmd> {
         if let Some(reason) = self.offline_reason() {
@@ -291,6 +324,19 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Cmd> {
             Vec::new()
         }
         Msg::ActionResult { call, result } => on_result(state, &call, &result),
+        Msg::LocalDir(r) => {
+            views::add::on_local_dir(state, r);
+            Vec::new()
+        }
+        Msg::PathsChecked(r) => {
+            views::add::on_paths_checked(state, r);
+            Vec::new()
+        }
+        Msg::FilesRead(files) => {
+            views::add::on_files_read(state, &files);
+            Vec::new()
+        }
+        Msg::Clipboard(r) => views::add::on_clipboard(state, r),
         Msg::Lagged => {
             state.status.warn("Missed some live updates; reloading");
             vec![Cmd::Resync]
@@ -398,6 +444,10 @@ pub fn apply_action(state: &mut State, action: Action) -> Vec<Cmd> {
             .error(format!("{} is disabled: {reason}", action.title()));
         return Vec::new();
     }
+    // Add-view actions run from the palette elsewhere open the view first.
+    if action.home_context() == Context::Add && !matches!(state.view(), View::Add(_)) {
+        state.views.push(View::Add(Box::default()));
+    }
     match action {
         Action::Quit => vec![Cmd::Quit],
         Action::Palette => {
@@ -421,7 +471,7 @@ pub fn apply_action(state: &mut State, action: Action) -> Vec<Cmd> {
             Vec::new()
         }
         Action::Add => {
-            state.views.push(View::Add(views::add::AddState::default()));
+            state.views.push(View::Add(Box::default()));
             Vec::new()
         }
         Action::Shutdown => {
@@ -501,6 +551,10 @@ fn on_conn(state: &mut State, conn: ConnState) {
 
 fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String>) -> Vec<Cmd> {
     state.pending = state.pending.saturating_sub(1);
+    if matches!(call, ApiCall::FsList(_)) {
+        views::add::on_fs_listing(state, result);
+        return Vec::new();
+    }
     if let Ok(ApiReply::Limits(l)) = result {
         state.limits = l.clone();
     }
@@ -509,6 +563,9 @@ fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String
         Outcome::Ok => state.status.info(text),
         Outcome::Partial => state.status.warn(text),
         Outcome::Failed => state.status.error(text),
+    }
+    if matches!(call, ApiCall::Add(_)) {
+        views::add::on_add_result(state, result);
     }
     if *call == ApiCall::Shutdown && result.is_ok() {
         return vec![Cmd::Quit];

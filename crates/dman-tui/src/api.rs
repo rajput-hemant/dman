@@ -3,7 +3,9 @@
 //! status line happens here, in pure code.
 
 use dman_client::ReconnectingClient;
-use dman_proto::method::{BatchResult, LimitsUpdate, RemoveParams, Reorder};
+use dman_proto::method::{
+    BatchResult, FsListParams, FsListing, LimitsUpdate, RemoveParams, Reorder,
+};
 use dman_proto::{AddOutcome, AddParams, JobId, Limits};
 
 use crate::format::{limit, plural};
@@ -39,6 +41,8 @@ pub enum ApiCall {
     SetLimits(LimitsUpdate),
     /// `jobs.add` (used by the add view).
     Add(Box<AddParams>),
+    /// `fs.list` (directory picker of the add view).
+    FsList(FsListParams),
     /// `daemon.shutdown`.
     Shutdown,
 }
@@ -64,6 +68,7 @@ impl ApiCall {
             ApiCall::Reorder { .. } => "Moving in queue".into(),
             ApiCall::SetLimits(_) => "Changing limits".into(),
             ApiCall::Add(p) => format!("Adding {}", plural(p.sources.len(), "source")),
+            ApiCall::FsList(_) => "Listing directory".into(),
             ApiCall::Shutdown => "Shutting down the daemon".into(),
         }
     }
@@ -80,6 +85,7 @@ impl ApiCall {
             ApiCall::Reorder { .. } => "Move",
             ApiCall::SetLimits(_) => "Set limits",
             ApiCall::Add(_) => "Add",
+            ApiCall::FsList(_) => "List directory",
             ApiCall::Shutdown => "Shutdown",
         }
     }
@@ -106,6 +112,7 @@ impl ApiCall {
             ApiCall::Reorder { id, to } => client.reorder(id, to).await.map(|()| ApiReply::Done),
             ApiCall::SetLimits(u) => client.limits_set(u).await.map(ApiReply::Limits),
             ApiCall::Add(p) => client.add(*p).await.map(ApiReply::Added),
+            ApiCall::FsList(p) => client.fs_list(p).await.map(ApiReply::Listing),
             ApiCall::Shutdown => client.shutdown().await.map(|()| ApiReply::Done),
         };
         r.map_err(|e| e.to_string())
@@ -123,6 +130,8 @@ pub enum ApiReply {
     Limits(Limits),
     /// One outcome per added source.
     Added(Vec<AddOutcome>),
+    /// A daemon directory listing.
+    Listing(FsListing),
 }
 
 /// Severity of a status message.
@@ -152,6 +161,7 @@ pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome,
             ),
         ),
         Ok(ApiReply::Added(outcomes)) => summarize_add(outcomes),
+        Ok(ApiReply::Listing(l)) => (Outcome::Ok, format!("Listed {}", l.path)),
         Ok(ApiReply::Done) => (Outcome::Ok, format!("{verb}: done")),
     }
 }

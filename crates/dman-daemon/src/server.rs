@@ -105,6 +105,7 @@ fn to_request(method: &str, params: Value) -> Result<Request, WireError> {
         method::STATS_GET => Request::Stats,
         method::STATS_HISTORY => Request::StatsHistory,
         method::ENGINE_STATUS => Request::EngineStatus,
+        method::FS_LIST => p(parse(params).map(Request::FsList))?,
         other => {
             return Err(wire(
                 protocol::METHOD_NOT_FOUND,

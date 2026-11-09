@@ -307,6 +307,50 @@ async fn serves_without_engine_and_enforces_auth_and_lock() {
     d.stop(&c).await;
 }
 
+/// `fs.list` over the API (no aria2 needed): default = profile download dir.
+#[tokio::test(flavor = "multi_thread")]
+async fn fs_list_over_the_api() {
+    use dman_proto::method::FsListParams;
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(
+        root.path(),
+        "/nonexistent/aria2c",
+        DiskThreshold::Absolute(0),
+    );
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    // The profile's download dir does not exist yet: nearest ancestor is listed.
+    let def = c.fs_list(FsListParams::default()).await.unwrap();
+    assert!(!def.path.is_empty());
+    std::fs::create_dir_all(root.path().join("dl/sub")).unwrap();
+    std::fs::write(root.path().join("dl/file.bin"), b"abc").unwrap();
+    let def = c.fs_list(FsListParams::default()).await.unwrap();
+    assert!(def.path.ends_with("dl"), "{}", def.path);
+    let names: Vec<_> = def.entries.iter().map(|e| e.name.as_str()).collect();
+    assert_eq!(names, ["sub", "file.bin"]);
+    let dirs = c
+        .fs_list(FsListParams {
+            path: Some(def.path.clone()),
+            dirs_only: true,
+        })
+        .await
+        .unwrap();
+    assert_eq!(dirs.entries.len(), 1);
+    assert!(dirs.parent.is_some());
+    let err = c
+        .fs_list(FsListParams {
+            path: Some(format!("{}/missing", def.path)),
+            dirs_only: true,
+        })
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, ClientError::Rpc(e) if e.code == ErrorCode::NotFound),
+        "{err:?}"
+    );
+    d.stop(&c).await;
+}
+
 /// `engine.restart` with a binary that does not exist: EngineUnavailable, and
 /// the daemon keeps serving (also detail/history on what it has).
 #[tokio::test(flavor = "multi_thread")]

@@ -75,6 +75,20 @@ pub enum Action {
     OpenDetail,
     /// Open the add view.
     Add,
+    /// Add view: preview what will be added, then confirm.
+    AddSubmit,
+    /// Add view: next field.
+    AddNextField,
+    /// Add view: previous field.
+    AddPrevField,
+    /// Add view: browse local files (.torrent/.metalink).
+    AddBrowseFiles,
+    /// Add view: paste the clipboard.
+    AddPasteClipboard,
+    /// Add view: group all URI lines into one download (mirrors).
+    AddToggleMirror,
+    /// Add view: choose the download directory on the daemon host.
+    AddPickDir,
     /// Open the command palette.
     Palette,
     /// Show the help screen.
@@ -122,6 +136,13 @@ impl Action {
         Action::SetMaxConcurrent,
         Action::OpenDetail,
         Action::Add,
+        Action::AddSubmit,
+        Action::AddNextField,
+        Action::AddPrevField,
+        Action::AddBrowseFiles,
+        Action::AddPasteClipboard,
+        Action::AddToggleMirror,
+        Action::AddPickDir,
         Action::Palette,
         Action::Help,
         Action::Back,
@@ -164,6 +185,13 @@ impl Action {
             Action::SetMaxConcurrent => "max_concurrent",
             Action::OpenDetail => "detail",
             Action::Add => "add",
+            Action::AddSubmit => "add_submit",
+            Action::AddNextField => "add_next_field",
+            Action::AddPrevField => "add_prev_field",
+            Action::AddBrowseFiles => "add_browse_files",
+            Action::AddPasteClipboard => "add_paste_clipboard",
+            Action::AddToggleMirror => "add_toggle_mirror",
+            Action::AddPickDir => "add_pick_dir",
             Action::Palette => "palette",
             Action::Help => "help",
             Action::Back => "back",
@@ -212,6 +240,13 @@ impl Action {
             Action::SetMaxConcurrent => "Set max concurrent downloads",
             Action::OpenDetail => "Open detail",
             Action::Add => "Add downloads",
+            Action::AddSubmit => "Add view: preview and confirm",
+            Action::AddNextField => "Add view: next field",
+            Action::AddPrevField => "Add view: previous field",
+            Action::AddBrowseFiles => "Add view: browse local .torrent/.metalink files",
+            Action::AddPasteClipboard => "Add view: paste from clipboard",
+            Action::AddToggleMirror => "Add view: toggle mirrors (one download from all URLs)",
+            Action::AddPickDir => "Add view: choose download directory (daemon)",
             Action::Palette => "Command palette",
             Action::Help => "Help (key bindings)",
             Action::Back => "Back / close",
@@ -255,6 +290,13 @@ impl Action {
             Action::SetMaxConcurrent => "max conc.",
             Action::OpenDetail => "detail",
             Action::Add => "add",
+            Action::AddSubmit => "preview",
+            Action::AddNextField => "next field",
+            Action::AddPrevField => "prev field",
+            Action::AddBrowseFiles => "files",
+            Action::AddPasteClipboard => "clipboard",
+            Action::AddToggleMirror => "mirror",
+            Action::AddPickDir => "folder",
             Action::Palette => "palette",
             Action::Help => "help",
             Action::Back => "back",
@@ -269,6 +311,13 @@ impl Action {
         match self {
             Action::Palette | Action::Help | Action::Quit | Action::Shutdown => Context::Global,
             Action::Back => Context::Detail,
+            Action::AddSubmit
+            | Action::AddNextField
+            | Action::AddPrevField
+            | Action::AddBrowseFiles
+            | Action::AddPasteClipboard
+            | Action::AddToggleMirror
+            | Action::AddPickDir => Context::Add,
             _ => Context::Downloads,
         }
     }
@@ -293,6 +342,7 @@ impl Action {
                 | Action::LimitDown
                 | Action::SetMaxConcurrent
                 | Action::Shutdown
+                | Action::AddPickDir
         )
     }
 }

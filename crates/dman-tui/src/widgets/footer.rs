@@ -13,6 +13,11 @@ pub fn hints(state: &State) -> Vec<(String, String)> {
     if let Some(m) = &state.modal {
         return m.hints();
     }
+    if let crate::views::View::Add(a) = state.view()
+        && let Some(h) = a.overlay_hints()
+    {
+        return h;
+    }
     let ctx = state.context();
     state
         .view()

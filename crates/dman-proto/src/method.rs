@@ -24,6 +24,7 @@ pub const LIMITS_GET: &str = "limits.get";
 pub const LIMITS_SET: &str = "limits.set";
 pub const STATS_GET: &str = "stats.get";
 pub const STATS_HISTORY: &str = "stats.history";
+pub const FS_LIST: &str = "fs.list";
 pub const ENGINE_STATUS: &str = "engine.status";
 pub const ENGINE_RESTART: &str = "engine.restart";
 pub const DAEMON_SHUTDOWN: &str = "daemon.shutdown";
@@ -124,6 +125,40 @@ pub struct LimitsUpdate {
     pub download: Option<u64>,
     pub upload: Option<u64>,
     pub max_concurrent: Option<u32>,
+}
+
+/// `fs.list`: list a directory of the daemon host (for directory pickers).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FsListParams {
+    /// Directory to list; `None` = the profile's download directory (or its
+    /// nearest existing ancestor). A leading `~` is expanded.
+    pub path: Option<String>,
+    /// Only return directories.
+    pub dirs_only: bool,
+}
+
+/// One entry of an [`FsListing`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsEntry {
+    pub name: String,
+    pub is_dir: bool,
+    /// Bytes of a file; `None` for directories or when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+}
+
+/// Result of `fs.list`: directories first, then files, each sorted by name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FsListing {
+    /// Canonical path of the listed directory.
+    pub path: String,
+    /// Canonical parent; `None` at the filesystem root.
+    pub parent: Option<String>,
+    pub entries: Vec<FsEntry>,
+    /// More entries existed than the daemon returns (cap 2000).
+    #[serde(default)]
+    pub truncated: bool,
 }
 
 /// State of an engine process.

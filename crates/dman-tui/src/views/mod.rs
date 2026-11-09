@@ -34,7 +34,7 @@ pub enum View {
     /// Key bindings.
     Help(help::HelpState),
     /// Add downloads.
-    Add(add::AddState),
+    Add(Box<add::AddState>),
 }
 
 impl View {
@@ -54,7 +54,7 @@ impl View {
             View::Downloads => downloads::FOOTER,
             View::Detail(_) => &[Action::Back, Action::Help, Action::Quit],
             View::Help(_) => &[Action::Down, Action::Up, Action::PageDown, Action::Back],
-            View::Add(_) => &[Action::Back, Action::Help],
+            View::Add(_) => add::FOOTER,
         }
     }
 }
@@ -101,10 +101,13 @@ pub fn on_mouse(state: &mut State, m: MouseEvent) -> Vec<Cmd> {
 /// Bracketed paste outside a modal.
 pub fn on_paste(state: &mut State, text: &str) -> Vec<Cmd> {
     match state.view() {
-        View::Add(_) => add::on_paste(state, text),
+        View::Add(_) => return add::on_paste(state, text),
         View::Downloads => {
             // Pasting links into the list opens the add view with them.
-            state.views.push(View::Add(add::AddState::with_text(text)));
+            let mut a = add::AddState::with_text(text);
+            let cmds = a.check_cmds();
+            state.views.push(View::Add(Box::new(a)));
+            return cmds;
         }
         View::Detail(_) | View::Help(_) => state.dirty = false,
     }

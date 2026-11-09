@@ -9,6 +9,7 @@ mod add;
 mod control;
 mod detail;
 mod events;
+mod fs;
 mod poll;
 mod remove;
 mod scheduler;
@@ -24,8 +25,8 @@ use std::time::Duration;
 use dman_aria2::{Aria2Client, Aria2Notification, DownloadStatus, EngineState};
 use dman_config::Profile;
 use dman_proto::method::{
-    BatchResult, EngineStatus, Event, Level, LimitsUpdate, ListParams, RemoveParams, ReorderParams,
-    SetOptionsParams,
+    BatchResult, EngineStatus, Event, FsListParams, Level, LimitsUpdate, ListParams, RemoveParams,
+    ReorderParams, SetOptionsParams,
 };
 use dman_proto::{AddParams, Engine, ErrorCode, Job, JobId, JobState, Limits, RpcError};
 use dman_store::{Desired, JobRecord, LiveFigures, Store};
@@ -73,6 +74,8 @@ pub enum Request {
     StatsHistory,
     /// `engine.status`
     EngineStatus,
+    /// `fs.list`
+    FsList(FsListParams),
     /// A [`Event::Snapshot`] (for `session.subscribe`).
     Snapshot,
 }
@@ -500,6 +503,7 @@ impl Manager {
             Request::Stats => to_value(self.stats()),
             Request::StatsHistory => to_value(self.history.global()),
             Request::EngineStatus => to_value(vec![self.engine.clone()]),
+            Request::FsList(p) => to_value(fs::list(&self.profile, p).await?),
             Request::Snapshot => {
                 // Bring every subscriber's baseline in line with what was sent.
                 self.emit_changes();

@@ -373,6 +373,14 @@ macro_rules! typed_api {
             self.call(method::ENGINE_STATUS, ()).await
         }
 
+        /// `fs.list`: list a directory on the daemon host.
+        pub async fn fs_list(
+            &self,
+            params: method::FsListParams,
+        ) -> Result<method::FsListing, ClientError> {
+            self.call(method::FS_LIST, params).await
+        }
+
         /// `daemon.shutdown`
         pub async fn shutdown(&self) -> Result<(), ClientError> {
             self.call::<_, Value>(method::DAEMON_SHUTDOWN, ())

@@ -184,10 +184,57 @@ fn spawn_cmd(cmd: Cmd, client: &ReconnectingClient, tx: &mpsc::Sender<Msg>) {
                 Msg::ActionResult { call, result }
             }
             Cmd::Resync => resync(&client).await,
+            Cmd::ReadDir(path) => Msg::LocalDir(
+                blocking(move || views::add::browser::read_local_dir(path.as_deref()))
+                    .await
+                    .and_then(|r| r),
+            ),
+            Cmd::CheckPaths(paths) => Msg::PathsChecked(
+                blocking(move || {
+                    paths
+                        .into_iter()
+                        .map(|p| {
+                            let s = views::add::source::check_path(&p);
+                            (p, s)
+                        })
+                        .collect()
+                })
+                .await
+                .unwrap_or_default(),
+            ),
+            Cmd::ReadFiles(paths) => Msg::FilesRead(
+                blocking(move || {
+                    paths
+                        .into_iter()
+                        .map(|p| {
+                            let r = views::add::source::read_file(&p);
+                            (p, r)
+                        })
+                        .collect()
+                })
+                .await
+                .unwrap_or_default(),
+            ),
+            Cmd::ReadClipboard => Msg::Clipboard(blocking(read_clipboard).await.and_then(|r| r)),
             Cmd::Quit => return,
         };
         let _ = tx.send(msg).await;
     });
+}
+
+/// Run blocking work off the async threads.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("background task failed: {e}"))
+}
+
+/// Text from the system clipboard (decision D17). Fails on headless hosts and
+/// over SSH, where the terminal's own paste has to be used.
+fn read_clipboard() -> Result<String, String> {
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.get_text())
+        .map_err(|e| e.to_string())
 }
 
 async fn resync(client: &ReconnectingClient) -> Msg {

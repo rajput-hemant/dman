@@ -13,6 +13,7 @@
 //! Modals are drawn after the view, so live data keeps rendering underneath.
 
 pub mod confirm;
+pub mod editor;
 pub mod footer;
 pub mod input;
 pub mod palette;

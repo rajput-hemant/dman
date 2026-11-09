@@ -1,0 +1,44 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 120, 40)"
+---
+ dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
+┌ Sources ─────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                                      │
+│Paste or type URLs, magnet links or .torrent/.metalink paths, one per line.                                           │
+│Ctrl-o browses┌ Add local file · 2 marked ─────────────────────────────────────────────────────────────┐              │
+│              │/home/me/torrents                                                                       │              │
+│              │                                                                                        │              │
+│              │    archive/                                                                            │              │
+│              │    linux/                                                                              │              │
+│              │[x] debian-13.2.0-netinst.iso.torrent                                           40.0 KiB│              │
+│              │[x] ubuntu-24.04.torrent                                                        45.0 KiB│              │
+│              │    pack.meta4                                                                   1.2 KiB│              │
+│              │                                                                                        │              │
+│              │                                                                                        │              │
+└──────────────│                                                                                        │──────────────┘
+┌ Options (empt│                                                                                        │──────────────┐
+│  Mirror      │                                                                                        │              │
+│  Directory   │                                                                                        │              │
+│  Output name │                                                                                        │              │
+│  Start paused│                                                                                        │              │
+│  Down limit  │                                                                                        │              │
+│  Up limit    │                                                                                        │              │
+│  Conn/server │                                                                                        │              │
+│  Split       │                                                                                        │              │
+│  Seed ratio  │                                                                                        │              │
+│  Seed minutes│                                                                                        │              │
+│  Sequential  │                                                                                        │              │
+│  Select files│                                                                                        │              │
+│  User agent  │                                                                                        │              │
+│  Referer     │                                                                                        │              │
+│  Headers     │                                                                                        │              │
+│  Proxy       │                                                                                        │              │
+│  Checksum    │                                                                                        │              │
+│  Engine opts └────────────────────────────────────────────────────────────────────────────────────────┘              │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ Enter open/pick  Space mark  ⌫/h up  . all files  Esc close

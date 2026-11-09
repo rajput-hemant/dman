@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 29 %** · Current milestone: **M2 — TUI core** · Last updated: 2026-11-09
+**Overall: 32 %** · Current milestone: **M3 — detail and control** · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -19,8 +19,8 @@ commit this file together with the code it describes.
 | --- | --- | --- |
 | M0 Spikes (de-risk aria2/yt-dlp behaviour, size baseline) | 5 | done |
 | M1 Foundation (workspace, proto, config, aria2 client, daemon lifecycle, API, basic CLI) | 15 | done |
-| M2 TUI core (loop, keymap, palette, downloads view, add view, confirmations) | 12 | in progress |
-| M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | — |
+| M2 TUI core (loop, keymap, palette, downloads view, add view, confirmations) | 12 | done |
+| M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | in progress |
 | M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | — |
 | M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | — |
 | M6 Video engine (yt-dlp adapter, probe UI, options, fallbacks) | 10 | — |
@@ -50,13 +50,18 @@ commit this file together with the code it describes.
 - [x] Keymap system: Action enum, per-view contexts, vim + arrow defaults, config overrides (crokey), help screen (`?`), contextual footer; test: every Action has a binding and a palette entry
 - [x] Downloads view: table (name, status, progress, speed, ETA, sizes, peers/seeds, ratio, dir, source), sort keys, fuzzy filter (nucleo-matcher), multi-select, paged stopped section, global status line (speeds, counts, last result/error, disk free)
 - [x] Command palette (fuzzy, every operation) + confirmation dialogs (double confirm for delete-files)
-- [ ] Add view: text input (tui-input, bracketed paste), multiple links, file browser for .torrent/.metalink starting at cwd, clipboard (arboard), per-add options form, preview before confirm
+- [x] Add view: text input (tui-input, bracketed paste), multiple links, file browser for .torrent/.metalink starting at cwd, clipboard (arboard), per-add options form, preview before confirm
 - [x] Disconnected state (greyed, actions disabled), engine-unavailable banner, theme + NO_COLOR, optional mouse
 - [x] Wire bare `dman` to start/attach the daemon and open the TUI; insta snapshot tests at 80×24 and 120×40
 
 ### M3 — Detail and control (10 %) — pulled-forward backend
 - [x] Backend: `jobs.detail` (files, peers, trackers [status unknown, D13], piece map, comment, options, per-job speed history), `stats.history`; CLI `dman get <id> --files --peers`
-- [ ] (rest of M3 is listed when M2 finishes)
+- [ ] Detail view in TUI: tabs Files (progress, size, selection toggles while not started), Peers, Trackers (status unknown), Pieces (piece map), Speed (per-job graph), Options (editable while waiting/paused; refuse with reason when active)
+- [ ] Rename: waiting/paused → `out`/`index-out` (full mapping, spike); completed → move on disk + record in rename log; never for active (reason shown). API `jobs.rename`, TUI dialog, CLI `dman rename`
+- [ ] Magnet file selection before start: `jobs.preview`/metadata-only flow (spike: bt-metadata-only + bt-save-metadata, then addTorrent with select-file) in daemon + TUI Add preview
+- [ ] Runtime limits: per-download limit changes from TUI; global limits/max-concurrent persisted to config (ConfigDoc), CLI already has `limit`/`max-concurrent`
+- [ ] Global speed graph in downloads view (toggle), engine shutdown from UI already exists — verify
+- [ ] Help screen lists popup keys; Esc in a non-empty Add form asks before discarding
 
 ### M4 … M8
 Detailed task lists are written when the previous milestone finishes.
@@ -161,4 +166,4 @@ scraper 0.29 · quick-xml 0.42 · redb 4.5 · notify-rust 4.19 · insta · asser
 
 ## Session log
 
-- 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 done; M1 done (135 tests).
+- 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 done; M1 done (135 tests); M2 done (278 tests).

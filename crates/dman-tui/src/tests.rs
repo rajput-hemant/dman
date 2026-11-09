@@ -549,7 +549,7 @@ fn mouse_click_and_wheel() {
 fn paste_in_list_opens_add_view() {
     let mut s = state();
     update(&mut s, Msg::Paste("magnet:?xt=urn:btih:abc".into()));
-    assert!(matches!(s.view(), View::Add(a) if a.text.starts_with("magnet:")));
+    assert!(matches!(s.view(), View::Add(a) if a.sources.text().starts_with("magnet:")));
     code(&mut s, KeyCode::Esc);
     assert!(matches!(s.view(), View::Downloads));
 }
@@ -722,4 +722,514 @@ fn offline_rows_are_greyed() {
         .find(|x| buf[(*x, job_row)].symbol() == "a" && buf[(*x + 1, job_row)].symbol() == "c")
         .expect("status cell");
     assert_eq!(buf[(status_x, job_row)].fg, dim.expect("dim colour"));
+}
+
+// ------------------------------------------------------------------ add view
+
+mod add_view {
+    use super::*;
+    use crate::views::add::browser::{BrowseEntry, LocalListing, read_local_dir};
+    use crate::views::add::source::PathStatus;
+    use crate::views::add::{Focus, Overlay};
+    use dman_proto::method::{FsEntry, FsListParams, FsListing};
+    use dman_proto::{AddOutcome, AddParams, AddSource};
+    use std::path::PathBuf;
+
+    const TORRENT: &[u8] = b"d4:infod5:filesld6:lengthi3e4:pathl1:a1:xeed6:lengthi4e4:pathl1:beee4:name3:dir12:piece lengthi16384e6:pieces40:AAAAAAAAAAAAAAAAAAAABBBBBBBBBBBBBBBBBBBBee";
+
+    fn open() -> State {
+        let mut s = state();
+        key(&mut s, 'a');
+        assert!(matches!(s.view(), View::Add(_)));
+        s
+    }
+
+    fn ctrl(s: &mut State, c: char) -> Vec<Cmd> {
+        press(s, KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn type_lines(s: &mut State, lines: &[&str]) {
+        for (i, l) in lines.iter().enumerate() {
+            if i > 0 {
+                code(s, KeyCode::Enter);
+            }
+            typed(s, l);
+        }
+    }
+
+    fn add(s: &State) -> &crate::views::add::AddState {
+        match s.view() {
+            View::Add(a) => a,
+            v => panic!("not the add view: {v:?}"),
+        }
+    }
+
+    fn add_call(cmds: &[Cmd]) -> AddParams {
+        match cmds {
+            [Cmd::Api(ApiCall::Add(p))] => (**p).clone(),
+            other => panic!("expected an add call, got {other:?}"),
+        }
+    }
+
+    fn added(id: u64) -> AddOutcome {
+        AddOutcome::Added {
+            id: JobId(id),
+            extra_ids: vec![],
+        }
+    }
+
+    fn failed(msg: &str) -> AddOutcome {
+        AddOutcome::Failed {
+            error: dman_proto::RpcError::invalid(msg),
+        }
+    }
+
+    #[test]
+    fn typing_keeps_keys_as_text_and_esc_leaves() {
+        let mut s = open();
+        // `q`, `p`, `:` and `?` are text, not actions.
+        typed(&mut s, "qp:?");
+        assert_eq!(add(&s).sources.text(), "qp:?");
+        code(&mut s, KeyCode::Esc);
+        assert!(matches!(s.view(), View::Downloads));
+    }
+
+    #[test]
+    fn multi_line_paste_and_edit() {
+        let mut s = open();
+        update(
+            &mut s,
+            Msg::Paste("http://a/1\r\nhttp://a/2\nmagnet:?xt=urn:btih:abc".into()),
+        );
+        assert_eq!(add(&s).sources.lines().len(), 3);
+        code(&mut s, KeyCode::Up);
+        press(&mut s, KeyCode::End, KeyModifiers::NONE);
+        typed(&mut s, "x");
+        assert_eq!(add(&s).sources.lines()[1], "http://a/2x");
+        press(&mut s, KeyCode::Left, KeyModifiers::CONTROL);
+        assert_eq!(add(&s).sources.cursor(), (1, 9));
+    }
+
+    #[test]
+    fn empty_and_unsupported_sources_are_refused() {
+        let mut s = open();
+        assert!(ctrl(&mut s, 's').is_empty());
+        assert!(status_text(&s).contains("Nothing to add"));
+        typed(&mut s, "file:///x/y.iso");
+        assert!(ctrl(&mut s, 's').is_empty());
+        assert!(
+            status_text(&s).contains("Cannot add"),
+            "{}",
+            status_text(&s)
+        );
+        assert!(add(&s).overlay.is_none());
+    }
+
+    #[test]
+    fn preview_then_confirm_adds_and_returns_to_list() {
+        let mut s = open();
+        type_lines(
+            &mut s,
+            &["https://example.org/a.iso", "magnet:?xt=urn:btih:abc"],
+        );
+        assert!(ctrl(&mut s, 's').is_empty());
+        let Some(Overlay::Preview(p)) = &add(&s).overlay else {
+            panic!("no preview")
+        };
+        assert_eq!(p.items.len(), 2);
+        // Esc closes the preview only.
+        code(&mut s, KeyCode::Esc);
+        assert!(add(&s).overlay.is_none());
+        ctrl(&mut s, 's');
+        let cmds = code(&mut s, KeyCode::Enter);
+        let params = add_call(&cmds);
+        assert_eq!(params.sources.len(), 2);
+        assert!(!params.paused);
+        assert_eq!(s.pending, 1);
+        // A second submit while in flight is refused.
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::Add(Box::new(params)),
+                result: Ok(ApiReply::Added(vec![added(10), added(11)])),
+            },
+        );
+        assert!(matches!(s.view(), View::Downloads), "back to the list");
+        assert_eq!(status_text(&s), "Added 2 downloads");
+    }
+
+    #[test]
+    fn partial_failure_keeps_failed_sources() {
+        let mut s = open();
+        type_lines(&mut s, &["http://a/ok", "http://a/bad http://a/ok2"]);
+        ctrl(&mut s, 's');
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        assert_eq!(params.sources.len(), 3);
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::Add(Box::new(params)),
+                result: Ok(ApiReply::Added(vec![added(1), failed("refused"), added(2)])),
+            },
+        );
+        assert!(matches!(s.view(), View::Add(_)));
+        assert_eq!(add(&s).sources.lines(), ["http://a/bad"]);
+        assert_eq!(status_text(&s), "Added 2, 1 failed: refused");
+        assert!(add(&s).submitting.is_none());
+    }
+
+    #[test]
+    fn mirror_toggle_groups_uris() {
+        let mut s = open();
+        type_lines(
+            &mut s,
+            &["http://a/f", "https://b/f", "magnet:?xt=urn:btih:abc"],
+        );
+        ctrl(&mut s, 't');
+        ctrl(&mut s, 's');
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        assert_eq!(params.sources.len(), 2);
+        assert!(matches!(&params.sources[0], AddSource::Uris { uris } if uris.len() == 2));
+    }
+
+    #[test]
+    fn options_are_validated_and_sent() {
+        let mut s = open();
+        typed(&mut s, "http://a/f");
+        // Tab to the options form: Mirror, then Directory.
+        code(&mut s, KeyCode::Tab);
+        assert_eq!(
+            add(&s).focus,
+            Focus::Field(crate::views::add::options::Field::Mirror)
+        );
+        code(&mut s, KeyCode::Down);
+        typed(&mut s, "/data/x");
+        code(&mut s, KeyCode::Down); // output name
+        code(&mut s, KeyCode::Down); // paused
+        key(&mut s, ' ');
+        code(&mut s, KeyCode::Down); // down limit
+        typed(&mut s, "fast");
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(
+            status_text(&s).contains("Down limit"),
+            "{}",
+            status_text(&s)
+        );
+        assert!(add(&s).overlay.is_none());
+        for _ in 0..4 {
+            code(&mut s, KeyCode::Backspace);
+        }
+        typed(&mut s, "2MiB");
+        // Enter in a single-line field previews.
+        code(&mut s, KeyCode::Enter);
+        assert!(matches!(add(&s).overlay, Some(Overlay::Preview(_))));
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        assert!(params.paused);
+        assert_eq!(params.options.dir.as_deref(), Some("/data/x"));
+        assert_eq!(params.options.max_download_limit, Some(2 << 20));
+        // Shift-Tab goes back.
+        let mut s = open();
+        press(&mut s, KeyCode::BackTab, KeyModifiers::SHIFT);
+        assert_eq!(
+            add(&s).focus,
+            Focus::Field(crate::views::add::options::Field::Engine)
+        );
+    }
+
+    #[test]
+    fn local_torrent_flow_reads_and_uploads() {
+        let mut s = open();
+        let path = "/home/me/dir.torrent";
+        let cmds = update(&mut s, Msg::Paste(path.into()));
+        assert_eq!(cmds, vec![Cmd::CheckPaths(vec![path.into()])]);
+        update(
+            &mut s,
+            Msg::PathsChecked(vec![(path.into(), PathStatus::Ready { size: 100 })]),
+        );
+        let cmds = ctrl(&mut s, 's');
+        assert_eq!(cmds, vec![Cmd::ReadFiles(vec![path.into()])]);
+        let mut files = crate::views::add::preview::Loaded::new();
+        files.insert(path.into(), Ok(TORRENT.to_vec()));
+        update(&mut s, Msg::FilesRead(files));
+        let Some(Overlay::Preview(p)) = &add(&s).overlay else {
+            panic!("no preview")
+        };
+        assert_eq!(p.items[0].name, "dir");
+        assert_eq!(p.items[0].size, Some(7));
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        assert!(
+            matches!(&params.sources[0], AddSource::Torrent { name, .. } if name == "dir.torrent")
+        );
+    }
+
+    #[test]
+    fn unreadable_local_file_blocks_confirm() {
+        let mut s = open();
+        update(&mut s, Msg::Paste("/nope/x.torrent".into()));
+        ctrl(&mut s, 's');
+        let mut files = crate::views::add::preview::Loaded::new();
+        files.insert("/nope/x.torrent".into(), Err("not found".into()));
+        update(&mut s, Msg::FilesRead(files));
+        assert!(code(&mut s, KeyCode::Enter).is_empty(), "blocked");
+        assert!(matches!(add(&s).overlay, Some(Overlay::Preview(_))));
+    }
+
+    #[test]
+    fn file_browser_adds_paths() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("one.torrent"), b"x").unwrap();
+        std::fs::write(d.path().join("two.metalink"), b"x").unwrap();
+        let mut s = open();
+        let cmds = ctrl(&mut s, 'o');
+        assert_eq!(cmds, vec![Cmd::ReadDir(None)]);
+        update(&mut s, Msg::LocalDir(read_local_dir(Some(d.path()))));
+        // Typing is not text while the browser is open; Space marks and moves.
+        key(&mut s, ' ');
+        key(&mut s, ' ');
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(cmds.len(), 1, "check for the new paths: {cmds:?}");
+        assert!(add(&s).overlay.is_none());
+        let text = add(&s).sources.text();
+        assert!(
+            text.contains("one.torrent") && text.contains("two.metalink"),
+            "{text}"
+        );
+        assert_eq!(add(&s).sources.lines().len(), 3, "trailing empty line");
+    }
+
+    #[test]
+    fn clipboard_success_and_failure() {
+        let mut s = open();
+        assert_eq!(ctrl(&mut s, 'v'), vec![Cmd::ReadClipboard]);
+        update(&mut s, Msg::Clipboard(Ok("http://a/1\nhttp://a/2".into())));
+        assert_eq!(add(&s).sources.lines().len(), 2);
+        update(&mut s, Msg::Clipboard(Err("no display".into())));
+        let t = status_text(&s);
+        assert!(t.contains("no display") && t.contains("terminal"), "{t}");
+        assert!(s.status.last_error.is_some());
+        update(&mut s, Msg::Clipboard(Ok("  ".into())));
+        assert!(status_text(&s).contains("empty"));
+    }
+
+    #[test]
+    fn directory_picker_uses_the_daemon() {
+        let mut s = open();
+        let cmds = ctrl(&mut s, 'f');
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::FsList(FsListParams {
+                path: None,
+                dirs_only: true
+            }))]
+        );
+        let listing = FsListing {
+            path: "/srv/dl".into(),
+            parent: Some("/srv".into()),
+            entries: vec![FsEntry {
+                name: "tv".into(),
+                is_dir: true,
+                size: None,
+            }],
+            truncated: false,
+        };
+        let call = ApiCall::FsList(FsListParams::default());
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: call.clone(),
+                result: Ok(ApiReply::Listing(listing)),
+            },
+        );
+        // Enter descends through the daemon.
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::FsList(FsListParams {
+                path: Some("/srv/dl/tv".into()),
+                dirs_only: true
+            }))]
+        );
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call,
+                result: Err("fs.list: not found".into()),
+            },
+        );
+        key(&mut s, '~');
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::FsList(FsListParams::default()),
+                result: Ok(ApiReply::Listing(FsListing {
+                    path: "/srv/dl".into(),
+                    parent: None,
+                    entries: vec![],
+                    truncated: false,
+                })),
+            },
+        );
+        key(&mut s, ' ');
+        assert!(add(&s).overlay.is_none());
+        assert_eq!(
+            add(&s)
+                .form
+                .editor(crate::views::add::options::Field::Dir)
+                .map(|e| e.text()),
+            Some("/srv/dl".to_owned())
+        );
+        // Offline: refused with a message.
+        disconnect(&mut s);
+        assert!(ctrl(&mut s, 'f').is_empty());
+        assert!(status_text(&s).contains("disabled"));
+        assert!(add(&s).overlay.is_none());
+    }
+
+    #[test]
+    fn palette_actions_open_the_view_from_the_list() {
+        let mut s = state();
+        key(&mut s, ':');
+        typed(&mut s, "browse local");
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(cmds, vec![Cmd::ReadDir(None)]);
+        assert!(matches!(add(&s).overlay, Some(Overlay::Files(_))));
+    }
+
+    #[test]
+    fn offline_confirm_keeps_the_preview() {
+        let mut s = open();
+        typed(&mut s, "http://a/f");
+        ctrl(&mut s, 's');
+        disconnect(&mut s);
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(matches!(add(&s).overlay, Some(Overlay::Preview(_))));
+        assert!(add(&s).submitting.is_none());
+    }
+
+    // ------------------------------------------------------------ snapshots
+
+    fn mixed() -> State {
+        let mut s = open();
+        type_lines(
+            &mut s,
+            &[
+                "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=ubuntu",
+                "https://example.org/files/big-dataset-2026.tar.zst",
+                "ftp://mirror.example.net/pub/a.iso  ftp://mirror2.example.net/pub/a.iso",
+                "/home/me/Downloads/ubuntu-24.04.torrent",
+                "/home/me/Downloads/gone.metalink",
+                "file:///tmp/x.iso",
+            ],
+        );
+        update(
+            &mut s,
+            Msg::PathsChecked(vec![
+                (
+                    "/home/me/Downloads/ubuntu-24.04.torrent".into(),
+                    PathStatus::Ready { size: 46_000 },
+                ),
+                (
+                    "/home/me/Downloads/gone.metalink".into(),
+                    PathStatus::Missing,
+                ),
+            ]),
+        );
+        s
+    }
+
+    #[test]
+    fn snapshot_add_mixed_80x24() {
+        let mut s = mixed();
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_add_mixed_120x40() {
+        let mut s = mixed();
+        code(&mut s, KeyCode::Tab);
+        code(&mut s, KeyCode::Down);
+        typed(&mut s, "/data/dl");
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Down);
+        typed(&mut s, "fast");
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+
+    fn browser_state() -> State {
+        let mut s = open();
+        ctrl(&mut s, 'o');
+        let entry = |n: &str, d: bool, sz: Option<u64>| BrowseEntry {
+            name: n.into(),
+            is_dir: d,
+            size: sz,
+        };
+        update(
+            &mut s,
+            Msg::LocalDir(Ok(LocalListing {
+                dir: PathBuf::from("/home/me/torrents"),
+                entries: vec![
+                    entry("archive", true, None),
+                    entry("linux", true, None),
+                    entry("debian-13.2.0-netinst.iso.torrent", false, Some(41_000)),
+                    entry("ubuntu-24.04.torrent", false, Some(46_080)),
+                    entry("pack.meta4", false, Some(1_200)),
+                ],
+                truncated: false,
+            })),
+        );
+        key(&mut s, 'j');
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        key(&mut s, ' ');
+        s
+    }
+
+    #[test]
+    fn snapshot_file_browser_80x24() {
+        let mut s = browser_state();
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_file_browser_120x40() {
+        let mut s = browser_state();
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+
+    fn preview_state() -> State {
+        let mut s = open();
+        let path = "/home/me/dir.torrent";
+        type_lines(
+            &mut s,
+            &[
+                "https://example.org/a.iso",
+                "magnet:?xt=urn:btih:abc&dn=Some+Movie",
+                path,
+            ],
+        );
+        code(&mut s, KeyCode::Tab);
+        code(&mut s, KeyCode::Down);
+        typed(&mut s, "/data/dl");
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Down);
+        key(&mut s, ' ');
+        ctrl(&mut s, 's');
+        let mut files = crate::views::add::preview::Loaded::new();
+        files.insert(path.into(), Ok(TORRENT.to_vec()));
+        update(&mut s, Msg::FilesRead(files));
+        s
+    }
+
+    #[test]
+    fn snapshot_preview_80x24() {
+        let mut s = preview_state();
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_preview_120x40() {
+        let mut s = preview_state();
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
 }

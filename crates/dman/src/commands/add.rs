@@ -6,7 +6,12 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use dman_proto::{AddOutcome, AddParams, AddSource, JobOptions, VideoOptions, VideoSubtitles};
 
+use std::io::IsTerminal;
+
+use dman_client::Client;
+
 use crate::cli::{AddArgs, VideoArgs};
+use crate::commands::quality;
 use crate::connect::Ctx;
 use crate::error::{CliError, batch_exit};
 
@@ -308,8 +313,80 @@ pub async fn run(ctx: &Ctx, args: &AddArgs) -> Result<i32, CliError> {
         options: build_options(args)?,
         paused: args.paused,
     };
-    let outcomes = ctx.connect().await?.add(params).await?;
+    let client = ctx.connect().await?;
+    let reads_stdin = args.sources.iter().any(|s| s == "-");
+    let mut params = params;
+    if quality::picker_allowed(
+        std::io::stdin().is_terminal(),
+        std::io::stdout().is_terminal(),
+        ctx.json,
+        args.yes,
+        reads_stdin,
+        &args.video,
+    ) {
+        choose_qualities(&client, &mut params).await?;
+    }
+    let outcomes = client.add(params).await?;
     report(&labels, &outcomes, ctx.json)
+}
+
+/// The quality flow for every video source without an explicit choice:
+/// preferences, probe, picker, saved defaults. Playlists and sources that need
+/// no choice keep the daemon's defaults.
+async fn choose_qualities(client: &Client, params: &mut AddParams) -> Result<(), CliError> {
+    let wanted = |s: &AddSource| {
+        matches!(s, AddSource::Video { video, .. }
+            if video.quality.is_none() && video.format_id.is_none() && video.audio_only.is_none()
+                && !video.playlist && video.playlist_items.is_none())
+    };
+    if !params.sources.iter().any(wanted) {
+        return Ok(());
+    }
+    if !client.video_preferences().await?.ask_quality {
+        return Ok(());
+    }
+    let mut never_ask = false;
+    for source in &mut params.sources {
+        if never_ask || !wanted(source) {
+            continue;
+        }
+        let AddSource::Video { url, video } = source else {
+            continue;
+        };
+        eprintln!("checking the available qualities of {url} ...");
+        let probe = client
+            .video_probe(dman_proto::VideoProbeParams {
+                url: url.clone(),
+                playlist: false,
+                cookies_from_browser: video.cookies_from_browser.clone(),
+            })
+            .await?;
+        if probe.playlist {
+            eprintln!(
+                "{url} is a playlist: using your defaults (choose items with --playlist-items, a quality with --quality)"
+            );
+            continue;
+        }
+        if !probe.needs_choice {
+            continue;
+        }
+        let answers =
+            quality::run_picker(&probe, &mut std::io::stdin().lock(), &mut std::io::stderr())?;
+        video.format_id = Some(answers.picked.format_id.clone());
+        if let Some(update) = answers.update {
+            let saved = client.video_preferences_set(update).await?;
+            if answers.never_ask {
+                never_ask = true;
+                eprintln!("{}", quality::NEVER_ASK_HINT);
+            } else {
+                eprintln!(
+                    "saved defaults: quality {}, audio {}",
+                    saved.default_quality, saved.default_audio
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 /// `dman probe <url>`: formats, subtitles, playlist entries and quality plans.

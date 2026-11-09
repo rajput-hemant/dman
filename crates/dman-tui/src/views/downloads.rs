@@ -287,21 +287,13 @@ pub fn confirm_remove_ids(state: &mut State, ids: Vec<JobId>, delete_files: bool
         delete_files,
     };
     let dialog = if delete_files {
-        lines.push(String::new());
-        lines.push("Next you will be asked to confirm deleting the files.".into());
-        let second = ConfirmState::typed(
-            "Really delete the files?",
-            vec![
-                format!("This permanently DELETES the files of {what} from disk."),
-                "It cannot be undone.".into(),
-            ],
-            call,
-        );
         lines.insert(
             0,
             format!("Removes {what} from the list AND deletes the files from disk:"),
         );
-        ConfirmState::then(format!("Remove and DELETE files of {what}?"), lines, second)
+        lines.push(String::new());
+        lines.push("This permanently deletes the files. It cannot be undone.".into());
+        ConfirmState::yes_no(format!("Remove and DELETE files of {what}?"), lines, call)
     } else {
         lines.push(String::new());
         let d = state

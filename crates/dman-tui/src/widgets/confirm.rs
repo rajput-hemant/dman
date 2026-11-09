@@ -1,8 +1,8 @@
 //! Confirmation dialogs for destructive actions.
 //!
-//! A dialog either asks for `y`/`n`, or (for the second confirmation of
-//! deleting files) for a typed word. Confirming either runs an [`ApiCall`] or
-//! opens the next dialog in a chain.
+//! A dialog asks for `y`/`n` once (also for deleting files; the user decided
+//! against a second typed confirmation). Confirming runs an [`ApiCall`] or an
+//! action.
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
@@ -13,33 +13,13 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use crate::action::Action;
 use crate::api::ApiCall;
 use crate::theme::Theme;
-use crate::widgets::input::LineInput;
 use crate::widgets::{ModalOutcome, centered};
-
-/// The word to type before files are deleted.
-pub const DELETE_WORD: &str = "DELETE";
-
-/// How the user confirms.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConfirmMode {
-    /// Press `y` or Enter to confirm, `n` or Esc to cancel.
-    YesNo,
-    /// Type `word` and press Enter; Esc cancels.
-    Typed {
-        /// Required word.
-        word: &'static str,
-        /// What was typed so far.
-        input: LineInput,
-    },
-}
 
 /// What happens on confirmation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ConfirmNext {
     /// Run this call.
     Call(ApiCall),
-    /// Ask again with this dialog.
-    Then(Box<ConfirmState>),
     /// Leave the top view, dropping what was typed in it.
     LeaveView,
     /// Run an action in the top view.
@@ -53,8 +33,6 @@ pub struct ConfirmState {
     pub title: String,
     /// Body lines.
     pub lines: Vec<String>,
-    /// y/n or typed.
-    pub mode: ConfirmMode,
     /// What confirming does.
     pub next: ConfirmNext,
 }
@@ -65,18 +43,7 @@ impl ConfirmState {
         Self {
             title: title.into(),
             lines,
-            mode: ConfirmMode::YesNo,
             next: ConfirmNext::Call(call),
-        }
-    }
-
-    /// A y/n dialog that opens `next` when confirmed.
-    pub fn then(title: impl Into<String>, lines: Vec<String>, next: ConfirmState) -> Self {
-        Self {
-            title: title.into(),
-            lines,
-            mode: ConfirmMode::YesNo,
-            next: ConfirmNext::Then(Box::new(next)),
         }
     }
 
@@ -85,7 +52,6 @@ impl ConfirmState {
         Self {
             title: title.into(),
             lines,
-            mode: ConfirmMode::YesNo,
             next: ConfirmNext::LeaveView,
         }
     }
@@ -95,48 +61,16 @@ impl ConfirmState {
         Self {
             title: title.into(),
             lines,
-            mode: ConfirmMode::YesNo,
             next: ConfirmNext::Run(action),
-        }
-    }
-
-    /// A dialog that requires typing [`DELETE_WORD`].
-    pub fn typed(title: impl Into<String>, lines: Vec<String>, call: ApiCall) -> Self {
-        Self {
-            title: title.into(),
-            lines,
-            mode: ConfirmMode::Typed {
-                word: DELETE_WORD,
-                input: LineInput::default(),
-            },
-            next: ConfirmNext::Call(call),
         }
     }
 
     /// Handle a key.
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalOutcome {
-        match &mut self.mode {
-            ConfirmMode::YesNo => match key.code {
-                KeyCode::Char('y' | 'Y') | KeyCode::Enter => self.confirmed(),
-                KeyCode::Char('n' | 'N' | 'q') | KeyCode::Esc => ModalOutcome::Close,
-                _ => ModalOutcome::Stay,
-            },
-            ConfirmMode::Typed { word, input } => match key.code {
-                KeyCode::Esc => ModalOutcome::Close,
-                KeyCode::Enter if input.text() == *word => self.confirmed(),
-                KeyCode::Enter => ModalOutcome::Stay,
-                _ => {
-                    input.handle_key(key);
-                    ModalOutcome::Stay
-                }
-            },
-        }
-    }
-
-    /// Handle pasted text (only typed dialogs accept it).
-    pub fn paste(&mut self, text: &str) {
-        if let ConfirmMode::Typed { input, .. } = &mut self.mode {
-            input.insert_str(text);
+        match key.code {
+            KeyCode::Char('y' | 'Y') | KeyCode::Enter => self.confirmed(),
+            KeyCode::Char('n' | 'N' | 'q') | KeyCode::Esc => ModalOutcome::Close,
+            _ => ModalOutcome::Stay,
         }
     }
 
@@ -145,50 +79,31 @@ impl ConfirmState {
             ConfirmNext::Call(c) => ModalOutcome::Api(c.clone()),
             ConfirmNext::LeaveView => ModalOutcome::LeaveView,
             ConfirmNext::Run(a) => ModalOutcome::Run(*a),
-            ConfirmNext::Then(next) => {
-                ModalOutcome::Replace(crate::widgets::Modal::Confirm(next.as_ref().clone()))
-            }
         }
     }
 
     /// Footer hints.
     pub fn hints(&self) -> Vec<(String, String)> {
-        match self.mode {
-            ConfirmMode::YesNo => vec![
-                ("y/Enter".into(), "yes".into()),
-                ("n/Esc".into(), "no, cancel".into()),
-            ],
-            ConfirmMode::Typed { word, .. } => vec![
-                (format!("type {word} + Enter"), "confirm".into()),
-                ("Esc".into(), "cancel".into()),
-            ],
-        }
+        vec![
+            ("y/Enter".into(), "yes".into()),
+            ("n/Esc".into(), "no, cancel".into()),
+        ]
     }
 
     /// Draw the dialog centred in `area`.
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
         let mut lines: Vec<Line<'_>> = self.lines.iter().map(|l| Line::from(l.as_str())).collect();
         lines.push(Line::default());
-        match &self.mode {
-            ConfirmMode::YesNo => lines.push(Line::from(vec![
-                Span::styled("y", theme.key),
-                Span::raw(" / "),
-                Span::styled("Enter", theme.key),
-                Span::raw(" yes     "),
-                Span::styled("n", theme.key),
-                Span::raw(" / "),
-                Span::styled("Esc", theme.key),
-                Span::raw(" no"),
-            ])),
-            ConfirmMode::Typed { word, input } => {
-                lines.push(Line::from(vec![
-                    Span::raw("Type "),
-                    Span::styled(*word, theme.error),
-                    Span::raw(" and press Enter:"),
-                ]));
-                lines.push(input.line(theme, true));
-            }
-        }
+        lines.push(Line::from(vec![
+            Span::styled("y", theme.key),
+            Span::raw(" / "),
+            Span::styled("Enter", theme.key),
+            Span::raw(" yes     "),
+            Span::styled("n", theme.key),
+            Span::raw(" / "),
+            Span::styled("Esc", theme.key),
+            Span::raw(" no"),
+        ]));
         let width = area.width.min(60);
         let inner = usize::from(width.saturating_sub(2)).max(1);
         let rows: usize = lines.iter().map(|l| l.width().div_ceil(inner).max(1)).sum();
@@ -233,21 +148,5 @@ mod tests {
         );
         let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
         assert_eq!(c.handle_key(esc), ModalOutcome::Close);
-    }
-
-    #[test]
-    fn typed_requires_exact_word() {
-        let call = ApiCall::Shutdown;
-        let mut c = ConfirmState::typed("t", vec![], call.clone());
-        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
-        // `y` is just text here.
-        assert_eq!(c.handle_key(k('y')), ModalOutcome::Stay);
-        assert_eq!(c.handle_key(enter), ModalOutcome::Stay);
-        c.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-        c.paste("delete");
-        assert_eq!(c.handle_key(enter), ModalOutcome::Stay);
-        c.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
-        c.paste("DELETE");
-        assert_eq!(c.handle_key(enter), ModalOutcome::Api(call));
     }
 }

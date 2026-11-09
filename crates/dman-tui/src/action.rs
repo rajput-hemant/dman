@@ -169,6 +169,12 @@ pub enum Action {
     Back,
     /// Leave the TUI (the daemon keeps running).
     Quit,
+    /// Switch the video quality picker between "ask every time" and "use defaults".
+    VideoQualityToggle,
+    /// Set the default video quality (used when the picker is off or skipped).
+    VideoDefaultQuality,
+    /// Set the default video audio.
+    VideoDefaultAudio,
     /// Re-read config.toml in the daemon (limits, schedule, notifications, search, ...).
     ReloadConfig,
     /// Shut the daemon and its engines down.
@@ -257,6 +263,9 @@ impl Action {
         Action::Help,
         Action::Back,
         Action::Quit,
+        Action::VideoQualityToggle,
+        Action::VideoDefaultQuality,
+        Action::VideoDefaultAudio,
         Action::ReloadConfig,
         Action::Shutdown,
     ];
@@ -343,6 +352,9 @@ impl Action {
             Action::Help => "help",
             Action::Back => "back",
             Action::Quit => "quit",
+            Action::VideoQualityToggle => "video_quality_toggle",
+            Action::VideoDefaultQuality => "video_default_quality",
+            Action::VideoDefaultAudio => "video_default_audio",
             Action::ReloadConfig => "reload_config",
             Action::Shutdown => "shutdown",
         }
@@ -377,7 +389,7 @@ impl Action {
             Action::PauseAll => "Pause all",
             Action::ResumeAll => "Resume all",
             Action::Remove => "Remove from the list (keep files)",
-            Action::RemoveDelete => "Remove and DELETE the files from disk (asks twice)",
+            Action::RemoveDelete => "Remove and DELETE the files from disk (asks first)",
             Action::Purge => "Clear finished/failed downloads from the list (keep files)",
             Action::Rename => "Rename (not while active; file under cursor in Detail)",
             Action::CleanupUnselected => "Delete unselected partial files of a finished torrent",
@@ -441,6 +453,11 @@ impl Action {
             Action::Help => "Help (key bindings)",
             Action::Back => "Back / close",
             Action::Quit => "Quit the TUI (daemon keeps running)",
+            Action::VideoQualityToggle => "Video quality picker: ask every time / use defaults",
+            Action::VideoDefaultQuality => {
+                "Video default quality (best, 1080p, 720p, audio:m4a, …)"
+            }
+            Action::VideoDefaultAudio => "Video default audio (best, m4a, opus, mp3)",
             Action::ReloadConfig => "Reload config.toml",
             Action::Shutdown => "Shut down the daemon and engines",
         }
@@ -528,6 +545,9 @@ impl Action {
             Action::Help => "help",
             Action::Back => "back",
             Action::Quit => "quit",
+            Action::VideoQualityToggle => "quality picker",
+            Action::VideoDefaultQuality => "default quality",
+            Action::VideoDefaultAudio => "default audio",
             Action::ReloadConfig => "reload",
             Action::Shutdown => "shutdown",
         }
@@ -540,6 +560,9 @@ impl Action {
             Action::Palette
             | Action::Help
             | Action::Quit
+            | Action::VideoQualityToggle
+            | Action::VideoDefaultQuality
+            | Action::VideoDefaultAudio
             | Action::ReloadConfig
             | Action::Shutdown => Context::Global,
             Action::Back
@@ -607,6 +630,9 @@ impl Action {
                 | Action::Rename
                 | Action::CleanupUnselected
                 | Action::ReloadConfig
+                | Action::VideoQualityToggle
+                | Action::VideoDefaultQuality
+                | Action::VideoDefaultAudio
                 | Action::Shutdown
                 | Action::DetailToggleFile
                 | Action::DetailToggleAllFiles

@@ -135,7 +135,7 @@ impl Modal {
     pub fn paste(&mut self, text: &str, state: &mut State) {
         match self {
             Modal::Palette(p) => p.paste(text),
-            Modal::Confirm(c) => c.paste(text),
+            Modal::Confirm(_) => {}
             Modal::Prompt(p) => p.input.insert_str(text),
             Modal::Filter(f) => {
                 f.input.insert_str(text);
@@ -163,7 +163,15 @@ impl Modal {
     /// Draw the modal over `area`.
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, state: &State) {
         match self {
-            Modal::Palette(p) => p.render(frame, area, &state.theme, &state.keymap),
+            Modal::Palette(p) => {
+                p.render(
+                    frame,
+                    area,
+                    &state.theme,
+                    &state.keymap,
+                    state.video_prefs.as_ref(),
+                );
+            }
             Modal::Confirm(c) => c.render(frame, area, &state.theme),
             Modal::Prompt(p) => p.render(frame, area, &state.theme),
             // Drawn inline by the info bar.

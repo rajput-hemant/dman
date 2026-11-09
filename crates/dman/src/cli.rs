@@ -65,6 +65,7 @@ Examples:
   dman add ubuntu.torrent --dir ~/iso --paused
   dman add -i urls.txt --max-download-limit 2MiB
   dman add --mirror https://a.example/f.zip https://b.example/f.zip
+  dman add https://youtu.be/ID                     choose the quality (asks in a terminal)
   dman add https://youtu.be/ID --quality 1080p --container mkv --subs en")]
     Add(Box<AddArgs>),
     /// List downloads.
@@ -112,6 +113,11 @@ Examples:
     Config {
         #[command(subcommand)]
         cmd: ConfigCmd,
+    },
+    /// Video quality picker defaults (`dman video prefs`).
+    Video {
+        #[command(subcommand)]
+        cmd: VideoCmd,
     },
     /// Show the formats, subtitles and quality plans of a video URL (yt-dlp).
     Probe {
@@ -441,6 +447,9 @@ pub struct AddArgs {
     /// Raw engine option (repeatable).
     #[arg(short = 'o', long = "option", value_name = "KEY=VALUE")]
     pub options: Vec<String>,
+    /// Never ask: videos use the saved quality defaults (also implied by pipes and --json).
+    #[arg(long, short = 'y')]
+    pub yes: bool,
     #[command(flatten)]
     pub video: VideoArgs,
 }
@@ -581,12 +590,40 @@ pub enum ConfigCmd {
     Reload,
 }
 
+#[derive(Subcommand, Debug)]
+pub enum VideoCmd {
+    /// Show or change the quality picker settings (no flags = show).
+    #[command(after_help = "\
+Examples:
+  dman video prefs                        show the settings
+  dman video prefs --ask false            never show the picker; use the defaults
+  dman video prefs --ask true             ask before every video download again
+  dman video prefs --quality 1080p --audio m4a --container mp4")]
+    Prefs(PrefsArgs),
+}
+
+#[derive(Args, Debug, Default)]
+pub struct PrefsArgs {
+    /// Show the quality picker before downloading a video (true) or use the defaults (false).
+    #[arg(long, value_name = "BOOL")]
+    pub ask: Option<bool>,
+    /// Default quality: best, 2160p, 1440p, 1080p, 720p, 480p, audio:m4a|mp3|opus.
+    #[arg(long, value_name = "Q", add = comp::quality())]
+    pub quality: Option<String>,
+    /// Preferred audio when merging: best, m4a, opus or mp3.
+    #[arg(long, value_name = "A", add = comp::audio())]
+    pub audio: Option<String>,
+    /// Default container: mp4, mkv, webm, or `none` for yt-dlp's choice.
+    #[arg(long, value_name = "C", add = comp::container())]
+    pub container: Option<String>,
+}
+
 #[derive(Args, Debug)]
 pub struct RemoveArgs {
     /// Job IDs.
     #[arg(required = true, add = comp::job_ids_any())]
     pub ids: Vec<JobId>,
-    /// Also delete the downloaded files (asks a second time).
+    /// Also delete the downloaded files (asks once; non-interactive use needs --yes).
     #[arg(long)]
     pub delete_files: bool,
     /// Remove even if the engine does not answer a graceful stop.
@@ -653,6 +690,51 @@ mod tests {
             Some(Command::Search(a)) => *a,
             other => panic!("not a search: {other:?}"),
         }
+    }
+
+    #[test]
+    fn video_prefs_parse() {
+        let prefs = |args: &[&str]| match parse(args).unwrap().command {
+            Some(Command::Video {
+                cmd: VideoCmd::Prefs(a),
+            }) => a,
+            other => panic!("not video prefs: {other:?}"),
+        };
+        let a = prefs(&["video", "prefs"]);
+        assert_eq!(
+            (a.ask, a.quality, a.audio, a.container),
+            (None, None, None, None)
+        );
+        let a = prefs(&[
+            "video",
+            "prefs",
+            "--ask",
+            "false",
+            "--quality",
+            "1080p",
+            "--audio",
+            "opus",
+            "--container",
+            "mkv",
+        ]);
+        assert_eq!(a.ask, Some(false));
+        assert_eq!(a.quality.as_deref(), Some("1080p"));
+        assert_eq!(a.audio.as_deref(), Some("opus"));
+        assert_eq!(a.container.as_deref(), Some("mkv"));
+        assert_eq!(prefs(&["video", "prefs", "--ask", "true"]).ask, Some(true));
+        assert!(parse(&["video", "prefs", "--ask", "maybe"]).is_err());
+        assert!(parse(&["video"]).is_err());
+    }
+
+    #[test]
+    fn add_yes_flag_parses() {
+        let add = |args: &[&str]| match parse(args).unwrap().command {
+            Some(Command::Add(a)) => *a,
+            other => panic!("not add: {other:?}"),
+        };
+        assert!(!add(&["add", "https://youtu.be/x"]).yes);
+        assert!(add(&["add", "-y", "https://youtu.be/x"]).yes);
+        assert!(add(&["add", "https://youtu.be/x", "--yes"]).yes);
     }
 
     #[test]

@@ -71,7 +71,6 @@ pub async fn cleanup(ctx: &Ctx, id: JobId, yes: bool) -> Result<i32, CliError> {
             crate::format::size(found.bytes)
         ),
         yes,
-        false,
     )?;
     let done = client.cleanup_unselected(id, false).await?;
     if ctx.json {
@@ -128,7 +127,7 @@ fn is_yes(answer: &str) -> bool {
 }
 
 /// Confirm a destructive action. Must run before connecting.
-fn confirm(question: &str, yes: bool, delete_files: bool) -> Result<(), CliError> {
+fn confirm(question: &str, yes: bool) -> Result<(), CliError> {
     if yes {
         return Ok(());
     }
@@ -140,21 +139,16 @@ fn confirm(question: &str, yes: bool, delete_files: bool) -> Result<(), CliError
     if !is_yes(&ask(&format!("{question} [y/N] "))?) {
         return Err(CliError::refused("aborted"));
     }
-    if delete_files
-        && ask("Files will be deleted from disk. Type `delete` to confirm: ")? != "delete"
-    {
-        return Err(CliError::refused("aborted"));
-    }
     Ok(())
 }
 
 pub async fn remove(ctx: &Ctx, a: &RemoveArgs) -> Result<i32, CliError> {
     let what = if a.delete_files {
-        format!("Remove {} job(s) AND delete their files?", a.ids.len())
+        format!("Remove {} job(s) and delete their files?", a.ids.len())
     } else {
         format!("Remove {} job(s)?", a.ids.len())
     };
-    confirm(&what, a.yes, a.delete_files)?;
+    confirm(&what, a.yes)?;
     let params = dman_proto::method::RemoveParams {
         ids: a.ids.clone(),
         delete_files: a.delete_files,
@@ -170,7 +164,7 @@ pub async fn purge(ctx: &Ctx, a: &PurgeArgs) -> Result<i32, CliError> {
     } else {
         format!("Purge {} job(s)?", a.ids.len())
     };
-    confirm(&question, a.yes, false)?;
+    confirm(&question, a.yes)?;
     let client = ctx.connect().await?;
     let ids = if a.ids.is_empty() {
         let stopped = [JobState::Complete, JobState::Error, JobState::Removed];
@@ -227,6 +221,6 @@ mod tests {
 
     #[test]
     fn confirm_with_yes_skips_prompts() {
-        assert!(confirm("?", true, true).is_ok());
+        assert!(confirm("?", true).is_ok());
     }
 }

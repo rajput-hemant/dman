@@ -90,6 +90,52 @@ fn remove_without_yes_is_refused_before_connecting() {
 }
 
 #[test]
+fn remove_delete_files_without_yes_is_refused_when_not_interactive() {
+    let dir = config_dir();
+    dman(&dir)
+        .args(["remove", "--delete-files", "1"])
+        .assert()
+        .code(6)
+        .stderr(predicate::str::contains("without --yes"));
+}
+
+#[test]
+fn adding_a_video_without_a_terminal_never_prompts() {
+    let dir = config_dir();
+    // Piped stdin/stdout, no daemon: a plain connection error, no picker prompt.
+    dman(&dir)
+        .args(["add", "https://www.youtube.com/watch?v=abc"])
+        .assert()
+        .code(3)
+        .stderr(predicate::str::contains("Video [").not())
+        .stdout(predicate::str::contains("Video [").not());
+    dman(&dir)
+        .args(["--json", "add", "--yes", "https://youtu.be/abc"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn video_prefs_values_are_validated_before_connecting() {
+    let dir = config_dir();
+    dman(&dir)
+        .args(["video", "prefs", "--quality", "4k"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("invalid quality"));
+    dman(&dir)
+        .args(["video", "prefs", "--ask", "maybe"])
+        .assert()
+        .code(2);
+    // A valid request reaches the connection step.
+    dman(&dir)
+        .args(["video", "prefs", "--ask", "false"])
+        .assert()
+        .code(3);
+    dman(&dir).args(["video", "prefs"]).assert().code(3);
+}
+
+#[test]
 fn daemon_status_exits_3() {
     let dir = config_dir();
     dman(&dir).args(["daemon", "status"]).assert().code(3);

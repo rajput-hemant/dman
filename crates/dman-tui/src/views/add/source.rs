@@ -116,8 +116,8 @@ pub fn classify(token: &str) -> Kind {
 /// "try as video" overrides.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VideoCtx {
-    /// An `engine.status` entry for yt-dlp has arrived (until then nothing is
-    /// classified as video).
+    /// An `engine.status` entry for yt-dlp has arrived (until then yt-dlp is
+    /// assumed to be available, so known video sites are classified as video).
     pub known: bool,
     /// yt-dlp can run.
     pub available: bool,
@@ -218,11 +218,9 @@ pub fn tokens(line: &str) -> Vec<Token> {
 /// Like [`tokens`], with http(s) URLs classified for the video engine.
 pub fn tokens_with(line: &str, ctx: &VideoCtx) -> Vec<Token> {
     let mut t = tokens(line);
-    if ctx.known {
-        for tok in &mut t {
-            if matches!(tok.kind, Kind::Http | Kind::Https) {
-                tok.kind = video_kind(&tok.text, tok.kind, ctx);
-            }
+    for tok in &mut t {
+        if matches!(tok.kind, Kind::Http | Kind::Https) {
+            tok.kind = video_kind(&tok.text, tok.kind, ctx);
         }
     }
     t
@@ -230,7 +228,9 @@ pub fn tokens_with(line: &str, ctx: &VideoCtx) -> Vec<Token> {
 
 fn video_kind(text: &str, plain: Kind, ctx: &VideoCtx) -> Kind {
     let detected = looks_like_video(text);
-    if !ctx.available {
+    // Engine status not known yet: assume yt-dlp is there (the daemon answers
+    // with the reason when it is not) instead of downloading the HTML page.
+    if ctx.known && !ctx.available {
         return if detected {
             Kind::VideoUnavailable
         } else {

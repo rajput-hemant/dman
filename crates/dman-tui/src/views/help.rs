@@ -40,14 +40,7 @@ fn popups() -> Vec<(&'static str, Vec<(String, String)>)> {
         }),
         (
             "Confirmation",
-            own(&[
-                ("y / Enter", "yes, do it"),
-                ("n / Esc", "no, cancel"),
-                (
-                    "DELETE + Enter",
-                    "second confirmation before files are deleted",
-                ),
-            ]),
+            own(&[("y / Enter", "yes, do it"), ("n / Esc", "no, cancel")]),
         ),
         ("Prompt (rename, option, max concurrent)", {
             let mut h = PromptState::hints();
@@ -78,6 +71,23 @@ fn popups() -> Vec<(&'static str, Vec<(String, String)>)> {
             ]),
         ),
         ("Review before adding (Add: Enter)", Preview::key_help()),
+        (
+            "Video quality picker (video sources, before adding)",
+            own(&[
+                ("Enter", "download the selection"),
+                (
+                    "Tab / Shift-Tab",
+                    "next / previous part (video, audio, presets, checkboxes)",
+                ),
+                ("↑ ↓", "move in the list (selection follows the cursor)"),
+                ("1-5", "preset: Best, 1080p, 720p, 480p, audio only"),
+                (
+                    "u / n",
+                    "tick \"Use as my default\" / \"Never ask again\" (Space on a focused box)",
+                ),
+                ("Esc", "cancel and go back to the form"),
+            ]),
+        ),
         (
             "First-run welcome",
             own(&[

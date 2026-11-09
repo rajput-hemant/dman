@@ -108,7 +108,14 @@ impl PaletteState {
     }
 
     /// Draw the palette.
-    pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme, keymap: &Keymap) {
+    pub fn render(
+        &self,
+        frame: &mut Frame<'_>,
+        area: Rect,
+        theme: &Theme,
+        keymap: &Keymap,
+        video: Option<&dman_proto::VideoPreferences>,
+    ) {
         let wanted = u16::try_from(self.items.len())
             .unwrap_or(u16::MAX)
             .saturating_add(3);
@@ -134,7 +141,18 @@ impl PaletteState {
             .iter()
             .map(|a| {
                 let keys = keymap.label(a.home_context(), *a);
-                let title = crate::format::truncate(a.title(), title_width);
+                let mut title = a.title().to_owned();
+                if let (Action::VideoQualityToggle, Some(p)) = (a, video) {
+                    title.insert_str(
+                        0,
+                        if p.ask_quality {
+                            "[ask on] "
+                        } else {
+                            "[ask off] "
+                        },
+                    );
+                }
+                let title = crate::format::truncate(&title, title_width);
                 ListItem::new(Line::from(vec![
                     Span::raw(format!("{title:<title_width$} ")),
                     Span::styled(crate::format::truncate(&keys, key_width), theme.key),

@@ -203,28 +203,15 @@ fn remove_needs_confirmation() {
 }
 
 #[test]
-fn delete_files_needs_two_distinct_confirmations() {
+fn delete_files_asks_once() {
     let mut s = state();
     key(&mut s, 'D');
     let Some(Modal::Confirm(c)) = &s.modal else {
-        panic!("no first confirmation")
+        panic!("no confirmation")
     };
     assert_eq!(c.title, "Remove and DELETE files of 1 download?");
-    assert!(
-        key(&mut s, 'y').is_empty(),
-        "first yes only opens the second dialog"
-    );
-    let Some(Modal::Confirm(c)) = &s.modal else {
-        panic!("no second confirmation")
-    };
-    assert_eq!(c.title, "Really delete the files?");
-    // A second `y` or Enter is not enough.
-    assert!(key(&mut s, 'y').is_empty());
-    assert!(code(&mut s, KeyCode::Enter).is_empty());
-    assert!(s.modal.is_some());
-    code(&mut s, KeyCode::Backspace);
-    typed(&mut s, "DELETE");
-    let cmds = code(&mut s, KeyCode::Enter);
+    assert!(c.lines.iter().any(|l| l.contains("cannot be undone")));
+    let cmds = key(&mut s, 'y');
     assert_eq!(
         cmds,
         vec![Cmd::Api(ApiCall::Remove {
@@ -232,15 +219,21 @@ fn delete_files_needs_two_distinct_confirmations() {
             delete_files: true
         })]
     );
+    assert!(s.modal.is_none(), "no second dialog");
 }
 
 #[test]
-fn delete_files_can_be_cancelled_at_second_step() {
+fn delete_files_enter_confirms_and_esc_cancels() {
     let mut s = state();
     key(&mut s, 'D');
-    key(&mut s, 'y');
-    typed(&mut s, "DELETE");
+    let cmds = code(&mut s, KeyCode::Enter);
+    assert_eq!(cmds.len(), 1);
+    assert!(s.modal.is_none());
+    key(&mut s, 'D');
     assert!(code(&mut s, KeyCode::Esc).is_empty());
+    assert!(s.modal.is_none());
+    key(&mut s, 'D');
+    assert!(key(&mut s, 'n').is_empty());
     assert!(s.modal.is_none());
 }
 
@@ -657,9 +650,50 @@ fn paste_in_list_opens_add_view() {
 }
 
 #[test]
+fn connecting_asks_for_the_engine_status() {
+    let mut s = State::new(StateOptions::default());
+    let cmds = update(
+        &mut s,
+        Msg::Conn(ConnState::Connected {
+            daemon_version: "1".into(),
+        }),
+    );
+    assert_eq!(
+        cmds,
+        vec![
+            Cmd::Api(ApiCall::EngineStatus),
+            Cmd::Api(ApiCall::VideoPrefsGet(crate::api::PrefsIntent::Cache))
+        ]
+    );
+    assert_eq!(s.pending, 0, "background refresh is not counted");
+    let status = EngineStatus {
+        engine: Engine::YtDlp,
+        available: true,
+        version: None,
+        reason: None,
+        features: vec![],
+    };
+    update(
+        &mut s,
+        Msg::ActionResult {
+            call: ApiCall::EngineStatus,
+            result: Ok(ApiReply::Engines(vec![status.clone()])),
+        },
+    );
+    assert_eq!(s.engines, vec![status]);
+}
+
+#[test]
 fn lag_resyncs_and_signals_quit() {
     let mut s = state();
-    assert_eq!(update(&mut s, Msg::Lagged), vec![Cmd::Resync]);
+    assert_eq!(
+        update(&mut s, Msg::Lagged),
+        vec![
+            Cmd::Resync,
+            Cmd::Api(ApiCall::EngineStatus),
+            Cmd::Api(ApiCall::VideoPrefsGet(crate::api::PrefsIntent::Cache))
+        ]
+    );
     assert_eq!(update(&mut s, Msg::Terminate), vec![Cmd::Quit]);
 }
 
@@ -753,8 +787,6 @@ fn snapshot_delete_confirmation_80x24() {
     key(&mut s, ' ');
     key(&mut s, ' ');
     key(&mut s, 'D');
-    key(&mut s, 'y');
-    typed(&mut s, "DEL");
     insta::assert_snapshot!(render(&mut s, 80, 24));
 }
 
@@ -4440,10 +4472,20 @@ mod video_view {
         let mut s = open(Some(engine(true, true, None)));
         lines(&mut s, &[YT, OTHER, "https://example.org/a.iso"]);
         assert_eq!(kinds(&s), [Kind::Video, Kind::Https, Kind::Https]);
-        // No engine information yet: nothing is classified.
+        // No engine information yet: known sites are still video (the daemon
+        // refuses with the reason when yt-dlp is really missing).
         let mut s = open(None);
-        lines(&mut s, &[YT]);
-        assert_eq!(kinds(&s), [Kind::Https]);
+        lines(&mut s, &[YT, "https://example.org/a.iso"]);
+        assert_eq!(kinds(&s), [Kind::Video, Kind::Https]);
+        ctrl(&mut s, 's');
+        // A video source runs the quality flow first.
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::VideoPrefsGet(
+                crate::api::PrefsIntent::Flow
+            ))]
+        );
         // yt-dlp unavailable: a hint, and the plan keeps plain http.
         let mut s = open(Some(engine(false, false, Some("yt-dlp not found in PATH"))));
         lines(&mut s, &[YT]);
@@ -4468,7 +4510,9 @@ mod video_view {
     fn engine_event_updates_an_open_form() {
         let mut s = open(None);
         lines(&mut s, &[YT]);
-        assert_eq!(kinds(&s), [Kind::Https]);
+        assert_eq!(kinds(&s), [Kind::Video]);
+        update(&mut s, engine(false, false, Some("yt-dlp not found")));
+        assert_eq!(kinds(&s), [Kind::VideoUnavailable]);
         update(&mut s, engine(true, true, None));
         assert_eq!(kinds(&s), [Kind::Video]);
     }
@@ -5336,4 +5380,634 @@ mod usability {
             "Finished — the files are in the folder below"
         );
     }
+}
+
+// ----------------------------------------------------------- quality picker
+
+mod quality_picker {
+    use super::*;
+    use crate::api::PrefsIntent;
+    use crate::views::add::quality::{Focus as PFocus, Stage};
+    use crate::views::add::{AddState, Overlay};
+    use dman_proto::method::EngineStatus;
+    use dman_proto::video::{QualityChoice, QualityChoiceKind, QualityChoiceRef};
+    use dman_proto::{
+        AddOutcome, AddParams, AddSource, VideoPreferences, VideoPreferencesUpdate, VideoProbe,
+        VideoProbeParams,
+    };
+
+    const YT: &str = "https://www.youtube.com/watch?v=abc123";
+    const YT2: &str = "https://www.youtube.com/watch?v=def456";
+
+    fn prefs(ask: bool) -> VideoPreferences {
+        VideoPreferences {
+            ask_quality: ask,
+            default_quality: "best".into(),
+            default_audio: "best".into(),
+            default_container: None,
+        }
+    }
+
+    fn choice(
+        id: &str,
+        stream: &str,
+        label: &str,
+        h: Option<u32>,
+        codec: &str,
+        kind: QualityChoiceKind,
+        ffmpeg_ok: bool,
+    ) -> QualityChoice {
+        let needs = kind == QualityChoiceKind::VideoOnly;
+        QualityChoice {
+            id: id.into(),
+            stream_id: stream.into(),
+            label: label.into(),
+            height: h,
+            codec: Some(codec.into()),
+            size_estimate: Some(100 << 20),
+            kind,
+            requires_ffmpeg: needs,
+            available: !needs || ffmpeg_ok,
+            unavailable_reason: (needs && !ffmpeg_ok).then(|| "needs ffmpeg".to_owned()),
+            ..QualityChoice::default()
+        }
+    }
+
+    fn probe_for(url: &str, ffmpeg: bool) -> VideoProbe {
+        use QualityChoiceKind::{AudioOnly, Muxed, VideoOnly};
+        VideoProbe {
+            url: url.into(),
+            title: Some("Big Buck Bunny".into()),
+            uploader: Some("Blender Foundation".into()),
+            duration: Some(596.0),
+            ffmpeg,
+            video_choices: vec![
+                choice(
+                    "313+251",
+                    "313",
+                    "2160p · VP9 · ~173 MiB",
+                    Some(2160),
+                    "VP9",
+                    VideoOnly,
+                    ffmpeg,
+                ),
+                choice(
+                    "299+251",
+                    "299",
+                    "1080p60 · H.264 · ~83 MiB",
+                    Some(1080),
+                    "H.264",
+                    VideoOnly,
+                    ffmpeg,
+                ),
+                choice(
+                    "298+251",
+                    "298",
+                    "720p60 · H.264 · ~41 MiB",
+                    Some(720),
+                    "H.264",
+                    VideoOnly,
+                    ffmpeg,
+                ),
+                choice(
+                    "18",
+                    "18",
+                    "360p · H.264 · ~12 MiB",
+                    Some(360),
+                    "H.264",
+                    Muxed,
+                    ffmpeg,
+                ),
+            ],
+            audio_choices: vec![
+                choice(
+                    "251",
+                    "251",
+                    "Opus · 135 kbps · ~10 MiB",
+                    None,
+                    "Opus",
+                    AudioOnly,
+                    ffmpeg,
+                ),
+                choice(
+                    "140",
+                    "140",
+                    "AAC · 129 kbps · ~9 MiB",
+                    None,
+                    "AAC",
+                    AudioOnly,
+                    ffmpeg,
+                ),
+            ],
+            needs_choice: true,
+            suggested: QualityChoiceRef {
+                video: Some("299+251".into()),
+                audio: Some("251".into()),
+            },
+            ..VideoProbe::default()
+        }
+    }
+
+    fn open_add(urls: &[&str]) -> State {
+        let mut s = state();
+        update(
+            &mut s,
+            Msg::Event(Event::Engine {
+                status: EngineStatus {
+                    engine: Engine::YtDlp,
+                    available: true,
+                    version: Some("2026.10.01".into()),
+                    features: vec!["ffmpeg 7.1".into(), "merge".into()],
+                    reason: None,
+                },
+            }),
+        );
+        key(&mut s, 'a');
+        for (i, u) in urls.iter().enumerate() {
+            if i > 0 {
+                press(&mut s, KeyCode::Char('j'), KeyModifiers::CONTROL);
+            }
+            typed(&mut s, u);
+        }
+        s
+    }
+
+    fn deliver_prefs(s: &mut State, p: VideoPreferences) -> Vec<Cmd> {
+        update(
+            s,
+            Msg::ActionResult {
+                call: ApiCall::VideoPrefsGet(PrefsIntent::Flow),
+                result: Ok(ApiReply::VideoPreferences(Box::new(p))),
+            },
+        )
+    }
+
+    fn deliver_probe(s: &mut State, p: VideoProbe) -> Vec<Cmd> {
+        update(
+            s,
+            Msg::ActionResult {
+                call: ApiCall::VideoProbe(VideoProbeParams {
+                    url: p.url.clone(),
+                    playlist: false,
+                    cookies_from_browser: None,
+                }),
+                result: Ok(ApiReply::VideoProbe(Box::new(p))),
+            },
+        )
+    }
+
+    /// Confirm the review and answer the preferences with `ask`.
+    fn start(urls: &[&str], ask: bool) -> (State, Vec<Cmd>) {
+        let mut s = open_add(urls);
+        press(&mut s, KeyCode::Char('s'), KeyModifiers::CONTROL);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::VideoPrefsGet(PrefsIntent::Flow))]
+        );
+        let cmds = deliver_prefs(&mut s, prefs(ask));
+        (s, cmds)
+    }
+
+    fn picker_state() -> State {
+        let (mut s, cmds) = start(&[YT], true);
+        assert!(matches!(&cmds[..], [Cmd::Api(ApiCall::VideoProbe(p))] if p.url == YT));
+        assert!(deliver_probe(&mut s, probe_for(YT, true)).is_empty());
+        s
+    }
+
+    fn overlay(s: &State) -> &Overlay {
+        match s.view() {
+            View::Add(a) => a.overlay.as_ref().expect("no overlay"),
+            _ => panic!("not the add view"),
+        }
+    }
+
+    fn picker(s: &State) -> &crate::views::add::quality::Picker {
+        match overlay(s) {
+            Overlay::Quality(q) => match &q.stage {
+                Stage::Picker(p) => p,
+                other => panic!("no picker: {other:?}"),
+            },
+            _ => panic!("no quality flow"),
+        }
+    }
+
+    fn add_of(cmds: &[Cmd]) -> AddParams {
+        cmds.iter()
+            .find_map(|c| match c {
+                Cmd::Api(ApiCall::Add(p)) => Some((**p).clone()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no add call in {cmds:?}"))
+    }
+
+    fn format_ids(p: &AddParams) -> Vec<Option<String>> {
+        p.sources
+            .iter()
+            .map(|s| match s {
+                AddSource::Video { video, .. } => video.format_id.clone(),
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    fn set_call(cmds: &[Cmd]) -> Option<VideoPreferencesUpdate> {
+        cmds.iter().find_map(|c| match c {
+            Cmd::Api(ApiCall::VideoPrefsSet(u)) => Some(u.clone()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn ask_off_adds_directly_without_probing() {
+        let (s, cmds) = start(&[YT], false);
+        assert!(matches!(&cmds[..], [Cmd::Api(ApiCall::Add(_))]), "{cmds:?}");
+        let p = add_of(&cmds);
+        assert_eq!(format_ids(&p), [None]);
+        let AddSource::Video { video, .. } = &p.sources[0] else {
+            panic!()
+        };
+        assert_eq!(**video, dman_proto::VideoOptions::default());
+        match s.view() {
+            View::Add(a) => {
+                assert!(a.overlay.is_none());
+                assert!(a.submitting.is_some());
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn no_choice_needed_adds_directly() {
+        let (mut s, _) = start(&[YT], true);
+        let mut p = probe_for(YT, true);
+        p.needs_choice = false;
+        let cmds = deliver_probe(&mut s, p);
+        let p = add_of(&cmds);
+        assert_eq!(format_ids(&p), [None]);
+        assert!(set_call(&cmds).is_none());
+    }
+
+    #[test]
+    fn picker_preselects_the_suggestion_and_downloads_it() {
+        let mut s = picker_state();
+        let p = picker(&s);
+        assert_eq!((p.video, p.audio), (1, 0));
+        assert_eq!(p.focus, PFocus::Video);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(set_call(&cmds), None);
+        assert_eq!(format_ids(&add_of(&cmds)), [Some("299+251".into())]);
+    }
+
+    #[test]
+    fn different_audio_builds_stream_plus_audio() {
+        let mut s = picker_state();
+        code(&mut s, KeyCode::Tab);
+        assert_eq!(picker(&s).focus, PFocus::Audio);
+        code(&mut s, KeyCode::Down);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(format_ids(&add_of(&cmds)), [Some("299+140".into())]);
+    }
+
+    #[test]
+    fn moving_the_video_cursor_picks_its_choice() {
+        let mut s = picker_state();
+        code(&mut s, KeyCode::Down);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(format_ids(&add_of(&cmds)), [Some("298+251".into())]);
+        // A pre-merged choice ignores the audio list.
+        let mut s = picker_state();
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Down);
+        assert_eq!(picker(&s).video, 3);
+        assert!(!picker(&s).audio_applies());
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(format_ids(&add_of(&cmds)), [Some("18".into())]);
+    }
+
+    #[test]
+    fn presets_move_the_selection() {
+        let mut s = picker_state();
+        key(&mut s, '3');
+        assert_eq!(picker(&s).video, 2, "720p");
+        key(&mut s, '1');
+        assert_eq!(picker(&s).video, 0, "best");
+        key(&mut s, '4');
+        assert_eq!(picker(&s).video, 3, "nothing at 480p: the lowest below");
+    }
+
+    #[test]
+    fn audio_only_downloads_the_audio_stream() {
+        let mut s = picker_state();
+        key(&mut s, '5');
+        assert_eq!(picker(&s).video, 4);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(format_ids(&add_of(&cmds)), [Some("251".into())]);
+    }
+
+    #[test]
+    fn use_as_default_saves_quality_and_audio_family() {
+        let mut s = picker_state();
+        key(&mut s, 'u');
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            set_call(&cmds),
+            Some(VideoPreferencesUpdate {
+                default_quality: Some("1080p".into()),
+                default_audio: Some("opus".into()),
+                ..Default::default()
+            })
+        );
+        assert_eq!(format_ids(&add_of(&cmds)), [Some("299+251".into())]);
+        // 360p is no preset: "best"; audio-only: audio:<codec>.
+        let mut s = picker_state();
+        key(&mut s, 'u');
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Down);
+        let u = set_call(&code(&mut s, KeyCode::Enter)).expect("set");
+        assert_eq!(u.default_quality.as_deref(), Some("best"));
+        assert_eq!(u.default_audio, None, "pre-merged: no audio chosen");
+        let mut s = picker_state();
+        key(&mut s, '5');
+        code(&mut s, KeyCode::Tab);
+        code(&mut s, KeyCode::Down);
+        key(&mut s, 'u');
+        let u = set_call(&code(&mut s, KeyCode::Enter)).expect("set");
+        assert_eq!(u.default_quality.as_deref(), Some("audio:m4a"));
+        assert_eq!(u.default_audio.as_deref(), Some("m4a"));
+    }
+
+    #[test]
+    fn never_ask_again_turns_the_picker_off_and_says_how_to_undo() {
+        let mut s = picker_state();
+        // Space toggles the focused checkbox, `n` works from anywhere.
+        for _ in 0..3 {
+            code(&mut s, KeyCode::Tab);
+        }
+        assert_eq!(picker(&s).focus, PFocus::UseDefault);
+        code(&mut s, KeyCode::Tab);
+        key(&mut s, ' ');
+        assert!(picker(&s).never_ask && !picker(&s).use_default);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            set_call(&cmds),
+            Some(VideoPreferencesUpdate {
+                ask_quality: Some(false),
+                ..Default::default()
+            })
+        );
+        let params = add_of(&cmds);
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::VideoPrefsSet(set_call(&cmds).expect("set")),
+                result: Ok(ApiReply::VideoPreferences(Box::new(prefs(false)))),
+            },
+        );
+        assert!(status_text(&s).contains("Quality picker turned off"));
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::Add(Box::new(params)),
+                result: Ok(ApiReply::Added(vec![AddOutcome::Added {
+                    id: JobId(99),
+                    extra_ids: vec![],
+                }])),
+            },
+        );
+        let t = status_text(&s);
+        assert!(t.contains("Added") && t.contains("Settings"), "{t}");
+        assert_eq!(s.video_prefs.as_ref().map(|p| p.ask_quality), Some(false));
+    }
+
+    #[test]
+    fn esc_cancels_back_to_the_form() {
+        let mut s = picker_state();
+        assert!(code(&mut s, KeyCode::Esc).is_empty());
+        match s.view() {
+            View::Add(a) => {
+                assert!(a.overlay.is_none());
+                assert_eq!(a.sources.text(), YT, "the form is untouched");
+                assert!(a.submitting.is_none());
+            }
+            _ => panic!("left the add view"),
+        }
+        // Esc while the probe runs also goes back; the late answer is ignored.
+        let (mut s, _) = start(&[YT], true);
+        assert!(code(&mut s, KeyCode::Esc).is_empty());
+        assert!(deliver_probe(&mut s, probe_for(YT, true)).is_empty());
+        assert!(matches!(s.view(), View::Add(a) if a.overlay.is_none()));
+    }
+
+    #[test]
+    fn unavailable_choices_cannot_be_downloaded() {
+        let (mut s, _) = start(&[YT], true);
+        deliver_probe(&mut s, probe_for(YT, false));
+        // The suggestion needs ffmpeg, which is missing: Enter explains.
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        let m = picker(&s).message.clone().unwrap_or_default();
+        assert!(m.contains("needs ffmpeg"), "{m}");
+        let text = render(&mut s, 120, 40);
+        assert!(text.contains("(needs ffmpeg)"), "{text}");
+        // The pre-merged choice works.
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Down);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(format_ids(&add_of(&cmds)), [Some("18".into())]);
+    }
+
+    #[test]
+    fn playlists_use_the_item_picker() {
+        let (mut s, _) = start(&[YT], true);
+        let mut p = probe_for(YT, true);
+        p.playlist = true;
+        p.entries = (1..=3)
+            .map(|i| dman_proto::video::PlaylistEntry {
+                index: i,
+                title: Some(format!("Talk {i}")),
+                duration: Some(60.0),
+            })
+            .collect();
+        assert!(deliver_probe(&mut s, p).is_empty());
+        let View::Add(a) = s.view() else { panic!() };
+        let Some(Overlay::Preview(p)) = &a.overlay else {
+            panic!("back in the review")
+        };
+        assert!(matches!(
+            &p.probe,
+            crate::views::add::video::ProbeFetch::Done(ui) if ui.is_playlist()
+        ));
+        // Enter adds now without asking again.
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert!(matches!(&cmds[..], [Cmd::Api(ApiCall::Add(_))]), "{cmds:?}");
+    }
+
+    #[test]
+    fn failures_offer_the_defaults_or_a_retry() {
+        let (mut s, _) = start(&[YT], true);
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::VideoProbe(VideoProbeParams {
+                    url: YT.into(),
+                    playlist: false,
+                    cookies_from_browser: None,
+                }),
+                result: Err("yt-dlp failed".into()),
+            },
+        );
+        assert!(render(&mut s, 80, 24).contains("yt-dlp failed"));
+        let cmds = key(&mut s, 'r');
+        assert!(matches!(&cmds[..], [Cmd::Api(ApiCall::VideoProbe(_))]));
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::VideoProbe(VideoProbeParams {
+                    url: YT.into(),
+                    playlist: false,
+                    cookies_from_browser: None,
+                }),
+                result: Err("again".into()),
+            },
+        );
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(format_ids(&add_of(&cmds)), [None]);
+    }
+
+    #[test]
+    fn several_videos_are_decided_one_after_the_other() {
+        let (mut s, _) = start(&[YT, YT2], true);
+        deliver_probe(&mut s, probe_for(YT, true));
+        assert_eq!(picker(&s).position, (1, 2));
+        code(&mut s, KeyCode::Down);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert!(matches!(&cmds[..], [Cmd::Api(ApiCall::VideoProbe(p))] if p.url == YT2));
+        deliver_probe(&mut s, probe_for(YT2, true));
+        assert_eq!(picker(&s).position, (2, 2));
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            format_ids(&add_of(&cmds)),
+            [Some("298+251".into()), Some("299+251".into())]
+        );
+        // "Never ask again" on the first one spares the second.
+        let (mut s, _) = start(&[YT, YT2], true);
+        deliver_probe(&mut s, probe_for(YT, true));
+        key(&mut s, 'n');
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert!(set_call(&cmds).is_some());
+        assert_eq!(format_ids(&add_of(&cmds)), [Some("299+251".into()), None]);
+    }
+
+    #[test]
+    fn a_form_quality_skips_the_picker() {
+        let mut s = open_add(&[YT]);
+        if let Some(View::Add(a)) = s.views.last_mut() {
+            a.form
+                .set_text(crate::views::add::options::Field::VQuality, "720p");
+        }
+        press(&mut s, KeyCode::Char('s'), KeyModifiers::CONTROL);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert!(matches!(&cmds[..], [Cmd::Api(ApiCall::Add(_))]), "{cmds:?}");
+    }
+
+    #[test]
+    fn palette_toggles_asking_and_edits_defaults() {
+        let mut s = state();
+        let cmds = crate::app::apply_action(&mut s, Action::VideoQualityToggle);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::VideoPrefsGet(PrefsIntent::ToggleAsk))]
+        );
+        let cmds = update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::VideoPrefsGet(PrefsIntent::ToggleAsk),
+                result: Ok(ApiReply::VideoPreferences(Box::new(prefs(true)))),
+            },
+        );
+        let set = VideoPreferencesUpdate {
+            ask_quality: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::VideoPrefsSet(set.clone()))]);
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::VideoPrefsSet(set),
+                result: Ok(ApiReply::VideoPreferences(Box::new(prefs(false)))),
+            },
+        );
+        assert!(status_text(&s).contains("Settings"), "{}", status_text(&s));
+        // The palette shows the state.
+        key(&mut s, ':');
+        typed(&mut s, "quality picker");
+        assert!(render(&mut s, 100, 24).contains("[ask off]"));
+        code(&mut s, KeyCode::Esc);
+
+        // Default quality prompt: validated, then saved.
+        crate::app::apply_action(&mut s, Action::VideoDefaultQuality);
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::VideoPrefsGet(PrefsIntent::EditQuality),
+                result: Ok(ApiReply::VideoPreferences(Box::new(prefs(true)))),
+            },
+        );
+        assert!(matches!(&s.modal, Some(Modal::Prompt(p)) if p.input.text() == "best"));
+        press(&mut s, KeyCode::Char('u'), KeyModifiers::CONTROL);
+        typed(&mut s, "4k");
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(status_text(&s).contains("must be one of"));
+        crate::app::apply_action(&mut s, Action::VideoDefaultQuality);
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::VideoPrefsGet(PrefsIntent::EditQuality),
+                result: Ok(ApiReply::VideoPreferences(Box::new(prefs(true)))),
+            },
+        );
+        press(&mut s, KeyCode::Char('u'), KeyModifiers::CONTROL);
+        typed(&mut s, "720p");
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::VideoPrefsSet(VideoPreferencesUpdate {
+                default_quality: Some("720p".into()),
+                ..Default::default()
+            }))]
+        );
+    }
+
+    #[test]
+    fn offline_confirm_keeps_the_review_open() {
+        let mut s = open_add(&[YT]);
+        press(&mut s, KeyCode::Char('s'), KeyModifiers::CONTROL);
+        disconnect(&mut s);
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(matches!(overlay(&s), Overlay::Preview(_)));
+    }
+
+    #[test]
+    fn snapshot_picker_80x24() {
+        let mut s = picker_state();
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_picker_120x40() {
+        let mut s = picker_state();
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+
+    #[test]
+    fn snapshot_picker_unavailable_audio_only_80x24() {
+        let (mut s, _) = start(&[YT], true);
+        deliver_probe(&mut s, probe_for(YT, false));
+        key(&mut s, '5');
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[allow(dead_code)]
+    fn _unused(_: &AddState) {}
 }

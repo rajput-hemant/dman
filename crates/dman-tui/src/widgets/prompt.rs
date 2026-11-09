@@ -29,6 +29,10 @@ pub enum PromptKind {
     ProvidersImport,
     /// Providers: path of a file to export to.
     ProvidersExport,
+    /// Video quality picker: default quality.
+    VideoQuality,
+    /// Video quality picker: default audio.
+    VideoAudio,
     /// A new name for a download (or one of its files).
     Rename {
         /// The download.

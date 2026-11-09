@@ -28,6 +28,7 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, MissedTickBehavior};
 
+use crate::api::ApiCall;
 use crate::app::{Cmd, Msg, State, update};
 use crate::views;
 
@@ -125,6 +126,12 @@ pub async fn run_loop(client: ReconnectingClient, mut state: State) -> anyhow::R
     ]);
     if matches!(*client.state().borrow(), ConnState::Connected { .. }) {
         spawn_cmd(Cmd::Resync, &client, &tx);
+        spawn_cmd(Cmd::Api(ApiCall::EngineStatus), &client, &tx);
+        spawn_cmd(
+            Cmd::Api(ApiCall::VideoPrefsGet(crate::api::PrefsIntent::Cache)),
+            &client,
+            &tx,
+        );
     }
 
     let mouse = state.mouse;

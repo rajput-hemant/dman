@@ -51,6 +51,8 @@ pub const QUALITY_PRESETS: &[&str] = &[
     "audio:mp3",
     "audio:opus",
 ];
+/// Audio preferences of `video prefs --audio`.
+pub const AUDIO_PREFS: &[&str] = &["best", "m4a", "opus", "mp3"];
 /// Containers of `add --container`.
 pub const CONTAINERS: &[&str] = &["mp4", "mkv", "webm"];
 /// Browsers yt-dlp can read cookies from.
@@ -77,6 +79,9 @@ fn fixed(values: &'static [&'static str]) -> ArgValueCandidates {
 
 pub fn quality() -> ArgValueCandidates {
     fixed(QUALITY_PRESETS)
+}
+pub fn audio() -> ArgValueCandidates {
+    fixed(AUDIO_PREFS)
 }
 pub fn container() -> ArgValueCandidates {
     fixed(CONTAINERS)

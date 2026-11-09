@@ -1,0 +1,44 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 120, 40)"
+---
+ dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
+┌ Sources · 1 item ────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│https://www.youtube.com/watch?v=abc123                                                                           video│
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│       ┌ Choose quality · Big Buck Bunny ─────────────────────────────────────────────────────────────────────┐       │
+│       │ by Blender Foundation · 9:56 · ffmpeg available                                                      │       │
+│       │ Presets  1 Best  2 1080p  3 720p  4 480p  5 Audio only                                               │       │
+│       │ Video · 4                                                    Audio · 2                               │       │
+└───────│  2160p · VP9 · ~173 MiB  needs ffmpeg                       ▸ Opus · 135 kbps · ~10 MiB              │───────┘
+  ⏎ Ente│▸ 1080p60 · H.264 · ~83 MiB  needs ffmpeg                      AAC · 129 kbps · ~9 MiB                │
+┌ Option│  720p60 · H.264 · ~41 MiB  needs ffmpeg                                                              │───────┐
+│  Downl│  360p · H.264 · ~12 MiB                                                                              │       │
+│  Start│  Audio only (no video)                                                                               │       │
+│  Downl│ [ ] Use as my default (u)   [ ] Never ask again (n)                                                  │       │
+│  Video│ Download 1080p60 · H.264 · ~83 MiB + Opus · 135 kbps · ~10 MiB                                       │       │
+│  ▸ Adv│ Enter download Tab next list ↑↓ move 1-5 preset u my default n never ask Esc cancel                  │       │
+└───────└──────────────────────────────────────────────────────────────────────────────────────────────────────┘───────┘
+
+
+
+
+
+
+
+
+
+
+
+
+ Connected to daemon 0.1.0
+ Enter download  Tab next list  ↑↓ move  1-5 preset  u my default  n never ask  Esc cancel  Ctrl-p palette  F1 help

@@ -4,21 +4,37 @@
 
 use dman_client::ReconnectingClient;
 use dman_proto::method::{
-    BatchResult, FsListParams, FsListing, LimitsUpdate, MagnetPreview, RemoveParams, Reorder,
+    BatchResult, EngineStatus, FsListParams, FsListing, LimitsUpdate, MagnetPreview, RemoveParams,
+    Reorder,
 };
 use dman_proto::search::{
     ProviderInfo, ProviderSetParams, ProviderTestReport, ProvidersImported, ResolvedMagnet,
     SearchHistoryEntry, SearchResolveParams, SearchSnapshot, SearchStartParams, SearchStarted,
 };
 use dman_proto::{
-    AddOutcome, AddParams, JobDetail, JobId, JobOptions, Limits, SpeedSample, VideoProbe,
-    VideoProbeParams,
+    AddOutcome, AddParams, JobDetail, JobId, JobOptions, Limits, SpeedSample, VideoPreferences,
+    VideoPreferencesUpdate, VideoProbe, VideoProbeParams,
 };
 
 use crate::format::{limit, plural};
 
 /// How long the daemon may take to fetch a magnet's metadata.
 pub const MAGNET_TIMEOUT_SECS: u32 = 120;
+
+/// Why `video.preferences.get` was requested; decides what the answer does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefsIntent {
+    /// The quality-picker flow of the add view.
+    Flow,
+    /// Just remember the answer (after connecting).
+    Cache,
+    /// Palette: switch asking on or off.
+    ToggleAsk,
+    /// Palette: prompt for the default quality.
+    EditQuality,
+    /// Palette: prompt for the default audio.
+    EditAudio,
+}
 
 /// A daemon call.
 #[derive(Debug, Clone, PartialEq)]
@@ -78,6 +94,12 @@ pub enum ApiCall {
     },
     /// `video.probe` (add preview; yt-dlp runs on the daemon host).
     VideoProbe(VideoProbeParams),
+    /// `engine.status` (after connecting: the add view needs to know yt-dlp).
+    EngineStatus,
+    /// `video.preferences.get`.
+    VideoPrefsGet(PrefsIntent),
+    /// `video.preferences.set` (changed fields only).
+    VideoPrefsSet(VideoPreferencesUpdate),
     /// `stats.history` (global speed graph; polled while it is visible).
     StatsHistory,
     /// `search.start`.
@@ -147,6 +169,9 @@ impl ApiCall {
             ApiCall::Rename { .. } => "Renaming".into(),
             ApiCall::PreviewMagnet { .. } => "Fetching magnet metadata".into(),
             ApiCall::VideoProbe(_) => "Probing video".into(),
+            ApiCall::EngineStatus => "Checking engines".into(),
+            ApiCall::VideoPrefsGet(_) => "Reading video preferences".into(),
+            ApiCall::VideoPrefsSet(_) => "Saving video preferences".into(),
             ApiCall::StatsHistory => "Loading speed history".into(),
             ApiCall::SearchStart(_) => "Starting search".into(),
             ApiCall::SearchCancel(_) => "Cancelling search".into(),
@@ -185,6 +210,9 @@ impl ApiCall {
             ApiCall::Rename { .. } => "Rename",
             ApiCall::PreviewMagnet { .. } => "Magnet preview",
             ApiCall::VideoProbe(_) => "Video probe",
+            ApiCall::EngineStatus => "Engine status",
+            ApiCall::VideoPrefsGet(_) => "Video preferences",
+            ApiCall::VideoPrefsSet(_) => "Save video preferences",
             ApiCall::StatsHistory => "Speed history",
             ApiCall::SearchStart(_) => "Search",
             ApiCall::SearchCancel(_) => "Cancel search",
@@ -251,6 +279,15 @@ impl ApiCall {
                 .video_probe(p)
                 .await
                 .map(|v| ApiReply::VideoProbe(Box::new(v))),
+            ApiCall::EngineStatus => client.engine_status().await.map(ApiReply::Engines),
+            ApiCall::VideoPrefsGet(_) => client
+                .video_preferences()
+                .await
+                .map(|p| ApiReply::VideoPreferences(Box::new(p))),
+            ApiCall::VideoPrefsSet(u) => client
+                .video_preferences_set(u)
+                .await
+                .map(|p| ApiReply::VideoPreferences(Box::new(p))),
             ApiCall::StatsHistory => client.stats_history().await.map(ApiReply::History),
             ApiCall::SearchStart(p) => client.search_start(p).await.map(ApiReply::SearchStarted),
             ApiCall::SearchCancel(id) => client.search_cancel(id).await.map(|()| ApiReply::Done),
@@ -315,6 +352,10 @@ pub enum ApiReply {
     MagnetPreview(Box<MagnetPreview>),
     /// Formats, plans and playlist entries of a video.
     VideoProbe(Box<VideoProbe>),
+    /// Status of every engine.
+    Engines(Vec<EngineStatus>),
+    /// The quality-picker defaults.
+    VideoPreferences(Box<VideoPreferences>),
     /// Global speed samples, oldest first.
     History(Vec<SpeedSample>),
     /// A search was started.
@@ -381,6 +422,8 @@ pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome,
             Outcome::Ok,
             format!("Probed {}", v.title.as_deref().unwrap_or(&v.url)),
         ),
+        Ok(ApiReply::Engines(e)) => (Outcome::Ok, plural(e.len(), "engine")),
+        Ok(ApiReply::VideoPreferences(p)) => (Outcome::Ok, prefs_summary(call, p)),
         Ok(ApiReply::History(h)) => (Outcome::Ok, format!("{} speed samples", h.len())),
         Ok(ApiReply::SearchStarted(s)) => (
             Outcome::Ok,
@@ -413,6 +456,30 @@ pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome,
         Ok(ApiReply::Done) => (Outcome::Ok, format!("{verb}: done")),
     }
 }
+
+/// Status line after reading or changing the video preferences.
+pub fn prefs_summary(call: &ApiCall, p: &VideoPreferences) -> String {
+    let ask = |on: bool| {
+        if on {
+            "Video quality picker: ask every time".to_owned()
+        } else {
+            "Video quality picker: off, using defaults".to_owned()
+        }
+    };
+    match call {
+        ApiCall::VideoPrefsSet(u) if u.ask_quality == Some(false) => NEVER_ASK_HINT.to_owned(),
+        ApiCall::VideoPrefsSet(u) if u.ask_quality.is_some() => ask(p.ask_quality),
+        ApiCall::VideoPrefsSet(_) => format!(
+            "Video defaults saved: {} + audio {}",
+            p.default_quality, p.default_audio
+        ),
+        _ => ask(p.ask_quality),
+    }
+}
+
+/// Shown when "never ask again" was chosen.
+pub const NEVER_ASK_HINT: &str =
+    "Quality picker turned off — turn it back on in Settings (: → 'Video quality picker')";
 
 /// Status line for a config reload.
 pub fn reload_summary(r: &dman_proto::method::ReloadResult) -> (Outcome, String) {

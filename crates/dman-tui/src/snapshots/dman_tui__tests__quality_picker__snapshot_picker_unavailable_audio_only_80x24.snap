@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+┌ Sources · 1 item ────────────────────────────────────────────────────────────┐
+│https://www.youtube.com/watch?v=abc123                                   video│
+│ ┌ Choose quality · Big Buck Bunny ─────────────────────────────────────────┐ │
+│ │ by Blender Foundation · 9:56 · ffmpeg missing                            │ │
+│ │ Presets  1 Best  2 1080p  3 720p  4 480p  5 Audio only                   │ │
+│ │ Video · 4                                                                │ │
+│ │  2160p · VP9 · ~173 MiB  (needs ffmpeg)                                  │ │
+│ │  1080p60 · H.264 · ~83 MiB  (needs ffmpeg)                               │ │
+│ │  720p60 · H.264 · ~41 MiB  (needs ffmpeg)                                │ │
+│ │  360p · H.264 · ~12 MiB                                                  │ │
+│ │▸ Audio only (no video)                                                   │ │
+└─│ Audio · 2                                                                │─┘
+  │▸ Opus · 135 kbps · ~10 MiB                                               │
+┌ │  AAC · 129 kbps · ~9 MiB                                                 │─┐
+│ │ [ ] Use as my default (u)   [ ] Never ask again (n)                      │…│
+│ │ Download audio only: Opus · 135 kbps · ~10 MiB                           │ │
+│ │ Enter download Tab next list ↑↓ move 1-5 preset u my default n never ask │ │
+│ └──────────────────────────────────────────────────────────────────────────┘…│
+│  ▸ Advanced options — 28 more, F2 shows them: mirrors, file name, upload lim…│
+└──────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ Enter download  Tab next list  ↑↓ move  1-5 preset  Ctrl-p palette  F1 help

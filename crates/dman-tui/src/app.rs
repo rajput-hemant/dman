@@ -21,7 +21,7 @@ use dman_proto::method::{EngineStatus, Event, Level};
 use dman_proto::{GlobalStats, Job, JobId, Limits};
 
 use crate::action::Action;
-use crate::api::{ApiCall, ApiReply, Outcome, summarize};
+use crate::api::{ApiCall, ApiReply, Outcome, PrefsIntent, summarize};
 use crate::keymap::{Context, Keymap};
 use crate::layout::ScreenLayout;
 use crate::list::DownloadsList;
@@ -256,6 +256,10 @@ pub struct State {
     pub time_zone: jiff::tz::TimeZone,
     /// Replaces the clock when set (tests).
     pub now_override: Option<i64>,
+    /// The video quality-picker preferences as last seen (palette display).
+    pub video_prefs: Option<dman_proto::VideoPreferences>,
+    /// Shown after the next successful add ("quality picker turned off ...").
+    pub video_notice: Option<String>,
     /// Needs a redraw.
     pub dirty: bool,
 }
@@ -290,6 +294,8 @@ impl State {
             welcome_marker: opts.welcome_marker,
             time_zone: jiff::tz::TimeZone::system(),
             now_override: None,
+            video_prefs: None,
+            video_notice: None,
             dirty: true,
         }
     }
@@ -391,10 +397,7 @@ fn update_inner(state: &mut State, msg: Msg) -> Vec<Cmd> {
             Vec::new()
         }
         Msg::Event(e) => apply_event(state, e),
-        Msg::Conn(c) => {
-            on_conn(state, c);
-            Vec::new()
-        }
+        Msg::Conn(c) => on_conn(state, c),
         Msg::ActionResult { call, result } => on_result(state, &call, &result),
         Msg::LocalDir(r) => {
             views::add::on_local_dir(state, r);
@@ -418,6 +421,8 @@ fn update_inner(state: &mut State, msg: Msg) -> Vec<Cmd> {
             state.status.warn("Missed some live updates; reloading");
             let mut cmds = vec![Cmd::Resync];
             cmds.extend(views::search::on_lagged(state));
+            cmds.push(Cmd::Api(ApiCall::EngineStatus));
+            cmds.push(Cmd::Api(ApiCall::VideoPrefsGet(PrefsIntent::Cache)));
             cmds
         }
         Msg::Tick => on_tick(state),
@@ -515,6 +520,8 @@ fn on_submit(state: &mut State, kind: PromptKind, value: &str) -> Vec<Cmd> {
         PromptKind::ProvidersImport | PromptKind::ProvidersExport => {
             views::providers::submit(state, kind, value)
         }
+        PromptKind::VideoQuality => views::add::quality::submit_default(state, false, value),
+        PromptKind::VideoAudio => views::add::quality::submit_default(state, true, value),
         PromptKind::MaxConcurrent => match value.parse::<u32>() {
             Ok(n) if (1..=1000).contains(&n) => {
                 state.call(ApiCall::SetLimits(dman_proto::method::LimitsUpdate {
@@ -586,6 +593,9 @@ fn apply_action_inner(state: &mut State, action: Action) -> Vec<Cmd> {
             state.modal = Some(Modal::Confirm(views::downloads::shutdown_confirm()));
             Vec::new()
         }
+        Action::VideoQualityToggle => views::add::quality::toggle_ask(state),
+        Action::VideoDefaultQuality => views::add::quality::edit_default(state, false),
+        Action::VideoDefaultAudio => views::add::quality::edit_default(state, true),
         Action::Search => views::search::open(state),
         Action::SearchProviders => views::providers::open(state),
         Action::Filter if !matches!(state.view(), View::Search) => {
@@ -699,12 +709,17 @@ fn apply_event(state: &mut State, event: Event) -> Vec<Cmd> {
     Vec::new()
 }
 
-fn on_conn(state: &mut State, conn: ConnState) {
+fn on_conn(state: &mut State, conn: ConnState) -> Vec<Cmd> {
+    let mut cmds = Vec::new();
     match &conn {
         ConnState::Connected { daemon_version } => {
             state
                 .status
                 .info(format!("Connected to daemon {daemon_version}"));
+            // The daemon only pushes engine changes; ask for the current
+            // status after every (re)connect (not counted as pending).
+            cmds.push(Cmd::Api(ApiCall::EngineStatus));
+            cmds.push(Cmd::Api(ApiCall::VideoPrefsGet(PrefsIntent::Cache)));
         }
         ConnState::Disconnected { retry_in, .. } => {
             state.retry_left = *retry_in;
@@ -721,6 +736,7 @@ fn on_conn(state: &mut State, conn: ConnState) {
         ConnState::Connecting => {}
     }
     state.conn = conn;
+    cmds
 }
 
 fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String>) -> Vec<Cmd> {
@@ -732,14 +748,33 @@ fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String
         graph::on_result(state, result);
         return Vec::new();
     }
+    if matches!(call, ApiCall::VideoPrefsGet(PrefsIntent::Cache)) {
+        views::add::quality::on_prefs(state, PrefsIntent::Cache, result);
+        return Vec::new();
+    }
+    if matches!(call, ApiCall::EngineStatus) {
+        // Background refresh: never counted, silent on failure.
+        if let Ok(ApiReply::Engines(list)) = result {
+            for status in list {
+                state.engines.retain(|e| e.engine != status.engine);
+                state.engines.push(status.clone());
+            }
+        }
+        return Vec::new();
+    }
     state.pending = state.pending.saturating_sub(1);
     if let ApiCall::PreviewMagnet { uri } = call {
         views::add::on_magnet_preview(state, uri, result);
         return Vec::new();
     }
     if let ApiCall::VideoProbe(params) = call {
-        views::add::on_video_probe(state, params, result);
-        return Vec::new();
+        return views::add::on_video_probe(state, params, result);
+    }
+    if let ApiCall::VideoPrefsGet(intent) = call {
+        return views::add::quality::on_prefs(state, *intent, result);
+    }
+    if let (ApiCall::VideoPrefsSet(_), Ok(ApiReply::VideoPreferences(p))) = (call, result) {
+        state.video_prefs = Some((**p).clone());
     }
     if matches!(call, ApiCall::FsList(_)) {
         views::add::on_fs_listing(state, result);

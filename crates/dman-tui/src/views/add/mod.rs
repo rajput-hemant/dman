@@ -20,6 +20,7 @@
 pub mod browser;
 pub mod options;
 pub mod preview;
+pub mod quality;
 pub mod source;
 pub mod video;
 
@@ -81,6 +82,8 @@ pub enum Overlay {
     Dirs(DirPicker),
     /// Preview before confirming.
     Preview(Box<Preview>),
+    /// The video quality flow after confirming (probe, picker).
+    Quality(Box<quality::QualityFlow>),
 }
 
 /// Add view state.
@@ -266,7 +269,7 @@ impl AddState {
 
     /// Toggle "try as video" for the http(s) URLs of the cursor line.
     fn toggle_video_line(&mut self) -> Result<(), String> {
-        if !self.video.known || !self.video.available {
+        if self.video.known && !self.video.available {
             return Err(match &self.video.reason {
                 Some(r) => format!("yt-dlp is unavailable: {r}"),
                 None => "yt-dlp is not available on the daemon host".into(),
@@ -372,6 +375,7 @@ impl AddState {
             Overlay::Files(_) => FileBrowser::hints(),
             Overlay::Dirs(_) => DirPicker::hints(),
             Overlay::Preview(p) => p.hints(),
+            Overlay::Quality(q) => q.hints(),
         })
     }
 
@@ -395,6 +399,15 @@ impl AddState {
         }
         self.sources.set_lines(out);
     }
+}
+
+/// The topmost add view even when a help screen sits above it (answers of
+/// the quality flow still find their popup).
+fn add_any(state: &mut State) -> Option<&mut AddState> {
+    state.views.iter_mut().rev().find_map(|v| match v {
+        View::Add(a) => Some(&mut **a),
+        _ => None,
+    })
 }
 
 fn add_mut(state: &mut State) -> Option<&mut AddState> {
@@ -532,7 +545,11 @@ fn overlay_key(state: &mut State, key: KeyEvent) -> Vec<Cmd> {
         return Vec::new();
     };
     let mut cmds = Vec::new();
+    if let Overlay::Quality(q) = overlay {
+        return quality::on_key(state, q, key);
+    }
     match &mut overlay {
+        Overlay::Quality(_) => {}
         Overlay::Files(b) => match b.key(key) {
             FileOutcome::Stay => {}
             FileOutcome::Close => return cmds,
@@ -587,6 +604,16 @@ fn overlay_key(state: &mut State, key: KeyEvent) -> Vec<Cmd> {
                 return cmds;
             }
             PreviewOutcome::Confirm => {
+                if let Some(flow) = quality::QualityFlow::new(p) {
+                    let cmds = quality::start(state, flow);
+                    if cmds.is_empty()
+                        && let Some(a) = add_mut(state)
+                    {
+                        // Offline: keep the review open (the status line says why).
+                        a.overlay = Some(overlay);
+                    }
+                    return cmds;
+                }
                 let params = p.confirm_params();
                 a.submitting = Some(p.origins.clone());
                 let cmds = state.call(ApiCall::Add(Box::new(params)));
@@ -782,8 +809,10 @@ pub fn on_tick(state: &mut State) -> bool {
     let tick = state.tick;
     let mut animated = false;
     for a in add_views(state) {
-        if let Some(Overlay::Preview(p)) = &mut a.overlay {
-            animated |= p.on_tick(tick);
+        match &mut a.overlay {
+            Some(Overlay::Preview(p)) => animated |= p.on_tick(tick),
+            Some(Overlay::Quality(q)) => animated |= q.on_tick(tick),
+            _ => {}
         }
     }
     animated
@@ -792,6 +821,9 @@ pub fn on_tick(state: &mut State) -> bool {
 /// The connection dropped: a running fetch will never be answered.
 pub fn on_disconnect(state: &mut State) {
     for a in add_views(state) {
+        if let Some(Overlay::Quality(q)) = &mut a.overlay {
+            q.on_disconnect();
+        }
         if let Some(Overlay::Preview(p)) = &mut a.overlay {
             if p.fetching() {
                 p.fetch = Fetch::Failed("lost the connection to the daemon".into());
@@ -834,7 +866,10 @@ pub fn on_video_probe(
     state: &mut State,
     params: &dman_proto::VideoProbeParams,
     result: &Result<ApiReply, String>,
-) {
+) -> Vec<Cmd> {
+    if let Some(cmds) = quality::on_probe(state, &params.url, result) {
+        return cmds;
+    }
     for a in add_views(state) {
         let Some(Overlay::Preview(p)) = &mut a.overlay else {
             continue;
@@ -851,6 +886,7 @@ pub fn on_video_probe(
         };
         p.scroll = 0;
     }
+    Vec::new()
 }
 
 /// Re-read the video engine from the engine statuses (after every update).
@@ -960,6 +996,7 @@ pub fn on_fs_listing(state: &mut State, result: &Result<ApiReply, String>) {
 /// happens next; otherwise the sources that were added are dropped from the
 /// form and the rest stay for another try.
 pub fn on_add_result(state: &mut State, params: &AddParams, result: &Result<ApiReply, String>) {
+    let notice = state.video_notice.take();
     let Ok(ApiReply::Added(outcomes)) = result else {
         if let Some(a) = add_mut(state) {
             a.submitting = None;
@@ -978,6 +1015,10 @@ pub fn on_add_result(state: &mut State, params: &AddParams, result: &Result<ApiR
     if all_ok && let Some(mut text) = added_message(state, params, outcomes) {
         if matches!(state.view(), View::Search) {
             text.push_str(" (Esc shows your downloads)");
+        }
+        if let Some(n) = notice {
+            text.push_str(" · ");
+            text.push_str(&n);
         }
         state.status.info(text);
     }
@@ -1461,6 +1502,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, a: &AddState) {
         Some(Overlay::Files(b)) => b.render(frame, area, t),
         Some(Overlay::Dirs(p)) => p.render(frame, area, t),
         Some(Overlay::Preview(p)) => p.render(frame, area, t),
+        Some(Overlay::Quality(q)) => q.render(frame, area, t),
         None => {}
     }
 }

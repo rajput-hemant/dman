@@ -15,10 +15,10 @@ expression: "render(&mut s, 80, 24)"
   Stoppe│Pause all                                       P             │
   report│Detail: toggle the file under the cursor (wait… Space         │ 3.0 MiB
   missin│Detail: select / deselect all files (waiting/p… a             │       -
+        │Video quality picker: ask every time / use def… F6            │
         │Providers: remove a custom provider             D, Del        │
         │Delete unselected partial files of a finished … C             │
         └──────────────────────────────────────────────────────────────┘
-
 
 
 

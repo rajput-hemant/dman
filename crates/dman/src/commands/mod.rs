@@ -6,6 +6,7 @@ pub mod daemon;
 pub mod list;
 pub mod misc;
 pub mod providers;
+pub mod quality;
 pub mod search;
 pub mod serve;
 pub mod update;
@@ -53,6 +54,9 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
         }
         Command::Cleanup { id, yes } => control::cleanup(&Ctx::load(&cli)?, *id, *yes).await,
         Command::Config { cmd } => misc::config(&Ctx::load(&cli)?, cmd).await,
+        Command::Video { cmd } => match cmd {
+            crate::cli::VideoCmd::Prefs(a) => quality::prefs(&Ctx::load(&cli)?, a).await,
+        },
         Command::Probe {
             url,
             playlist,

@@ -103,6 +103,12 @@ commit this file together with the code it describes.
 - [ ] Follow-ups found by the browser test: resume of an HTTP download from a server without Range support ends in aria2 "No URI available" → restart from zero automatically or explain; `dman ... | head` panics on SIGPIPE (println!) — handle broken pipe in the CLI; decide whether removed jobs should stay listed (currently state `removed` until purged) (desktop + phone viewport): load, add a download, live progress, pause/resume, remove with delete confirmation, search
 - [ ] Missing web features vs TUI: magnet file selection (preview_magnet), daemon folder picker (fs.list), multi-select
 
+### UX pass (requested by the user, 2026-11-09)
+- [ ] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
+- [ ] CLI: dynamic completions (job IDs, providers, profiles), `dman completions install`, help examples, SIGPIPE-safe output
+- [ ] Seeding OFF by default (`[torrents] seed = false`; per-job `seed` override; setting a seed ratio/time on a job implies seeding)
+- [ ] Web UI overhaul: paste-to-add + drag & drop, cards with progress bars, compact filters, bulk actions, one-click download from search, magnet file picker, folder picker, live detail, grouped settings, toasts, accessible responsive design
+
 ### M8 — Remote and release (11 %)
 - [x] Built-in TLS (D24) for the API listener and web listener (rustls, user cert/key paths in config; `wss://`/`https://` in client + remote profiles) + docs for SSH tunnel / reverse proxy
 - [x] Remote profiles end to end (TLS + custom CA pin, reconnect across daemon restart, docs/remote.md): TUI/CLI against a remote daemon (paths are daemon-side; uploads for local .torrent), reconnect hardening tests (kill/restart daemon while TUI attached)

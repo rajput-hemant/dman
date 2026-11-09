@@ -16,6 +16,10 @@ pub const JOBS_PAUSE: &str = "jobs.pause";
 pub const JOBS_RESUME: &str = "jobs.resume";
 pub const JOBS_REMOVE: &str = "jobs.remove";
 pub const JOBS_PURGE: &str = "jobs.purge";
+/// `jobs.restore`: [`IdsParams`] -> [`BatchResult`]. Undoes `jobs.remove`
+/// (without `delete_files`): the job returns to its state before removal.
+/// Refused (`Refused`) for jobs that are not removed or whose files were deleted.
+pub const JOBS_RESTORE: &str = "jobs.restore";
 pub const JOBS_REORDER: &str = "jobs.reorder";
 pub const JOBS_SET_OPTIONS: &str = "jobs.set_options";
 pub const JOBS_RENAME: &str = "jobs.rename";

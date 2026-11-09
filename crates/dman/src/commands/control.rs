@@ -6,7 +6,7 @@ use dman_proto::method::{BatchResult, Reorder};
 use dman_proto::{ErrorCode, JobId, JobState};
 
 use super::print_json;
-use crate::cli::{PurgeArgs, RemoveArgs, ReorderArgs, TargetArgs};
+use crate::cli::{PurgeArgs, RemoveArgs, ReorderArgs, RestoreArgs, TargetArgs};
 use crate::connect::Ctx;
 use crate::error::{CliError, batch_exit};
 
@@ -156,6 +156,11 @@ pub async fn remove(ctx: &Ctx, a: &RemoveArgs) -> Result<i32, CliError> {
     };
     let res = ctx.connect().await?.remove(params).await?;
     report(ctx, "removed", &res)
+}
+
+pub async fn restore(ctx: &Ctx, a: &RestoreArgs) -> Result<i32, CliError> {
+    let res = ctx.connect().await?.restore(&a.ids).await?;
+    report(ctx, "restored", &res)
 }
 
 pub async fn purge(ctx: &Ctx, a: &PurgeArgs) -> Result<i32, CliError> {

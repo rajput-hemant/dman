@@ -106,6 +106,9 @@ fn to_request(method: &str, params: Value) -> Result<Request, WireError> {
         }
         method::JOBS_REMOVE => p(parse(params).map(Request::Remove))?,
         method::JOBS_PURGE => p(parse::<method::IdsParams>(params).map(|x| Request::Purge(x.ids)))?,
+        method::JOBS_RESTORE => {
+            p(parse::<method::IdsParams>(params).map(|x| Request::Restore(x.ids)))?
+        }
         method::JOBS_REORDER => p(parse(params).map(Request::Reorder))?,
         method::JOBS_SET_OPTIONS => p(parse(params).map(Request::SetOptions))?,
         method::JOBS_RENAME => p(parse(params).map(Request::Rename))?,

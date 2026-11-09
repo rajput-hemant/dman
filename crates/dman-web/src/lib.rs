@@ -16,6 +16,7 @@ mod assets;
 mod auth;
 mod fmt;
 mod pages;
+mod quality;
 mod sse;
 mod views;
 
@@ -93,6 +94,8 @@ pub(crate) struct AppState {
     pub video_cache: Mutex<Option<(std::time::Instant, bool)>>,
     /// Magnet file lists fetched for the add form, by random id.
     pub previews: Mutex<HashMap<String, pages::StoredPreview>>,
+    /// Probed videos waiting for a quality choice, by random id.
+    pub qualities: Mutex<HashMap<String, pages::StoredQuality>>,
 }
 
 impl AppState {
@@ -141,6 +144,7 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         open_csrf: auth::random_id(),
         video_cache: Mutex::new(None),
         previews: Mutex::new(HashMap::new()),
+        qualities: Mutex::new(HashMap::new()),
     });
     let r = |p: &str| format!("{base}{p}");
     let upload_limit = || DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 256 * 1024);
@@ -153,6 +157,7 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
             &r("/jobs/bulk/remove"),
             get(pages::bulk_remove_form).post(pages::bulk_remove),
         )
+        .route(&r("/jobs/restore"), post(pages::restore))
         .route(&r("/jobs/{id}"), get(pages::detail))
         .route(
             &r("/jobs/{id}/remove"),
@@ -175,6 +180,10 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
             &r("/add/preview"),
             post(pages::preview).layer(upload_limit()),
         )
+        .route(
+            &r("/add/quality/{id}"),
+            get(pages::quality_form).post(pages::quality_submit),
+        )
         .route(&r("/fs"), get(pages::fs))
         .route(&r("/search"), get(pages::search).post(pages::search_start))
         .route(&r("/search/add"), post(pages::search_add))
@@ -185,6 +194,7 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         )
         .route(&r("/settings"), get(pages::settings))
         .route(&r("/settings/limits"), post(pages::settings_limits))
+        .route(&r("/settings/video"), post(pages::settings_video))
         .route(&r("/settings/provider"), post(pages::provider_set))
         .route(&r("/settings/provider/test"), post(pages::provider_test))
         .route(&r("/events"), get(sse::events))

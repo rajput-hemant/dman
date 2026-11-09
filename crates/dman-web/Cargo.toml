@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 dman-proto.workspace = true
+# Offline video-URL heuristic for the paste box (same as the CLI and TUI).
+dman-ytdlp.workspace = true
 axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "multipart"] }
 maud = { version = "0.27", default-features = false }
 rust-embed = { version = "8", default-features = false, features = ["debug-embed"] }

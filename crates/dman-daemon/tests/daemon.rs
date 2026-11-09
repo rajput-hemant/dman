@@ -822,3 +822,96 @@ fn assert_no_aria2(root: &Path) {
     let pids = aria2_pids(root);
     assert!(pids.is_empty(), "aria2c still running: {pids:?}");
 }
+
+/// `jobs.restore` against a real aria2c: an unfinished HTTP job that was
+/// removed from the list resumes and completes after the undo; a job removed
+/// with its files cannot be restored.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs aria2c; run with DMAN_TEST_ARIA2=1 and --include-ignored"]
+async fn restore_resumes_an_unfinished_job_with_real_aria2() {
+    if !aria2_enabled() {
+        eprintln!("DMAN_TEST_ARIA2 != 1; skipping");
+        return;
+    }
+    const SIZE: usize = 300 * 1024;
+    let files: HashMap<String, Vec<u8>> = ["a", "b"]
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (format!("{n}.bin"), content(i as u8, SIZE)))
+        .collect();
+    let http = serve_files(files.clone()).await;
+    let root = tempfile::tempdir().unwrap();
+    let dl = root.path().join("dl");
+    let cfg = config(root.path(), "aria2c", DiskThreshold::Absolute(0));
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    let out = c
+        .add(AddParams {
+            sources: ["a", "b"]
+                .iter()
+                .map(|n| AddSource::Uris {
+                    uris: vec![format!("http://{http}/{n}.bin")],
+                })
+                .collect(),
+            options: JobOptions {
+                max_download_limit: Some(40 * 1024),
+                ..Default::default()
+            },
+            paused: false,
+        })
+        .await
+        .unwrap();
+    let ids = added(&out);
+    let (a, b) = (ids[0], ids[1]);
+    wait_jobs(&c, 10, "a active", |j| job(j, a).state == JobState::Active).await;
+    let mut events = c.subscribe().await.unwrap();
+    let rm = |id: JobId, delete_files: bool| {
+        c.remove(RemoveParams {
+            ids: vec![id],
+            delete_files,
+            force: false,
+        })
+    };
+    // a (running) and b (waiting) are removed from the list ...
+    assert!(rm(a, false).await.unwrap().failed.is_empty());
+    assert!(rm(b, false).await.unwrap().failed.is_empty());
+    assert_eq!(c.get(a).await.unwrap().state, JobState::Removed);
+    // ... and b is later deleted with its files: no way back.
+    assert!(rm(b, true).await.is_ok());
+    let r = c.restore(&[b]).await.unwrap();
+    assert_eq!(r.failed.len(), 1, "{r:?}");
+    assert_eq!(r.failed[0].error.code, ErrorCode::Refused);
+    assert!(r.failed[0].error.message.contains("files were deleted"));
+
+    // Undo for a: it resumes where it was and completes.
+    let r = c.restore(&[a]).await.unwrap();
+    assert_eq!(r.ok, vec![a], "{r:?}");
+    let ev = wait_event(&mut events, 5, |e| {
+        matches!(e, Event::JobsUpdated { jobs } if jobs.iter().any(|j| j.id == a && j.state != JobState::Removed))
+    })
+    .await;
+    assert!(ev.is_some(), "restore must emit JobsUpdated");
+    // A re-added HTTP download stays an HTTP download (not a torrent follow-up).
+    assert_eq!(c.get(a).await.unwrap().kind, dman_proto::SourceKind::Http);
+    c.set_options(
+        a,
+        JobOptions {
+            max_download_limit: Some(0),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    wait_jobs(&c, 30, "a complete", |j| {
+        job(j, a).state == JobState::Complete
+    })
+    .await;
+    assert_eq!(std::fs::read(dl.join("a.bin")).unwrap(), files["a.bin"]);
+
+    // A completed job returns as Complete, with no engine action.
+    assert!(rm(a, false).await.unwrap().failed.is_empty());
+    assert_eq!(c.restore(&[a]).await.unwrap().ok, vec![a]);
+    assert_eq!(c.get(a).await.unwrap().state, JobState::Complete);
+    assert!(dl.join("a.bin").exists());
+    d.stop(&c).await;
+}

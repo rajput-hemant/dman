@@ -50,6 +50,10 @@ struct Fake {
     tx: broadcast::Sender<Event>,
     jobs: Vec<Job>,
     video: bool,
+    /// `video.probe` answer (`Null` = not configured; `{"error": ".."}` = fails).
+    probe: Mutex<Value>,
+    /// `video.preferences.get` answer (`Null` = not configured).
+    prefs: Mutex<Value>,
 }
 
 impl Fake {
@@ -63,7 +67,19 @@ impl Fake {
                 job(3, "gone.bin", JobState::Removed, 1000),
             ],
             video,
+            probe: Mutex::new(Value::Null),
+            prefs: Mutex::new(Value::Null),
         })
+    }
+
+    fn set_probe(&self, v: impl serde::Serialize) {
+        *self.probe.lock().unwrap() = serde_json::to_value(v).unwrap();
+    }
+
+    fn set_prefs(&self, ask: bool) {
+        *self.prefs.lock().unwrap() = json!({
+            "ask_quality": ask, "default_quality": "best", "default_audio": "best"
+        });
     }
 
     fn calls(&self, method: &str) -> Vec<Value> {
@@ -87,6 +103,8 @@ impl Backend for Fake {
             .push((method.to_string(), params.clone()));
         let jobs = self.jobs.clone();
         let video = self.video;
+        let probe = self.probe.lock().unwrap().clone();
+        let prefs = self.prefs.lock().unwrap().clone();
         let method = method.to_string();
         Box::pin(async move {
             match method.as_str() {
@@ -165,10 +183,18 @@ impl Backend for Fake {
                         {"name":"file.txt","is_dir":false,"size":3}
                     ]
                 })),
-                "jobs.pause" | "jobs.resume" | "jobs.remove" | "jobs.purge" => ok(BatchResult {
-                    ok: vec![JobId(1)],
-                    failed: vec![],
-                }),
+                "video.preferences.get" | "video.preferences.set" => Ok(prefs),
+                "video.probe" if probe["error"].is_string() => Err(RpcError::new(
+                    dman_proto::ErrorCode::General,
+                    probe["error"].as_str().unwrap(),
+                )),
+                "video.probe" => Ok(probe),
+                "jobs.pause" | "jobs.resume" | "jobs.remove" | "jobs.purge" | "jobs.restore" => {
+                    ok(BatchResult {
+                        ok: vec![JobId(1)],
+                        failed: vec![],
+                    })
+                }
                 _ => Ok(Value::Null),
             }
         })
@@ -608,7 +634,11 @@ async fn deleting_files_needs_the_explicit_flag_of_the_confirmation() {
     ] {
         let r = send(&app, post_form("/jobs/1/remove", &t, form)).await;
         assert_eq!(r.status, StatusCode::SEE_OTHER, "{form}");
-        assert_eq!(r.headers[header::LOCATION], "/?done=removed", "{form}");
+        assert_eq!(
+            r.headers[header::LOCATION],
+            "/?done=removed&undo=1",
+            "{form}"
+        );
     }
     let calls = fake.calls("jobs.remove");
     assert_eq!(calls.len(), 4);
@@ -918,6 +948,7 @@ async fn csp_and_security_headers_present() {
         "/jobs/1",
         "/jobs/1/remove",
         "/fs",
+        "/?done=removed&undo=1",
     ] {
         let r = send(&app, get(uri)).await;
         assert_eq!(r.status, StatusCode::OK, "{uri}");
@@ -973,7 +1004,7 @@ fn embedded_asset_sizes() {
         .map(|(_, s)| s)
         .sum();
     println!("app.css + app.js: {own} bytes");
-    assert!(own < 25_000, "app.css + app.js grew to {own} bytes");
+    assert!(own < 28_000, "app.css + app.js grew to {own} bytes");
 }
 
 #[tokio::test]
@@ -1086,7 +1117,7 @@ async fn remove_and_delete_are_distinct_and_say_what_happened() {
 
     // From the detail page the browser goes back to the list with a notice.
     let r = send(&app, hx(post_form("/jobs/1/remove", &t, "back=detail"), "")).await;
-    assert_eq!(r.headers["hx-redirect"], "/?done=removed");
+    assert_eq!(r.headers["hx-redirect"], "/?done=removed&undo=1");
     let r = send(&app, get("/?done=removed")).await;
     assert!(r.body.contains("Removed (files kept on disk)."));
     let r = send(&app, get("/jobs/1")).await;
@@ -1389,4 +1420,559 @@ async fn settings_limits_send_only_changes_and_explain_errors() {
     assert_eq!(r.status, StatusCode::BAD_REQUEST);
     assert!(r.body.contains("is not a speed") && r.body.contains("value=\"fast\""));
     assert_eq!(fake.calls("limits.set").len(), 1);
+}
+
+// ----- video quality picker ----------------------------------------------------
+
+fn choice(id: &str, stream: &str, label: &str, h: Option<u32>, kind: &str) -> Value {
+    json!({
+        "id": id, "stream_id": stream, "label": label, "height": h,
+        "kind": kind, "available": true, "requires_ffmpeg": kind == "video_only"
+    })
+}
+
+/// A probe with a video-only 1080p, a pre-merged 720p, an unavailable 4K and two audios.
+fn picker_probe(title: &str) -> Value {
+    let mut c4k = choice(
+        "313+251",
+        "313",
+        "2160p \u{b7} VP9",
+        Some(2160),
+        "video_only",
+    );
+    c4k["available"] = json!(false);
+    c4k["unavailable_reason"] = json!("needs ffmpeg <i>x</i>");
+    let mut opus = choice("251", "251", "Opus 130k", None, "audio_only");
+    opus["codec"] = json!("Opus");
+    let mut aac = choice("140", "140", "AAC 128k", None, "audio_only");
+    aac["codec"] = json!("AAC");
+    let mut v1080 = choice(
+        "137+251",
+        "137",
+        "1080p \u{b7} H.264",
+        Some(1080),
+        "video_only",
+    );
+    v1080["size_estimate"] = json!(50_000_000u64);
+    json!({
+        "url": "https://www.youtube.com/watch?v=abc",
+        "title": title,
+        "uploader": "Chan <b>nel</b>",
+        "duration": 125.0,
+        "ffmpeg": true,
+        "needs_choice": true,
+        "video_choices": [
+            c4k,
+            v1080,
+            choice("22", "22", "720p \u{b7} H.264", Some(720), "muxed"),
+            choice("18", "18", "360p \u{b7} H.264", Some(360), "muxed"),
+        ],
+        "audio_choices": [opus, aac],
+        "suggested": {"video": "137+251", "audio": "251"}
+    })
+}
+
+async fn picker_page(app: &Router, fake: &Fake, t: &str, form: &str) -> (String, String) {
+    let _ = fake;
+    let r = send(app, post_form("/add", t, form)).await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER, "{}", r.body);
+    let to = r.headers[header::LOCATION].to_str().unwrap().to_string();
+    assert!(to.starts_with("/add/quality/"), "{to}");
+    let page = send(app, get(&to)).await;
+    assert_eq!(page.status, StatusCode::OK);
+    (to, page.body)
+}
+
+const VIDEO_FORM: &str =
+    "from=add&as_video=1&quality=&uris=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Dabc";
+
+#[tokio::test]
+async fn quality_picker_is_skipped_unless_asking_and_choosing() {
+    let fake = Fake::new(true);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let direct = json!({"sources":[{"type":"video","url":"https://www.youtube.com/watch?v=abc","video":{}}],"options":{},"paused":false});
+
+    // Preferences unreadable: straight to the daemon defaults.
+    let r = send(&app, post_form("/add", &t, VIDEO_FORM)).await;
+    assert_eq!(r.headers[header::LOCATION], "/?added=99");
+    assert_eq!(fake.calls("jobs.add"), vec![direct.clone()]);
+    assert!(fake.calls("video.probe").is_empty());
+
+    // ask_quality off: no probe either.
+    fake.set_prefs(false);
+    fake.set_probe(picker_probe("t"));
+    send(&app, post_form("/add", &t, VIDEO_FORM)).await;
+    assert_eq!(fake.calls("jobs.add").len(), 2);
+    assert!(fake.calls("video.probe").is_empty());
+
+    // Asking, but nothing to choose: probed, then added directly.
+    fake.set_prefs(true);
+    let mut single = picker_probe("t");
+    single["needs_choice"] = json!(false);
+    fake.set_probe(single);
+    let r = send(&app, post_form("/add", &t, VIDEO_FORM)).await;
+    assert_eq!(r.headers[header::LOCATION], "/?added=99");
+    assert_eq!(fake.calls("video.probe").len(), 1);
+    assert_eq!(fake.calls("jobs.add").len(), 3);
+    // The probe request names the URL (and not a playlist).
+    assert_eq!(
+        fake.calls("video.probe")[0],
+        json!({"url":"https://www.youtube.com/watch?v=abc","playlist":false})
+    );
+
+    // A playlist keeps the defaults.
+    let mut pl = picker_probe("t");
+    pl["playlist"] = json!(true);
+    fake.set_probe(pl);
+    send(&app, post_form("/add", &t, VIDEO_FORM)).await;
+    assert_eq!(fake.calls("jobs.add").len(), 4);
+
+    // An explicit quality, a playlist request or several links never ask.
+    fake.set_probe(picker_probe("t"));
+    for form in [
+        "as_video=1&quality=720p&uris=https%3A%2F%2Fv.example%2Fa",
+        "as_video=1&playlist=1&uris=https%3A%2F%2Fv.example%2Fa",
+        "as_video=1&uris=https%3A%2F%2Fv.example%2Fa%0Ahttps%3A%2F%2Fv.example%2Fb",
+        "uris=https%3A%2F%2Fe.org%2Ffile.iso",
+    ] {
+        let r = send(&app, post_form("/add", &t, form)).await;
+        assert_eq!(r.status, StatusCode::SEE_OTHER, "{form}");
+        assert!(
+            r.headers[header::LOCATION]
+                .to_str()
+                .unwrap()
+                .starts_with("/?added")
+        );
+    }
+    assert_eq!(fake.calls("video.probe").len(), 2, "no probe for those");
+    assert_eq!(fake.calls("jobs.add").len(), 8);
+
+    // A probe that fails says so and adds nothing.
+    fake.set_probe(json!({"error": "no such <b>video</b>"}));
+    let r = send(&app, post_form("/add", &t, VIDEO_FORM)).await;
+    assert_eq!(r.status, StatusCode::BAD_GATEWAY);
+    assert!(r.body.contains("Could not check the available qualities"));
+    assert!(r.body.contains("no such &lt;b&gt;video&lt;/b&gt;"));
+    assert!(!r.body.contains("<b>video</b>"));
+    assert_eq!(fake.calls("jobs.add").len(), 8);
+}
+
+#[tokio::test]
+async fn quality_picker_page_escapes_and_marks_unavailable() {
+    let fake = Fake::new(true);
+    fake.set_prefs(true);
+    fake.set_probe(picker_probe(EVIL));
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let (to, body) = picker_page(&app, &fake, &t, VIDEO_FORM).await;
+    assert!(body.contains("Choose the quality"));
+    // Untrusted text is escaped everywhere.
+    assert!(body.contains("&lt;script&gt;alert(1)&lt;/script&gt;") && !body.contains(EVIL));
+    assert!(body.contains("Chan &lt;b&gt;nel") && !body.contains("<b>nel"));
+    assert!(body.contains("needs ffmpeg &lt;i&gt;x&lt;/i&gt;") && !body.contains("<i>x</i>"));
+    // Rows: video (4 + audio only), audio (2); size appended when the label has none.
+    assert!(
+        body.contains("1080p \u{b7} H.264 \u{b7} ~47.7 MiB"),
+        "{body}"
+    );
+    assert!(body.contains("Audio only (no video)"));
+    assert!(
+        body.contains("needs ffmpeg</span>"),
+        "badge on merged choices"
+    );
+    // The unavailable 4K is disabled with its reason; nothing else is.
+    let off = body.find("2160p").unwrap();
+    let li = &body[body[..off].rfind("<li").unwrap()..off];
+    assert!(li.contains("qrow off") && li.contains("disabled"), "{li}");
+    assert!(body.contains(">unavailable<"));
+    assert_eq!(body.matches(" disabled").count(), 1, "only the 4K row");
+    // Suggested (1080p video-only + Opus) is preselected.
+    let checked: Vec<&str> = body
+        .match_indices("checked")
+        .map(|(i, _)| &body[i - 60..i])
+        .collect();
+    assert!(
+        checked
+            .iter()
+            .any(|c| c.contains("name=\"video\" value=\"1\"")),
+        "{checked:?}"
+    );
+    assert!(
+        checked
+            .iter()
+            .any(|c| c.contains("name=\"audio\" value=\"0\""))
+    );
+    // Presets, both checkboxes, Download and Cancel; CSRF on the form.
+    for p in ["Best", "1080p", "720p", "480p", "Audio only"] {
+        assert!(body.contains(&format!(">{p}</button>")), "{p}");
+    }
+    assert!(body.contains("name=\"use_default\"") && body.contains("name=\"never_ask\""));
+    assert!(body.contains("Use as my default") && body.contains("Never ask again"));
+    assert!(body.contains(">Download</button>") && body.contains(">Cancel</a>"));
+    assert!(body.contains("name=\"_csrf\""));
+    assert!(body.contains(&format!("action=\"{to}\"")));
+    // No inline script or style.
+    assert!(!body.contains(" style=") && !body.contains("onclick") && !body.contains("<script>"));
+    // Unknown or expired ids are a clear error.
+    let r = send(&app, get("/add/quality/nope")).await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
+    assert!(r.body.contains("expired"));
+    let r = send(&app, post_form("/add/quality/nope", &t, "video=0")).await;
+    assert_eq!(r.status, StatusCode::NOT_FOUND);
+    // Forged posts are refused.
+    let r = send(&app, post_form(&to, "forged", "video=1")).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    assert!(fake.calls("jobs.add").is_empty());
+}
+
+#[tokio::test]
+async fn quality_submit_computes_the_format_id_on_the_server() {
+    let fake = Fake::new(true);
+    fake.set_prefs(true);
+    fake.set_probe(picker_probe("Clip"));
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let added = |n: usize| fake.calls("jobs.add")[n].clone();
+    let fmt_of = |n: usize| added(n)["sources"][0]["video"]["format_id"].clone();
+
+    // 1080p video-only + the other audio: stream id + chosen audio.
+    let (to, _) = picker_page(&app, &fake, &t, VIDEO_FORM).await;
+    let r = send(&app, post_form(&to, &t, "act=download&video=1&audio=1")).await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    assert_eq!(r.headers[header::LOCATION], "/?added=99");
+    assert_eq!(fmt_of(0), "137+140");
+    assert!(fake.calls("video.preferences.set").is_empty());
+    // The stored choice is used up.
+    assert_eq!(send(&app, get(&to)).await.status, StatusCode::NOT_FOUND);
+
+    // The audio the choice came with: its own id.
+    let (to, _) = picker_page(&app, &fake, &t, VIDEO_FORM).await;
+    send(&app, post_form(&to, &t, "video=1&audio=0")).await;
+    assert_eq!(fmt_of(1), "137+251");
+    // A pre-merged choice ignores the audio list.
+    let (to, _) = picker_page(&app, &fake, &t, VIDEO_FORM).await;
+    send(&app, post_form(&to, &t, "video=2&audio=1")).await;
+    assert_eq!(fmt_of(2), "22");
+    // Audio only: the audio format itself.
+    let (to, _) = picker_page(&app, &fake, &t, VIDEO_FORM).await;
+    send(&app, post_form(&to, &t, "video=4&audio=1")).await;
+    assert_eq!(fmt_of(3), "140");
+    // Nothing is sent that the client invented; the rest of the add is kept.
+    let (to, _) = picker_page(
+        &app,
+        &fake,
+        &t,
+        &format!("{VIDEO_FORM}&paused=1&dir=%2Fsrv"),
+    )
+    .await;
+    send(&app, post_form(&to, &t, "video=2&format_id=evil&audio=0")).await;
+    let last = added(4);
+    assert_eq!(last["sources"][0]["video"], json!({"format_id": "22"}));
+    assert_eq!(last["options"], json!({"dir": "/srv"}));
+    assert_eq!(last["paused"], true);
+
+    // The unavailable 4K, a row that does not exist: refused, nothing added, form kept.
+    let (to, _) = picker_page(&app, &fake, &t, VIDEO_FORM).await;
+    let r = send(&app, post_form(&to, &t, "video=0&audio=0")).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    assert!(
+        r.body.contains("is not available: needs ffmpeg"),
+        "{}",
+        r.body
+    );
+    let r = send(&app, post_form(&to, &t, "video=9&audio=0")).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    assert_eq!(fake.calls("jobs.add").len(), 5);
+}
+
+#[tokio::test]
+async fn quality_checkboxes_save_the_preferences() {
+    let fake = Fake::new(true);
+    fake.set_prefs(true);
+    fake.set_probe(picker_probe("Clip"));
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let sets = || fake.calls("video.preferences.set");
+    let go = |form: &'static str| {
+        let (app, t) = (app.clone(), t.clone());
+        let fake = fake.clone();
+        async move {
+            let (to, _) = picker_page(&app, &fake, &t, VIDEO_FORM).await;
+            let r = send(&app, post_form(&to, &t, form)).await;
+            assert_eq!(r.status, StatusCode::SEE_OTHER, "{form}");
+        }
+    };
+    // Use as default: the preset of the height and the family of the audio codec.
+    go("video=1&audio=0&use_default=1").await;
+    assert_eq!(
+        sets(),
+        vec![json!({"default_quality":"1080p","default_audio":"opus"})]
+    );
+    // A pre-merged choice has no audio of its own: only the quality.
+    go("video=2&audio=0&use_default=1").await;
+    assert_eq!(sets()[1], json!({"default_quality":"720p"}));
+    // No preset for 360p: best. Never ask: just that flag.
+    go("video=3&audio=0&use_default=1&never_ask=1").await;
+    assert_eq!(
+        sets()[2],
+        json!({"ask_quality":false,"default_quality":"best"})
+    );
+    go("video=1&audio=1&never_ask=1").await;
+    assert_eq!(sets()[3], json!({"ask_quality":false}));
+    // Audio only: audio:<family>.
+    go("video=4&audio=1&use_default=1").await;
+    assert_eq!(
+        sets()[4],
+        json!({"default_quality":"audio:m4a","default_audio":"m4a"})
+    );
+    // Nothing ticked: no call. Every add still happened.
+    go("video=1&audio=1").await;
+    assert_eq!(sets().len(), 5);
+    assert_eq!(fake.calls("jobs.add").len(), 6);
+}
+
+#[tokio::test]
+async fn quality_presets_select_rows_without_downloading() {
+    let fake = Fake::new(true);
+    fake.set_prefs(true);
+    fake.set_probe(picker_probe("Clip"));
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let (to, _) = picker_page(&app, &fake, &t, VIDEO_FORM).await;
+    let value_of = |body: &str, name: &str| {
+        let i = body.match_indices("checked").find_map(|(i, _)| {
+            let head = &body[i.saturating_sub(70)..i];
+            head.contains(&format!("name=\"{name}\""))
+                .then(|| head.to_string())
+        });
+        i.unwrap_or_default()
+    };
+    for (preset, video) in [
+        ("720p", "2"),
+        ("480p", "3"),
+        ("best", "1"),
+        ("1080p", "1"),
+        ("audio", "4"),
+    ] {
+        let r = send(
+            &app,
+            post_form(&to, &t, &format!("video=1&audio=1&preset={preset}")),
+        )
+        .await;
+        assert_eq!(r.status, StatusCode::OK, "{preset}");
+        assert!(
+            value_of(&r.body, "video").contains(&format!("value=\"{video}\"")),
+            "{preset}: {}",
+            value_of(&r.body, "video")
+        );
+    }
+    // 720p: the pre-merged row; the audio selection follows the suggested track.
+    let r = send(&app, post_form(&to, &t, "video=1&audio=1&preset=720p")).await;
+    assert!(value_of(&r.body, "audio").contains("value=\"0\""));
+    assert!(fake.calls("jobs.add").is_empty(), "presets never download");
+    // The choice is still there afterwards.
+    assert_eq!(send(&app, get(&to)).await.status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn paste_box_detects_video_sites_and_hands_over_to_the_picker() {
+    let fake = Fake::new(true);
+    fake.set_prefs(true);
+    fake.set_probe(picker_probe("Clip"));
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let paste = "from=downloads&uris=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3Dabc";
+    let r = send(&app, hx(post_form("/add", &t, paste), "jobs")).await;
+    assert_eq!(r.status, StatusCode::OK);
+    let to = r.headers["hx-redirect"].to_str().unwrap().to_string();
+    assert!(to.starts_with("/add/quality/"), "{to}");
+    // Cancel goes back to the downloads list.
+    let page = send(&app, get(&to)).await;
+    assert!(page.body.contains("href=\"/\">Cancel</a>"));
+    // Without JavaScript the same post redirects.
+    let r = send(&app, post_form("/add", &t, paste)).await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    // A plain download link stays an aria2 download; no probe.
+    let before = fake.calls("video.probe").len();
+    send(
+        &app,
+        hx(
+            post_form(
+                "/add",
+                &t,
+                "from=downloads&uris=https%3A%2F%2Fe.org%2Fa.iso",
+            ),
+            "jobs",
+        ),
+    )
+    .await;
+    assert_eq!(fake.calls("video.probe").len(), before);
+    assert_eq!(
+        fake.calls("jobs.add").last().unwrap()["sources"][0],
+        json!({"type":"uris","uris":["https://e.org/a.iso"]})
+    );
+    // The spinner text exists in both forms.
+    let page = send(&app, get("/")).await.body;
+    assert!(
+        page.contains("Checking available qualities")
+            && page.contains("hx-indicator=\"#paste-ind\"")
+    );
+    let page = send(&app, get("/add")).await.body;
+    assert!(
+        page.contains("Checking available qualities") && page.contains("Ask me, or use my default")
+    );
+}
+
+#[tokio::test]
+async fn settings_video_section_reads_and_sets_preferences() {
+    let fake = Fake::new(true);
+    *fake.prefs.lock().unwrap() = json!({
+        "ask_quality": true, "default_quality": "1080p", "default_audio": "opus",
+        "default_container": "mkv"
+    });
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let r = send(&app, get("/settings")).await;
+    assert!(r.body.contains("id=\"video\"") && r.body.contains("Ask which quality to download"));
+    assert!(r.body.contains("name=\"ask_quality\" value=\"1\" checked"));
+    for (name, sel) in [
+        ("default_quality", "1080p"),
+        ("default_audio", "opus"),
+        ("default_container", "mkv"),
+    ] {
+        let i = r.body.find(&format!("name=\"{name}\"")).unwrap();
+        let sel_at = r.body[i..].find(" selected").unwrap();
+        assert!(
+            r.body[i..i + sel_at].ends_with(&format!("value=\"{sel}\"")),
+            "{name}"
+        );
+    }
+    assert!(!r.body.contains(" style=") && !r.body.contains("<script>"));
+    let r = send(
+        &app,
+        post_form(
+            "/settings/video",
+            &t,
+            "default_quality=720p&default_audio=m4a&default_container=",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    assert_eq!(r.headers[header::LOCATION], "/settings?done=video");
+    assert_eq!(
+        fake.calls("video.preferences.set"),
+        vec![json!({
+            "ask_quality": false, "default_quality": "720p", "default_audio": "m4a",
+            "default_container": ""
+        })]
+    );
+    let r = send(
+        &app,
+        post_form(
+            "/settings/video",
+            &t,
+            "ask_quality=1&default_quality=best&default_audio=best&default_container=mp4",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    assert_eq!(fake.calls("video.preferences.set")[1]["ask_quality"], true);
+    assert_eq!(
+        fake.calls("video.preferences.set")[1]["default_container"],
+        "mp4"
+    );
+    assert!(
+        send(&app, get("/settings?done=video"))
+            .await
+            .body
+            .contains("Video settings saved.")
+    );
+    assert_eq!(
+        send(
+            &app,
+            post_form("/settings/video", "forged", "ask_quality=1")
+        )
+        .await
+        .status,
+        StatusCode::FORBIDDEN
+    );
+    // No video engine: no section.
+    let app = app_with(&Fake::new(false), None, "/");
+    assert!(
+        !send(&app, get("/settings"))
+            .await
+            .body
+            .contains("id=\"video\"")
+    );
+}
+
+#[tokio::test]
+async fn remove_from_list_offers_undo_but_deleting_files_does_not() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    // htmx: the toast has an Undo form with CSRF.
+    let r = send(&app, hx(post_form("/jobs/2/remove", &t, ""), "")).await;
+    assert!(r.body.contains(">Undo</button>"), "{}", r.body);
+    assert!(
+        r.body.contains("action=\"/jobs/restore\"") && r.body.contains("name=\"ids\" value=\"2\"")
+    );
+    assert!(r.body.contains(&format!("name=\"_csrf\" value=\"{t}\"")));
+    assert!(
+        r.body.contains("&lt;script&gt;") && !r.body.contains(EVIL),
+        "names are escaped"
+    );
+    // Deleting files: no way back, no Undo.
+    let r = send(
+        &app,
+        hx(post_form("/jobs/2/remove", &t, "delete_files=true"), ""),
+    )
+    .await;
+    assert!(!r.body.contains("Undo") && !r.body.contains("jobs/restore"));
+    let r = send(&app, post_form("/jobs/2/remove", &t, "delete_files=true")).await;
+    assert_eq!(r.headers[header::LOCATION], "/?done=removed-files");
+    // Bulk removal undoes all ids at once.
+    let r = send(
+        &app,
+        hx(post_form("/jobs/bulk/remove", &t, "ids=1&ids=2"), ""),
+    )
+    .await;
+    assert!(r.body.contains("name=\"ids\" value=\"1,2\""), "{}", r.body);
+    // After a redirect the downloads page shows the Undo toast.
+    let r = send(&app, get("/?done=removed&undo=1,2")).await;
+    assert!(r.body.contains(">Undo</button>") && r.body.contains("name=\"ids\" value=\"1,2\""));
+    // Garbage in `undo` is dropped.
+    let r = send(&app, get("/?done=removed&undo=x%2C%22%3E%3Cb%3E")).await;
+    assert!(!r.body.contains("Undo</button>") && !r.body.contains("\"><b>"));
+}
+
+#[tokio::test]
+async fn restore_endpoint_calls_the_daemon_and_is_csrf_protected() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let r = send(&app, hx(post_form("/jobs/restore", &t, "ids=1%2C2"), "")).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(fake.calls("jobs.restore"), vec![json!({"ids":[1,2]})]);
+    assert!(r.body.contains("Restored 2 downloads."));
+    assert_eq!(r.headers["hx-trigger"], "dman-restored");
+    // Without JavaScript: a redirect with a notice.
+    let r = send(&app, post_form("/jobs/restore", &t, "ids=1")).await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    assert_eq!(r.headers[header::LOCATION], "/?done=restored");
+    assert!(
+        send(&app, get("/?done=restored"))
+            .await
+            .body
+            .contains("Restored.")
+    );
+    // Nothing to restore.
+    let r = send(&app, post_form("/jobs/restore", &t, "")).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    assert_eq!(fake.calls("jobs.restore").len(), 2);
+    // CSRF.
+    let r = send(&app, post_form("/jobs/restore", "forged", "ids=1")).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    assert_eq!(fake.calls("jobs.restore").len(), 2);
 }

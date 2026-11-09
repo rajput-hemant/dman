@@ -8,12 +8,14 @@
 mod add;
 mod detail;
 mod downloads;
+mod quality;
 mod search;
 mod settings;
 
 pub use add::*;
 pub use detail::*;
 pub use downloads::*;
+pub use quality::*;
 pub use search::*;
 pub use settings::*;
 
@@ -153,6 +155,28 @@ pub fn toast_link(level: &str, text: &str, link: Option<(&str, &str)>) -> Markup
     html! {
         div class=(format!("toast {level}")) role=(role) {
             span.tmsg { (text) @if let Some((href, label)) = link { " " a href=(href) { (label) } } }
+            button.x type="button" data-dismiss aria-label="Dismiss" { "\u{d7}" }
+        }
+    }
+}
+
+/// "Removed ..." toast with an Undo button (`POST /jobs/restore`). A plain form,
+/// so it works without JavaScript; with htmx the toast is replaced in place.
+pub fn toast_undo(base: &str, csrf: &str, text: &str, ids: &[dman_proto::JobId]) -> Markup {
+    let url = format!("{base}/jobs/restore");
+    let list = ids
+        .iter()
+        .map(|i| i.0.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    html! {
+        div class="toast ok" role="status" {
+            span.tmsg { (text) }
+            form.undoform method="post" action=(url) hx-post=(url) hx-target="closest .toast" hx-swap="outerHTML" {
+                input type="hidden" name="_csrf" value=(csrf);
+                input type="hidden" name="ids" value=(list);
+                button.btn.small.undo type="submit" { "Undo" }
+            }
             button.x type="button" data-dismiss aria-label="Dismiss" { "\u{d7}" }
         }
     }

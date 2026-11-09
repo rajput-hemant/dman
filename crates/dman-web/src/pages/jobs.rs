@@ -31,6 +31,23 @@ fn ids_of(p: &Pairs) -> Vec<JobId> {
         .collect()
 }
 
+/// Job ids of a `undo=1,2` query value (the undo toast after a redirect).
+fn undo_ids(p: &Pairs) -> Vec<JobId> {
+    p.str("undo")
+        .split(',')
+        .filter_map(|v| v.trim().parse().ok())
+        .take(200)
+        .map(JobId)
+        .collect()
+}
+
+fn id_list(ids: &[JobId]) -> String {
+    ids.iter()
+        .map(|i| i.0.to_string())
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
 fn quoted(name: &str) -> String {
     format!("\u{201c}{name}\u{201d}")
 }
@@ -55,6 +72,16 @@ pub async fn downloads(
         Err(e) => return fail_rpc(&st, &ctx, &HeaderMap::new(), &e).await,
     };
     let mut toasts = flash(&p);
+    let undo = undo_ids(&p);
+    if p.str("done") == "removed" && !undo.is_empty() {
+        // "Remove from list" offers an undo for a few seconds.
+        toasts = vec![views::toast_undo(
+            &st.base,
+            &ctx.csrf,
+            "Removed (files kept on disk).",
+            &undo,
+        )];
+    }
     if !q.fresh.is_empty() {
         toasts.push(views::toast("ok", &added_text(&jobs, &q.fresh)));
     }
@@ -513,6 +540,12 @@ async fn do_remove(st: &AppState, c: &Ctx, h: &HeaderMap, ids: Vec<JobId>, p: &P
     } else {
         format!("{n} downloads")
     };
+    let undo = if delete_files {
+        String::new()
+    } else {
+        id_list(&ids)
+    };
+    let ids_for_undo = ids.clone();
     let params = RemoveParams {
         ids,
         delete_files,
@@ -540,25 +573,72 @@ async fn do_remove(st: &AppState, c: &Ctx, h: &HeaderMap, ids: Vec<JobId>, p: &P
     } else {
         "removed"
     };
+    // Only "Remove from list" can be undone; deleted files are gone for good.
+    let to = if undo.is_empty() {
+        format!("{}/?done={code}", st.base)
+    } else {
+        format!("{}/?done={code}&undo={undo}", st.base)
+    };
     if !is_htmx(h) {
-        return redirect(&format!("{}/?done={code}", st.base));
+        return redirect(&to);
     }
     if back == "detail" {
-        return with_header(
-            html(html! {}),
-            "hx-redirect",
-            &format!("{}/?done={code}", st.base),
-        );
+        return with_header(html(html! {}), "hx-redirect", &to);
     }
-    let text = if delete_files {
-        format!("Removed {name} and deleted its files.")
+    let t = if delete_files {
+        views::toast("ok", &format!("Removed {name} and deleted its files."))
     } else {
-        format!("Removed {name} (files kept).")
+        views::toast_undo(
+            &st.base,
+            &c.csrf,
+            &format!("Removed {name} (files kept)."),
+            &ids_for_undo,
+        )
     };
+    with_header(toast_markup(t), "hx-trigger", "dman-close, dman-clear-sel")
+}
+
+/// `POST /jobs/restore`: undo of "Remove from list" (`ids=1,2`).
+pub async fn restore(
+    State(st): St,
+    Extension(c): Extension<Ctx>,
+    h: HeaderMap,
+    p: Pairs,
+) -> Response {
+    let ids = ids_of(&p);
+    if ids.is_empty() {
+        return fail(&st, &c, &h, StatusCode::BAD_REQUEST, "Nothing to restore.").await;
+    }
+    let name = if let [one] = ids.as_slice() {
+        st.call::<Job>(method::JOBS_GET, IdParams { id: *one })
+            .await
+            .map(|j| quoted(views::display_name(&j)))
+            .unwrap_or_else(|_| "the download".into())
+    } else {
+        format!("{} downloads", ids.len())
+    };
+    let v: serde_json::Value = match st.call(method::JOBS_RESTORE, IdsParams { ids }).await {
+        Ok(v) => v,
+        Err(e) => return fail_rpc(&st, &c, &h, &e).await,
+    };
+    if let Some(m) = batch_failure(&v) {
+        return fail(
+            &st,
+            &c,
+            &h,
+            StatusCode::CONFLICT,
+            &format!("Could not restore {name}: {m}"),
+        )
+        .await;
+    }
+    if !is_htmx(&h) {
+        return redirect(&format!("{}/?done=restored", st.base));
+    }
+    // The Undo toast is replaced by this one; the list refreshes itself.
     with_header(
-        toast("ok", &text),
+        html(views::toast("ok", &format!("Restored {name}."))),
         "hx-trigger",
-        "dman-close, dman-clear-sel",
+        "dman-restored",
     )
 }
 

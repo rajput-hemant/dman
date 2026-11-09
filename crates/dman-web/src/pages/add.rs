@@ -17,6 +17,7 @@ use dman_proto::{
 use maud::{Markup, html};
 
 use super::added_text;
+use super::quality::{self, Gate};
 use super::{
     Pairs, St, fail, full_page, html, hx_target, is_htmx, query_pairs, redirect, toast_markup,
     with_header,
@@ -199,6 +200,9 @@ fn parse_add(st: &AppState, p: &Pairs, video_ok: bool) -> Parsed {
         }
     }
     let as_video = values.as_video && video_ok;
+    // The paste box has no "video" checkbox: known video sites (an offline
+    // heuristic, as in the CLI and TUI) go to yt-dlp.
+    let detect = video_ok && !as_video && p.str("from") == "downloads";
     for line in values.uris.split_whitespace().take(200) {
         if skip_uri.as_deref() == Some(line) {
             continue;
@@ -209,7 +213,10 @@ fn parse_add(st: &AppState, p: &Pairs, video_ok: bool) -> Parsed {
             ));
             continue;
         }
-        let src = if as_video {
+        let is_video = as_video
+            || (detect
+                && url::Url::parse(line).is_ok_and(|u| dman_ytdlp::is_probably_video_url(&u)));
+        let src = if is_video {
             AddSource::Video {
                 url: line.to_string(),
                 video: Box::new(VideoOptions {
@@ -297,7 +304,7 @@ fn parse_add(st: &AppState, p: &Pairs, video_ok: bool) -> Parsed {
 }
 
 /// Sends `jobs.add`; returns the new ids and `label: message` per failure.
-async fn add_sources(
+pub(super) async fn add_sources(
     st: &AppState,
     sources: Vec<(String, AddSource)>,
     options: JobOptions,
@@ -371,6 +378,38 @@ pub async fn add(State(st): St, Extension(c): Extension<Ctx>, h: HeaderMap, p: P
         .await;
     }
     let sources = std::mem::take(&mut parsed.sources);
+    if parsed.preview_id.is_none() {
+        let srcs: Vec<AddSource> = sources.iter().map(|(_, s)| s.clone()).collect();
+        let from = p.str("from");
+        match quality::gate(&st, &srcs, &parsed.options, parsed.values.paused, from).await {
+            Gate::Direct => {}
+            Gate::Picker(id) => {
+                let to = format!("{}/add/quality/{id}", st.base);
+                return if htmx {
+                    with_header(html(html! {}), "hx-redirect", &to)
+                } else {
+                    redirect(&to)
+                };
+            }
+            Gate::Failed(msg) => {
+                if htmx {
+                    return toast_markup(views::toast("error", &msg));
+                }
+                parsed.errors.general.push(msg);
+                parsed.sources = sources;
+                return render_add(
+                    &st,
+                    &c,
+                    &parsed.values,
+                    &parsed.errors,
+                    None,
+                    None,
+                    StatusCode::BAD_GATEWAY,
+                )
+                .await;
+            }
+        }
+    }
     let (ok, bad) =
         match add_sources(&st, sources, parsed.options.clone(), parsed.values.paused).await {
             Ok(r) => r,

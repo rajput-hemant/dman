@@ -413,6 +413,12 @@ macro_rules! typed_api {
             self.call(method::JOBS_REMOVE, params).await
         }
 
+        /// `jobs.restore`: undo a remove-from-list (never possible after file deletion).
+        pub async fn restore(&self, ids: &[JobId]) -> Result<method::BatchResult, ClientError> {
+            self.call(method::JOBS_RESTORE, IdsParams { ids: ids.to_vec() })
+                .await
+        }
+
         /// `jobs.purge`: drop finished jobs from the history.
         pub async fn purge(&self, ids: &[JobId]) -> Result<method::BatchResult, ClientError> {
             self.call(method::JOBS_PURGE, IdsParams { ids: ids.to_vec() })

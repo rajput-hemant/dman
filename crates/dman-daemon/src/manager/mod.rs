@@ -64,6 +64,8 @@ pub enum Request {
     Remove(RemoveParams),
     /// `jobs.purge`
     Purge(Vec<JobId>),
+    /// `jobs.restore`
+    Restore(Vec<JobId>),
     /// `jobs.reorder`
     Reorder(ReorderParams),
     /// `jobs.set_options`
@@ -587,6 +589,12 @@ impl Manager {
                 to_value(r)
             }
             Request::Purge(ids) => to_value(self.purge(ids).await),
+            Request::Restore(ids) => {
+                let r = self.restore(&ids).await;
+                self.tick().await;
+                self.emit_changes();
+                to_value(r)
+            }
             Request::Reorder(p) => {
                 self.reorder(p).await?;
                 self.emit_changes();

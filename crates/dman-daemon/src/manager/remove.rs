@@ -13,7 +13,135 @@ use crate::ops;
 use super::Manager;
 use super::util::{engine_err, file_paths, is_rpc_msg, recorded_files, unavailable, wait_stopped};
 
+const PRE_STATE: &str = "pre_remove_state";
+const PRE_DESIRED: &str = "pre_remove_desired";
+const FILES_DELETED: &str = "files_deleted";
+
+/// Records what `jobs.restore` needs, just before `rec` becomes Removed: the
+/// state and desired state it had (kept from the first removal) and whether
+/// its files are being deleted (then it can never be restored).
+pub(super) fn note_removal(rec: &mut dman_store::JobRecord, delete_files: bool) {
+    if rec.state != JobState::Removed {
+        if let Ok(v) = serde_json::to_value(rec.state) {
+            rec.extra.insert(PRE_STATE.into(), v);
+        }
+        if let Ok(v) = serde_json::to_value(rec.desired) {
+            rec.extra.insert(PRE_DESIRED.into(), v);
+        }
+    }
+    if delete_files {
+        rec.extra.insert(FILES_DELETED.into(), json!(true));
+    }
+}
+
 impl Manager {
+    // ----- restore -----------------------------------------------------------
+
+    pub(super) async fn restore(&mut self, ids: &[JobId]) -> BatchResult {
+        let mut res = BatchResult {
+            ok: Vec::new(),
+            failed: Vec::new(),
+        };
+        for &id in ids {
+            match self.restore_one(id).await {
+                Ok(()) => res.ok.push(id),
+                Err(error) => res.failed.push(BatchFailure { id, error }),
+            }
+        }
+        self.flush(true).await;
+        res
+    }
+
+    /// Undoes `jobs.remove`: the job returns to the state it had before.
+    async fn restore_one(&mut self, id: JobId) -> Result<(), RpcError> {
+        let e = self
+            .jobs
+            .get(&id)
+            .ok_or_else(|| RpcError::not_found(format!("job {id}")))?;
+        if e.rec.state != JobState::Removed {
+            return Err(RpcError::refused(format!("job {id} is not removed")));
+        }
+        if e.rec.extra.get(FILES_DELETED).and_then(|v| v.as_bool()) == Some(true) {
+            return Err(RpcError::refused(format!(
+                "job {id} cannot be restored: its files were deleted"
+            )));
+        }
+        let pre: Option<JobState> = e
+            .rec
+            .extra
+            .get(PRE_STATE)
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        let pre_desired: Option<Desired> = e
+            .rec
+            .extra
+            .get(PRE_DESIRED)
+            .and_then(|v| serde_json::from_value(v.clone()).ok());
+        // Jobs removed before the marker existed: finished ones stay finished.
+        let pre = pre.unwrap_or(if e.rec.completed_at.is_some() {
+            JobState::Complete
+        } else {
+            JobState::Paused
+        });
+        let is_video = e.rec.engine == dman_proto::Engine::YtDlp;
+        let backup = (e.rec.state, e.rec.desired);
+        match pre {
+            JobState::Complete | JobState::Seeding | JobState::Error | JobState::Removed => {
+                let state = if pre == JobState::Seeding {
+                    JobState::Complete
+                } else if pre == JobState::Removed {
+                    JobState::Paused
+                } else {
+                    pre
+                };
+                if let Some(e) = self.jobs.get_mut(&id) {
+                    e.rec.state = state;
+                    e.rec.desired = if state == JobState::Paused {
+                        Desired::Paused
+                    } else {
+                        Desired::Stopped
+                    };
+                    e.aria2 = None;
+                }
+            }
+            _ => {
+                let desired = match pre_desired {
+                    Some(Desired::Queued) => Desired::Queued,
+                    _ => Desired::Paused,
+                };
+                let state = if desired == Desired::Queued {
+                    JobState::Waiting
+                } else {
+                    JobState::Paused
+                };
+                if let Some(e) = self.jobs.get_mut(&id) {
+                    e.rec.desired = desired;
+                    e.rec.state = state;
+                    e.disk_blocked = false;
+                }
+                if !is_video {
+                    let client = self.client.clone().ok_or_else(|| {
+                        unavailable(self.engine.reason.as_deref().unwrap_or("not running"))
+                    })?;
+                    if let Err(err) = self.readd(&client, id).await {
+                        if let Some(e) = self.jobs.get_mut(&id) {
+                            (e.rec.state, e.rec.desired) = backup;
+                        }
+                        return Err(RpcError::new(ErrorCode::General, err));
+                    }
+                }
+            }
+        }
+        if let Some(e) = self.jobs.get_mut(&id) {
+            e.rec.extra.remove(PRE_STATE);
+            e.rec.extra.remove(PRE_DESIRED);
+            e.rec.extra.remove(FILES_DELETED);
+            e.missing = 0;
+        }
+        tracing::info!(%id, "job restored");
+        self.mark(id, true);
+        Ok(())
+    }
+
     // ----- remove / purge ----------------------------------------------------
 
     pub(super) async fn remove(&mut self, p: RemoveParams) -> BatchResult {
@@ -95,6 +223,7 @@ impl Manager {
             if e.rec.state != JobState::Removed {
                 tracing::info!(%id, "job removed");
             }
+            note_removal(&mut e.rec, delete_files);
             e.rec.state = JobState::Removed;
             e.rec.desired = Desired::Stopped;
             e.live = LiveFigures::default();

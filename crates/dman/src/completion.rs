@@ -116,6 +116,10 @@ pub fn job_ids_stopped() -> ArgValueCandidates {
         job_candidates(&[JobState::Complete, JobState::Error, JobState::Removed])
     })
 }
+/// Jobs that `restore` can bring back (removed from the list).
+pub fn job_ids_removed() -> ArgValueCandidates {
+    ArgValueCandidates::new(|| job_candidates(&[JobState::Removed]))
+}
 /// Jobs `cleanup` applies to (finished torrents).
 pub fn job_ids_finished() -> ArgValueCandidates {
     ArgValueCandidates::new(|| job_candidates(&[JobState::Complete, JobState::Seeding]))

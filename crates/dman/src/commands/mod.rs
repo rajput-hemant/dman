@@ -76,6 +76,7 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Command::Pause(a) => control::pause(&Ctx::load(&cli)?, a).await,
         Command::Resume(a) => control::resume(&Ctx::load(&cli)?, a).await,
         Command::Remove(a) => control::remove(&Ctx::load(&cli)?, a).await,
+        Command::Restore(a) => control::restore(&Ctx::load(&cli)?, a).await,
         Command::Purge(a) => control::purge(&Ctx::load(&cli)?, a).await,
         Command::Reorder(a) => control::reorder(&Ctx::load(&cli)?, a).await,
         Command::Limit(a) => misc::limit(&Ctx::load(&cli)?, a).await,

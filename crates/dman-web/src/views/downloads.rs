@@ -400,7 +400,7 @@ pub fn paste_box(base: &str, csrf: &str) -> Markup {
     html! {
         form #paste.paste.card method="post" action=(add) enctype="multipart/form-data"
             hx-post=(add) hx-encoding="multipart/form-data" hx-target="#jobs" hx-swap="outerHTML"
-            hx-include="#filter" hx-disabled-elt="find button" {
+            hx-include="#filter" hx-disabled-elt="find button" hx-indicator="#paste-ind" {
             input type="hidden" name="_csrf" value=(csrf);
             input type="hidden" name="from" value="downloads";
             label.plabel for="paste-in" { "Add a download" }
@@ -410,6 +410,7 @@ pub fn paste_box(base: &str, csrf: &str) -> Markup {
                     autocomplete="off" spellcheck="false" aria-describedby="paste-help" {}
                 button.btn.primary.big type="submit" { "Add" }
             }
+            (super::quality::checking("paste-ind", true))
             p.help #paste-help {
                 label.filepick {
                     input.sr type="file" name="file" accept=".torrent,.metalink,.meta4,application/x-bittorrent" multiple;

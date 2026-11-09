@@ -111,7 +111,7 @@ commit this file together with the code it describes.
 - [ ] Fix (user): TUI treated YouTube URLs as plain http because engine status only arrived on engine changes — daemon now sends engine status after the snapshot on subscribe [x]; TUI also queries engine.status on connect [x]
 - [x] Single delete confirmation (U1) in TUI, CLI, web
 - [ ] Top-notch TUI (user request): research leading TUIs, then a visual/interaction polish pass
-- [x] Video quality picker UI in TUI and CLI (web picker still to do): if ask_quality → probe → picker (video + audio lists, presets) with "Use as my default" and "Never ask again" checkboxes; else add with defaults; Settings toggle to ask again
+- [x] Video quality picker UI in TUI, CLI and web (+ undo remove via jobs.restore): if ask_quality → probe → picker (video + audio lists, presets) with "Use as my default" and "Never ask again" checkboxes; else add with defaults; Settings toggle to ask again
 - [x] Web UI overhaul: paste-to-add + drag & drop, cards with progress bars, compact filters, bulk actions, one-click download from search, magnet file picker, folder picker, live detail, grouped settings, toasts, accessible responsive design
 
 ### M8 — Remote and release (11 %)

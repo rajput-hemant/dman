@@ -538,6 +538,127 @@ async fn global_limit_throttles_ytdlp_with_hysteresis() {
     assert_no_process("yt-dlp", root.path()).await;
 }
 
+/// `jobs.restore` (undo of remove-from-list) for video jobs, no aria2 needed:
+/// running/paused/complete jobs return to their state, deleted files and
+/// not-removed jobs are refused, and the state survives a daemon restart.
+#[tokio::test(flavor = "multi_thread")]
+async fn restore_undoes_remove_but_not_file_deletion() {
+    let root = tempfile::tempdir().unwrap();
+    let ytdlp = fake_ytdlp(root.path());
+    let cfg = config(
+        root.path(),
+        "/nonexistent/aria2c",
+        &ytdlp.display().to_string(),
+        Some("/nonexistent/ffmpeg"),
+    );
+    let d = Daemon::start(root.path(), cfg.clone()).await;
+    let c = d.client().await;
+    let rm = |id: JobId, delete_files: bool| {
+        c.remove(RemoveParams {
+            ids: vec![id],
+            delete_files,
+            force: false,
+        })
+    };
+
+    // A finished job goes back to Complete, files untouched.
+    let done = add_one(
+        &c,
+        video("https://e.example/v/done", VideoOptions::default()),
+        JobOptions::default(),
+    )
+    .await;
+    wait_jobs(&c, 20, "done", |j| state_of(j, done) == JobState::Complete).await;
+    // Restoring a job that is not removed is refused.
+    let r = c.restore(&[done]).await.unwrap();
+    assert!(
+        r.ok.is_empty() && r.failed[0].error.code == ErrorCode::Refused,
+        "{r:?}"
+    );
+    assert!(rm(done, false).await.unwrap().failed.is_empty());
+    assert_eq!(c.get(done).await.unwrap().state, JobState::Removed);
+    let mut events = c.subscribe().await.unwrap();
+    let r = c.restore(&[done]).await.unwrap();
+    assert_eq!(r.ok, vec![done], "{r:?}");
+    assert_eq!(c.get(done).await.unwrap().state, JobState::Complete);
+    let ev = wait_event(&mut events, 5, |e| {
+        matches!(e, Event::JobsUpdated { jobs } if jobs.iter().any(|j| j.id == done && j.state == JobState::Complete))
+    })
+    .await;
+    assert!(ev.is_some(), "restore must emit JobsUpdated");
+
+    // A running job is requeued and runs again.
+    let run = add_one(
+        &c,
+        video("https://e.example/v/longR", VideoOptions::default()),
+        JobOptions::default(),
+    )
+    .await;
+    wait_jobs(&c, 10, "running", |j| state_of(j, run) == JobState::Active).await;
+    assert!(rm(run, false).await.unwrap().failed.is_empty());
+    assert_eq!(c.get(run).await.unwrap().state, JobState::Removed);
+    assert_eq!(c.restore(&[run]).await.unwrap().ok, vec![run]);
+    wait_jobs(&c, 10, "running again", |j| {
+        state_of(j, run) == JobState::Active
+    })
+    .await;
+
+    // A paused job stays paused.
+    c.pause(&[run]).await.unwrap();
+    wait_jobs(&c, 10, "paused", |j| state_of(j, run) == JobState::Paused).await;
+    rm(run, false).await.unwrap();
+    // A second remove (now with file deletion) is a different decision: no undo.
+    let _ = rm(run, true).await.unwrap();
+    let r = c.restore(&[run]).await.unwrap();
+    assert_eq!(r.failed.len(), 1, "{r:?}");
+    assert_eq!(r.failed[0].error.code, ErrorCode::Refused);
+    assert!(r.failed[0].error.message.contains("files were deleted"));
+    assert_eq!(c.get(run).await.unwrap().state, JobState::Removed);
+
+    // Removed with file deletion straight away: refused as well.
+    let gone = add_one(
+        &c,
+        video("https://e.example/v/slowG", VideoOptions::default()),
+        JobOptions::default(),
+    )
+    .await;
+    wait_jobs(&c, 10, "gone running", |j| {
+        state_of(j, gone) == JobState::Active
+    })
+    .await;
+    let _ = rm(gone, true).await;
+    let r = c.restore(&[gone]).await.unwrap();
+    assert!(r.ok.is_empty(), "{r:?}");
+    assert!(r.failed[0].error.message.contains("files were deleted"));
+
+    // Paused + removed + restart: still restorable, comes back paused.
+    let p = add_one(
+        &c,
+        video("https://e.example/v/longP", VideoOptions::default()),
+        JobOptions::default(),
+    )
+    .await;
+    c.pause(&[p]).await.unwrap();
+    wait_jobs(&c, 10, "p paused", |j| state_of(j, p) == JobState::Paused).await;
+    rm(p, false).await.unwrap();
+    assert!(
+        c.restore(&[JobId(9999)]).await.unwrap().failed[0]
+            .error
+            .code
+            == ErrorCode::NotFound
+    );
+    d.stop(&c).await;
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    assert_eq!(c.get(p).await.unwrap().state, JobState::Removed);
+    assert_eq!(c.restore(&[p]).await.unwrap().ok, vec![p]);
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(c.get(p).await.unwrap().state, JobState::Paused);
+    assert_eq!(c.get(gone).await.unwrap().state, JobState::Removed);
+    d.stop(&c).await;
+    assert_no_process("yt-dlp", root.path()).await;
+}
+
 /// A missing yt-dlp degrades gracefully: explained in `engine.status`, video
 /// adds and probes are refused with `EngineUnavailable`, nothing crashes.
 #[tokio::test(flavor = "multi_thread")]

@@ -1019,6 +1019,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "dman-proto",
+ "dman-ytdlp",
  "futures-util",
  "getrandom 0.3.4",
  "maud",

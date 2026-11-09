@@ -2,7 +2,7 @@
 
 use dman_proto::method::{EngineStatus, ScheduleStatus};
 use dman_proto::search::ProviderInfo;
-use dman_proto::{Engine, Limits};
+use dman_proto::{Engine, Limits, VideoPreferences};
 use maud::{Markup, html};
 
 use super::{Field, field};
@@ -41,6 +41,8 @@ pub struct SettingsData<'a> {
     pub providers: &'a [ProviderInfo],
     pub schedule: Option<&'a ScheduleStatus>,
     pub engines: &'a [EngineStatus],
+    /// Quality picker preferences; `None` hides the Video section.
+    pub video: Option<&'a VideoPreferences>,
     pub web: WebInfo,
 }
 
@@ -129,6 +131,64 @@ fn engines(list: &[EngineStatus]) -> Markup {
     }
 }
 
+const QUALITY_OPTIONS: [(&str, &str); 9] = [
+    ("best", "Best available"),
+    ("2160p", "2160p (4K)"),
+    ("1440p", "1440p"),
+    ("1080p", "1080p"),
+    ("720p", "720p"),
+    ("480p", "480p"),
+    ("audio:m4a", "Audio only (m4a)"),
+    ("audio:mp3", "Audio only (mp3)"),
+    ("audio:opus", "Audio only (opus)"),
+];
+const AUDIO_OPTIONS: [(&str, &str); 4] = [
+    ("best", "Best available"),
+    ("m4a", "m4a (AAC)"),
+    ("opus", "Opus"),
+    ("mp3", "mp3"),
+];
+const CONTAINER_OPTIONS: [(&str, &str); 4] = [
+    ("", "yt-dlp\u{2019}s choice"),
+    ("mp4", "mp4"),
+    ("mkv", "mkv"),
+    ("webm", "webm"),
+];
+
+/// A select; a current value that is not in the list stays selectable.
+fn select(id: &str, name: &str, label: &str, options: &[(&str, &str)], current: &str) -> Markup {
+    let known = options.iter().any(|(v, _)| *v == current);
+    html! {
+        div.field {
+            label for=(id) { (label) }
+            select #(id) name=(name) {
+                @for (v, l) in options { option value=(v) selected[*v == current] { (l) } }
+                @if !known { option value=(current) selected { (current) } }
+            }
+        }
+    }
+}
+
+fn video_section(base: &str, csrf: &str, v: &VideoPreferences) -> Markup {
+    let action = format!("{base}/settings/video");
+    html! {
+        section #video.card {
+            h2 { "Video" }
+            p.help { "Downloads from video sites (YouTube and many others). When asking is on, dman shows the available qualities before it downloads." }
+            form.stack method="post" action=(action) {
+                input type="hidden" name="_csrf" value=(csrf);
+                label.check { input type="checkbox" name="ask_quality" value="1" checked[v.ask_quality]; span { " Ask which quality to download " span.help { "(off: always use the defaults below)" } } }
+                div.grid2 {
+                    (select("v-quality", "default_quality", "Default quality", &QUALITY_OPTIONS, &v.default_quality))
+                    (select("v-audio", "default_audio", "Preferred audio", &AUDIO_OPTIONS, &v.default_audio))
+                    (select("v-container", "default_container", "Container", &CONTAINER_OPTIONS, v.default_container.as_deref().unwrap_or("")))
+                }
+                div.btnrow { button.btn.primary type="submit" { "Save video settings" } }
+            }
+        }
+    }
+}
+
 pub fn settings_page(base: &str, csrf: &str, s: &SettingsData<'_>) -> Markup {
     let rate = |n: u64| {
         if n == 0 {
@@ -149,7 +209,7 @@ pub fn settings_page(base: &str, csrf: &str, s: &SettingsData<'_>) -> Markup {
         h1 { "Settings" }
         nav.tabs aria-label="Sections" {
             a href="#limits" { "Speed" } a href="#queue" { "Queue" } a href="#schedule" { "Schedule" }
-            a href="#providers" { "Search providers" } a href="#web" { "Web access" } a href="#engines" { "Engines" }
+            @if s.video.is_some() { a href="#video" { "Video" } } a href="#providers" { "Search providers" } a href="#web" { "Web access" } a href="#engines" { "Engines" }
         }
         section #limits.card {
             h2 { "Speed limits" }
@@ -205,6 +265,7 @@ pub fn settings_page(base: &str, csrf: &str, s: &SettingsData<'_>) -> Markup {
             }
             p.help { "Schedule windows are edited in the config file (" code { "[[schedule]]" } ")." }
         }
+        @if let Some(v) = s.video { (video_section(base, csrf, v)) }
         section #providers.card {
             h2 { "Search providers" }
             p.help { "Sites the Search page asks. All are off by default; only enable sites that are legal where you live. " strong { "Test" } " runs a sample search." }

@@ -62,7 +62,8 @@ pub struct AddPage<'a> {
     pub note: Option<String>,
 }
 
-const QUALITIES: [(&str, &str); 8] = [
+const QUALITIES: [(&str, &str); 9] = [
+    ("", "Ask me, or use my default"),
     ("best", "Best available"),
     ("2160p", "2160p (4K)"),
     ("1440p", "1440p"),
@@ -152,6 +153,7 @@ pub fn add_page(base: &str, csrf: &str, p: &AddPage<'_>) -> Markup {
                     }
                 }
             }
+            @if p.video { (super::quality::checking("add-checking", false)) }
             div.btnrow {
                 button.btn.primary.big type="submit" { "Add" }
                 a.btn href=(format!("{base}/")) { "Cancel" }

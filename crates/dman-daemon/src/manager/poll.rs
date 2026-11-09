@@ -132,7 +132,7 @@ impl Manager {
             let Some(&id) = self.gids.get(&p) else {
                 continue;
             };
-            self.move_gid(id, &gid);
+            self.move_gid(id, &gid, true);
             cleanup.push(p);
         }
         for st in &statuses {
@@ -145,7 +145,7 @@ impl Manager {
             if let Some(&id) = self.gids.get(&gid)
                 && !self.gids.contains_key(first.as_str())
             {
-                self.move_gid(id, first.as_str());
+                self.move_gid(id, first.as_str(), true);
                 cleanup.push(gid);
             }
         }
@@ -284,8 +284,10 @@ impl Manager {
         }
     }
 
-    /// Points job `id` at `new_gid` (follow-up or re-add).
-    pub(crate) fn move_gid(&mut self, id: JobId, new_gid: &str) {
+    /// Points job `id` at `new_gid`. `follow_up` is true when aria2 replaced the
+    /// download with a follow-up (magnet → torrent, or a .torrent fetched over
+    /// HTTP); false for a plain re-add (restart, reconcile, restore).
+    pub(crate) fn move_gid(&mut self, id: JobId, new_gid: &str, follow_up: bool) {
         let Some(e) = self.jobs.get_mut(&id) else {
             return;
         };
@@ -295,7 +297,7 @@ impl Manager {
         tracing::debug!(%id, gid = new_gid, "job now tracked under a new gid");
         tick::fold_upload(&mut e.rec);
         e.rec.gid = Some(new_gid.to_owned());
-        if e.rec.kind == SourceKind::Http {
+        if follow_up && e.rec.kind == SourceKind::Http {
             // A .torrent fetched over HTTP turned into a torrent download.
             e.rec.kind = SourceKind::Torrent;
         }

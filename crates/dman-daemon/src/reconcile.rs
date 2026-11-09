@@ -231,7 +231,7 @@ impl Manager {
             }
         };
         let was_seeding = rec.state == JobState::Seeding;
-        self.move_gid(id, gid.as_str());
+        self.move_gid(id, gid.as_str(), false);
         let mut start_now = false;
         if let Some(e) = self.jobs.get_mut(&id) {
             // aria2 resumes partial data: the first reading is a baseline only.

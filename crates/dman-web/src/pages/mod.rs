@@ -4,11 +4,13 @@
 
 mod add;
 mod jobs;
+mod quality;
 mod search;
 mod settings;
 
 pub use add::*;
 pub use jobs::*;
+pub use quality::*;
 pub use search::*;
 pub use settings::*;
 
@@ -286,6 +288,8 @@ pub fn flash(p: &Pairs) -> Vec<Markup> {
     let text = match p.str("done") {
         "removed" => "Removed (files kept on disk).",
         "removed-files" => "Removed and deleted its files.",
+        "restored" => "Restored.",
+        "video" => "Video settings saved.",
         "renamed" => "Renamed.",
         "saved" => "Options saved.",
         "limits" => "Settings saved.",

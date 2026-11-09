@@ -144,6 +144,8 @@ Examples:
     Resume(TargetArgs),
     /// Remove downloads (files are kept unless --delete-files).
     Remove(RemoveArgs),
+    /// Undo a remove: bring removed downloads back (not possible after --delete-files).
+    Restore(RestoreArgs),
     /// Drop finished jobs from the history.
     Purge(PurgeArgs),
     /// Change a job's queue position.
@@ -635,6 +637,13 @@ pub struct RemoveArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct RestoreArgs {
+    /// IDs of removed jobs.
+    #[arg(required = true, add = comp::job_ids_removed())]
+    pub ids: Vec<JobId>,
+}
+
+#[derive(Args, Debug)]
 pub struct PurgeArgs {
     /// Job IDs; none = all stopped jobs.
     #[arg(add = comp::job_ids_stopped())]
@@ -814,6 +823,16 @@ mod tests {
                 cmd: TrackersCmd::Status
             })
         ));
+    }
+
+    #[test]
+    fn restore_takes_job_ids() {
+        match parse(&["restore", "3", "4"]).unwrap().command {
+            Some(Command::Restore(a)) => assert_eq!(a.ids, [JobId(3), JobId(4)]),
+            other => panic!("not restore: {other:?}"),
+        }
+        assert!(parse(&["restore"]).is_err());
+        assert!(parse(&["restore", "x"]).is_err());
     }
 
     #[test]

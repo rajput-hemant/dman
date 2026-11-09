@@ -4,11 +4,11 @@ use axum::Extension;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
-use dman_proto::Limits;
 use dman_proto::method::{self, EngineStatus, LimitsUpdate, ScheduleStatus};
 use dman_proto::search::{
     self, ProviderInfo, ProviderNameParams, ProviderSetParams, ProviderTestReport,
 };
+use dman_proto::{Limits, VideoPreferences, VideoPreferencesUpdate};
 
 use super::{
     Pairs, St, fail, fail_rpc, flash, full_page, html, is_htmx, query_pairs, redirect, toast,
@@ -53,6 +53,15 @@ async fn render(
         .unwrap_or_default();
     let schedule: Option<ScheduleStatus> = st.call(method::SCHEDULE_GET, ()).await.ok();
     let engines: Vec<EngineStatus> = st.call(method::ENGINE_STATUS, ()).await.unwrap_or_default();
+    // The Video section needs the engine and readable preferences.
+    let video: Option<VideoPreferences> = if engines
+        .iter()
+        .any(|e| e.engine == dman_proto::Engine::YtDlp && e.available)
+    {
+        st.call(method::VIDEO_PREFERENCES_GET, ()).await.ok()
+    } else {
+        None
+    };
     let data = SettingsData {
         limits: limits.as_ref(),
         values: values.unwrap_or_else(|| LimitValues::from_limits(limits.as_ref())),
@@ -60,6 +69,7 @@ async fn render(
         providers: &providers,
         schedule: schedule.as_ref(),
         engines: &engines,
+        video: video.as_ref(),
         web: web_info(st, h),
     };
     let content = views::settings_page(&st.base, &ctx.csrf, &data);
@@ -226,4 +236,29 @@ pub async fn provider_test(
         return toast(level, &text);
     }
     render(&st, &c, &h, None, None, vec![views::toast(level, &text)]).await
+}
+
+/// `POST /settings/video`: the quality picker settings (`video.preferences.set`).
+/// The checkbox is absent when unticked, so `ask_quality` is always sent.
+pub async fn settings_video(
+    State(st): St,
+    Extension(c): Extension<Ctx>,
+    h: HeaderMap,
+    p: Pairs,
+) -> Response {
+    let update = VideoPreferencesUpdate {
+        ask_quality: Some(p.flag("ask_quality")),
+        default_quality: p.text("default_quality").map(str::to_owned),
+        default_audio: p.text("default_audio").map(str::to_owned),
+        // An empty string clears the container default.
+        default_container: p.get("default_container").map(|v| v.trim().to_owned()),
+    };
+    match st
+        .call::<VideoPreferences>(method::VIDEO_PREFERENCES_SET, update)
+        .await
+    {
+        Ok(_) if is_htmx(&h) => toast("ok", "Video settings saved."),
+        Ok(_) => redirect(&format!("{}/settings?done=video", st.base)),
+        Err(e) => fail_rpc(&st, &c, &h, &e).await,
+    }
 }

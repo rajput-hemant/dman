@@ -9,9 +9,9 @@ var base = meta('dman-base'), csrf = meta('csrf-token');
 var $ = function(s, el){ return (el || d).querySelector(s); };
 var $$ = function(s, el){ return Array.prototype.slice.call((el || d).querySelectorAll(s)); };
 
-if (/[?&](added|done)=/.test(location.search)){
+if (/[?&](added|done|undo)=/.test(location.search)){
 var u = new URL(location.href);
-u.searchParams.delete('added'); u.searchParams.delete('done');
+u.searchParams.delete('added'); u.searchParams.delete('done'); u.searchParams.delete('undo');
 history.replaceState(null, '', u.pathname + u.search + u.hash);
 }
 
@@ -29,7 +29,7 @@ all.slice(0, Math.max(0, all.length - 5)).forEach(function(t){ t.remove(); });
 all.forEach(function(t){
 if (t.dataset.armed) return;
 t.dataset.armed = '1';
-setTimeout(function(){ dismiss(t); }, t.classList.contains('error') ? 12000 : 5000);
+setTimeout(function(){ dismiss(t); }, t.classList.contains('error') ? 12000 : t.querySelector('.undoform') ? 8000 : 5000);
 });
 }
 
@@ -109,6 +109,12 @@ if (f) f.focus();
 });
 d.addEventListener('dman-close', function(){ var m = $('#modal'); if (m && m.open) m.close(); });
 d.addEventListener('dman-clear-sel', clearSelection);
+d.addEventListener('dman-restored', function(){ if (window.htmx && $('#jobs')) htmx.trigger('#jobs', 'sse:jobs-changed'); });
+// A video link is probed before it is added: say so when that takes a moment.
+d.addEventListener('submit', function(e){
+var f = e.target, s = f && f.querySelector && f.querySelector('#add-checking');
+if (s && f.querySelector('[name=as_video]:checked')) setTimeout(function(){ s.hidden = false; }, 900);
+});
 d.addEventListener('dman-added', function(e){
 var ids = (e.detail && e.detail.ids) || [];
 ids.forEach(function(id){ fresh.set(String(id), Date.now() + 4000); });

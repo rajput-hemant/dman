@@ -166,6 +166,7 @@ ul.history{padding-left:18px;margin:10px 0 0}
 .spin{width:14px;height:14px;flex:none;display:inline-block;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .htmx-indicator{display:none}.htmx-request.htmx-indicator,.htmx-request .htmx-indicator{display:flex}
+.wrap{word-break:break-word}
 .loading{gap:8px;align-items:center;color:var(--mu);font-size:.9rem;margin:10px 0 0}
 .pick,.picker{border:1px solid var(--ln);border-radius:10px;padding:12px 14px;margin:0 0 14px;background:var(--bg)}
 .picker{margin:8px 0 0}
@@ -209,3 +210,11 @@ h1{font-size:1.3rem}
 .toasts{right:12px;left:12px;bottom:12px;width:auto}
 }
 .removedbar{display:flex;gap:16px;justify-content:flex-end;font-size:.86rem}
+
+.checking{display:flex}.checking[hidden]{display:none}
+@keyframes late{from{opacity:0}to{opacity:1}}
+.htmx-request .htmx-indicator.slowind{animation:late .2s 1s both}
+.qpresets{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 8px}.qpresets .help{margin:0 4px 0 0}
+.qlist{list-style:none;margin:0 0 8px;padding:0}.qrow .check{margin:6px 0}.qrow.off{opacity:.55}.qlabel{font-variant-numeric:tabular-nums}
+.qhead h2{margin:0 0 4px}.qhead p{margin:0 0 6px}
+.undoform{margin:0;display:flex;align-items:center}.toast .btn.undo{min-height:26px;padding:0 10px;color:var(--fg)}

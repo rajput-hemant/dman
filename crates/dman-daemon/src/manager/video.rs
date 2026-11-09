@@ -595,6 +595,7 @@ impl Manager {
         if e.rec.state != JobState::Removed {
             tracing::info!(%id, "video job removed");
         }
+        super::remove::note_removal(&mut e.rec, delete_files);
         e.rec.state = JobState::Removed;
         e.rec.desired = Desired::Stopped;
         e.live = LiveFigures::default();

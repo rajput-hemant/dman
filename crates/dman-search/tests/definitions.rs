@@ -78,7 +78,9 @@ fn builtins_parse_validate_and_are_disabled() {
     for d in &defs {
         d.validate().unwrap_or_else(|e| panic!("{e}"));
         assert!(!d.enabled, "{} must be off by default (D26)", d.name);
-        assert!(!d.verified, "{} cannot claim to be verified", d.name);
+        // only providers with a saved live sample (tests/live.rs) may claim it
+        let live = ["The Pirate Bay", "Nyaa", "Knaben"].contains(&d.name.as_str());
+        assert_eq!(d.verified, live, "{} verified flag", d.name);
     }
     let kinds: Vec<_> = defs.iter().map(|d| d.kind.label()).collect();
     assert_eq!(kinds, ["html", "json", "feed", "json", "json", "torznab"]);

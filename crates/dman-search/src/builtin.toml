@@ -1,14 +1,20 @@
 # Built-in provider definitions (D25: declarative data; D26: all off by default).
 #
-# None of these have been verified against the live sites (verified = false):
-# they were written from knowledge of the public formats and are tested only
-# against hand-written fixtures. Use "Test" in settings; sites change markup,
-# domains and APIs, and mirrors differ. Fix by editing the definition.
+# `verified = true` means the definition was checked against the live service
+# (date in the provider's comment): a real response is saved as
+# tests/fixtures/live_<provider>.* and parsed by tests/live.rs, and the gated
+# end-to-end test (DMAN_TEST_LIVE=1 cargo test -p dman-search -- --ignored)
+# passed. `verified = false` means written from knowledge of the public format
+# only. Use "Test" in settings; sites change markup, domains and APIs, and
+# mirrors differ. Fix by editing the definition.
 
 # ---------------------------------------------------------------- 1337x
 # HTML. Result rows carry no magnet: each detail page is fetched (first
 # `detail_limit` results only) to read it. Confidence: medium (markup changes
 # often; Cloudflare may block scraping; domain varies: 1337x.to, 1337x.st ...).
+# UNVERIFIED (checked 2026-11-09): 1337x.to answers 403 (Cloudflare challenge)
+# to non-browser clients, so no real page could be fetched to check the
+# selectors. Fixtures are hand-written.
 [[provider]]
 name = "1337x"
 kind = "html"
@@ -30,52 +36,53 @@ detail_magnet = "a[href^='magnet:'] @href"
 detail_limit = 10
 
 # ------------------------------------------------------- The Pirate Bay
-# JSON via the apibay.org API used by the site itself. Confidence: medium-high
-# for the format (flat array; string-typed numbers; all-zero hash = no results).
+# JSON via the apibay.org API used by the site itself (flat array; string-typed
+# numbers; upper-case info_hash; all-zero hash = no results; names are
+# HTML-escaped, hence the `html` filter). Verified live 2026-11-09.
 [[provider]]
 name = "The Pirate Bay"
 kind = "json"
 enabled = false
-verified = false
+verified = true
 order = 20
 description = "The Pirate Bay (apibay.org JSON API)"
 url = "https://apibay.org/q.php?q={query}&cat=0"
 items = ""
-title = "/name"
+title = "{/name|html}"
 size = "/size"
 seeders = "/seeders"
 leechers = "/leechers"
 date = "/added"
 info_hash = "/info_hash"
-magnet = "magnet:?xt=urn:btih:{/info_hash}&dn={/name|enc}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"
+magnet = "magnet:?xt=urn:btih:{/info_hash}&dn={/name|html|enc}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"
 detail_url = "https://thepiratebay.org/description.php?id={/id}"
 
 # ----------------------------------------------------------------- Nyaa
 # RSS with the nyaa: namespace (seeders, leechers, size, infoHash, category).
-# Confidence: high for the feed format.
+# Verified live 2026-11-09 (the magnet is built from infoHash + title).
 [[provider]]
 name = "Nyaa"
 kind = "feed"
 enabled = false
-verified = false
+verified = true
 order = 30
 description = "Nyaa (RSS feed with nyaa: extension elements)"
 url = "https://nyaa.si/?page=rss&q={query}&c=0_0&f=0"
 
 # --------------------------------------------------------------- Knaben
-# JSON POST API (https://knaben.org API docs). Confidence: medium (field names
-# `hits`, `title`, `bytes`, `seeders`, `peers`, `hash`, `magnetUrl`, `details`,
-# `date`, `category` recalled from the docs; `peers` is assumed to be leechers).
+# JSON POST API (https://api.knaben.org/v1). Verified live 2026-11-09: response
+# is {"hits":[{title, bytes, seeders, peers, hash, magnetUrl, details, date
+# (RFC 3339), category, ...}]}; `peers` is the leecher count.
 [[provider]]
 name = "Knaben"
 kind = "json"
 enabled = false
-verified = false
+verified = true
 order = 40
 description = "Knaben meta-search (JSON POST API)"
 url = "https://api.knaben.org/v1"
 method = "post"
-body = '{"search_type":"100%","search_field":"title","query":"{query}","order_by":"seeders","order_direction":"desc","from":0,"size":100,"hide_unsafe":true}'
+body = '{"search_type":"100%","search_field":"title","query":"{query}","order_by":"seeders","order_direction":"desc","from":0,"size":100,"hide_unsafe":true,"hide_xxx":true}'
 items = "/hits"
 title = "/title"
 size = "/bytes"
@@ -89,8 +96,10 @@ category = "/category"
 
 # ------------------------------------------------------------------ YTS
 # JSON list_movies API; one result per torrent (quality) of each movie, the
-# magnet is built from the hash. Confidence: high for the format, but the
-# domain changes often (yts.mx, yts.lt, yts.am ...).
+# magnet is built from the hash. The domain changes often (yts.mx, yts.lt,
+# yts.am ...).
+# UNVERIFIED (checked 2026-11-09): yts.mx does not resolve / connect from the
+# test machine, so no real response could be fetched. Fixtures are hand-written.
 [[provider]]
 name = "YTS"
 kind = "json"

@@ -5,7 +5,9 @@
 //! * a parent pointer (`^/title`) resolved against the enclosing item when
 //!   `expand` is used (one result per element of a sub-array);
 //! * a template with `{pointer}` / `{pointer|enc}` parts
-//!   (`magnet:?xt=urn:btih:{/hash}&dn={^/title|enc}`);
+//!   (`magnet:?xt=urn:btih:{/hash}&dn={^/title|enc}`); filters chain with
+//!   `|`: `enc` percent-encodes, `html` decodes HTML entities (apibay
+//!   returns names like `Linux &amp; Scripting`), e.g. `{/name|html|enc}`;
 //! * otherwise a literal string.
 //!
 //! A template whose pointers are missing or null yields no value.
@@ -46,14 +48,19 @@ pub fn check_template(tpl: &str) -> Result<(), String> {
             .find('}')
             .ok_or_else(|| format!("unclosed `{{` in `{tpl}`"))?;
         let inner = &after[..j];
-        let (expr, filter) = inner.split_once('|').unwrap_or((inner, ""));
+        let mut parts = inner.split('|');
+        let expr = parts.next().unwrap_or("");
         if !is_ptr(expr) {
             return Err(format!(
                 "`{{{inner}}}` must contain a JSON pointer starting with `/` or `^/`"
             ));
         }
-        if !filter.is_empty() && filter != "enc" {
-            return Err(format!("unknown filter `{filter}` (only `enc` exists)"));
+        for filter in parts {
+            if !matches!(filter, "enc" | "html") {
+                return Err(format!(
+                    "unknown filter `{filter}` (only `enc` and `html` exist)"
+                ));
+            }
         }
         rest = &after[j + 1..];
     }
@@ -76,13 +83,17 @@ pub fn eval(tpl: &str, sub: &Value, parent: &Value) -> Option<String> {
         let after = &rest[i + 1..];
         let j = after.find('}')?;
         let inner = &after[..j];
-        let (expr, filter) = inner.split_once('|').unwrap_or((inner, ""));
-        let v = scalar(pointer(expr, sub, parent)?)?;
-        if filter == "enc" {
-            out.push_str(&util::percent_encode(&v));
-        } else {
-            out.push_str(&v);
+        let mut parts = inner.split('|');
+        let expr = parts.next().unwrap_or("");
+        let mut v = scalar(pointer(expr, sub, parent)?)?;
+        for filter in parts {
+            v = match filter {
+                "enc" => util::percent_encode(&v),
+                "html" => util::decode_html_entities(&v),
+                _ => v,
+            };
         }
+        out.push_str(&v);
         rest = &after[j + 1..];
     }
     out.push_str(rest);

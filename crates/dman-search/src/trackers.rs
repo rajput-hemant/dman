@@ -2,6 +2,12 @@
 
 use url::Url;
 
+/// Default public tracker list (ngosang/trackerslist, "best" set). Fetching it
+/// is opt-in: nothing in dman downloads it unless the user enables the
+/// feature; callers pass this (or their own URL) to [`fetch_tracker_list`].
+pub const DEFAULT_TRACKER_LIST_URL: &str =
+    "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt";
+
 use crate::{engine::Searcher, error::ProviderError};
 
 /// Parse a tracker list: one URL per line; blank lines and `#` comments are

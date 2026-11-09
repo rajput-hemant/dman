@@ -151,6 +151,50 @@ pub fn fill_json_body(template: &str, query: &str, category: &str) -> String {
 
 // ----------------------------------------------------------------- sizes
 
+/// Decode the common HTML entities (`&amp; &lt; &gt; &quot; &apos;` and numeric
+/// references). Unknown entities are left untouched.
+pub fn decode_html_entities(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        let tail = &rest[i..];
+        let decoded = tail.find(';').filter(|&j| j <= 10).and_then(|j| {
+            let name = &tail[1..j];
+            let c = match name {
+                "amp" => Some('&'),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" => Some('\''),
+                _ => name.strip_prefix('#').and_then(|n| {
+                    let code = match n.strip_prefix(['x', 'X']) {
+                        Some(h) => u32::from_str_radix(h, 16).ok()?,
+                        None => n.parse().ok()?,
+                    };
+                    char::from_u32(code)
+                }),
+            }?;
+            Some((c, j + 1))
+        });
+        match decoded {
+            Some((c, n)) => {
+                out.push(c);
+                rest = &tail[n..];
+            }
+            None => {
+                out.push('&');
+                rest = &tail[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Parse a human size such as `1.4 GiB`, `700 MB`, `1,234 KB` or plain bytes.
 /// Trailing junk after the unit is ignored.
 pub fn parse_size(s: &str) -> Option<u64> {
@@ -472,6 +516,16 @@ pub fn parse_date_format(s: &str, fmt: &str) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn html_entities() {
+        use super::decode_html_entities as d;
+        assert_eq!(
+            d("A &amp; B &lt;x&gt; &#39;q&#x27; &quot;"),
+            "A & B <x> 'q' \""
+        );
+        assert_eq!(d("AT&T &bogus; &"), "AT&T &bogus; &");
+    }
+
     use super::*;
 
     #[test]

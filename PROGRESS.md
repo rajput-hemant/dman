@@ -82,7 +82,7 @@ commit this file together with the code it describes.
 - [ ] TUI Search view: provider selector, query, live results table (title, size, S/L, source, date), filters (size, seeders, source), add from results (magnet or detail resolve), history + re-run, per-provider errors; first-run prompt to enable providers (D26)
 - [ ] Settings view basics for providers (enable/disable/reorder/test/import/export)
 - [ ] CLI `dman search <q> [--provider X] [--add N]`, `dman providers ...`
-- [ ] Try live verification of built-ins where the network allows; fix definitions
+- [x] Live-verified Nyaa, TPB (fixed HTML entities), Knaben; 1337x (403 Cloudflare) and YTS (unreachable) stay unverified
 
 ### M6 … M8
 Detailed task lists are written when the previous milestone finishes.

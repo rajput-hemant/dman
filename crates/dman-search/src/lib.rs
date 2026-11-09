@@ -45,4 +45,4 @@ pub use def::{
 pub use engine::{ProviderEvent, Searcher, SearcherConfig, TestReport, test_provider};
 pub use error::{DefError, ProviderError};
 pub use result::{Query, SearchResult};
-pub use trackers::{fetch_tracker_list, parse_tracker_list};
+pub use trackers::{DEFAULT_TRACKER_LIST_URL, fetch_tracker_list, parse_tracker_list};

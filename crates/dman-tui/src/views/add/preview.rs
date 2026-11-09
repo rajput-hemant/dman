@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -15,10 +16,10 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use super::options::{Field, Parsed};
 use super::source::{Kind, Token};
-use super::torrent::{TorrentMeta, parse_torrent};
 use crate::format::{plural, size};
 use crate::theme::Theme;
 use crate::widgets::centered;
+use dman_torrent::{TorrentMeta, parse_torrent};
 
 /// One download that will be requested.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -319,7 +320,7 @@ pub fn build_items(plan: &[Planned], files: &Loaded, parsed: &Parsed) -> Vec<Pre
 }
 
 /// What a key did to the preview.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreviewOutcome {
     /// Keep showing it.
     Stay,
@@ -327,7 +328,112 @@ pub enum PreviewOutcome {
     Back,
     /// Send the request.
     Confirm,
+    /// Ask the daemon for the file list of this magnet.
+    Fetch(String),
+    /// The running fetch was cancelled; its answer is dropped when it arrives.
+    CancelFetch,
 }
+
+/// One file of a fetched magnet, with its checkbox.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MagnetFile {
+    /// 1-based index in the torrent.
+    pub index: u32,
+    /// Path inside the torrent.
+    pub path: String,
+    /// Bytes.
+    pub length: u64,
+    /// Will be downloaded.
+    pub checked: bool,
+}
+
+/// The fetched metadata of a magnet and the user's file choice.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MagnetFiles {
+    /// Torrent name.
+    pub name: String,
+    /// Lower-case hex info hash.
+    pub info_hash: String,
+    /// The `.torrent` (base64), sent instead of the magnet.
+    pub torrent_base64: String,
+    /// Files with checkboxes.
+    pub files: Vec<MagnetFile>,
+    /// Row cursor.
+    pub cursor: usize,
+}
+
+impl MagnetFiles {
+    /// Build from the daemon's reply; `preselected` (the form's file
+    /// selection) seeds the checkboxes, otherwise everything is chosen.
+    pub fn from_preview(
+        p: &dman_proto::method::MagnetPreview,
+        preselected: Option<&[u32]>,
+    ) -> Self {
+        Self {
+            name: p.name.clone(),
+            info_hash: p.info_hash.clone(),
+            torrent_base64: p.torrent_base64.clone(),
+            files: p
+                .files
+                .iter()
+                .map(|f| MagnetFile {
+                    index: f.index,
+                    path: f.path.clone(),
+                    length: f.length,
+                    checked: preselected.is_none_or(|s| s.contains(&f.index)),
+                })
+                .collect(),
+            cursor: 0,
+        }
+    }
+
+    /// Indexes of the checked files, ascending.
+    pub fn chosen(&self) -> Vec<u32> {
+        self.files
+            .iter()
+            .filter(|f| f.checked)
+            .map(|f| f.index)
+            .collect()
+    }
+
+    /// Bytes of the checked files.
+    pub fn chosen_bytes(&self) -> u64 {
+        self.files
+            .iter()
+            .filter(|f| f.checked)
+            .map(|f| f.length)
+            .sum()
+    }
+
+    fn move_by(&mut self, delta: isize) {
+        let last = self.files.len().saturating_sub(1);
+        self.cursor = self.cursor.saturating_add_signed(delta).min(last);
+    }
+}
+
+/// Progress of "Fetch file list" for a magnet source.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Fetch {
+    /// Not requested.
+    #[default]
+    Idle,
+    /// Waiting for the daemon.
+    Running {
+        /// The magnet being fetched (answers for another uri are dropped).
+        uri: String,
+        /// Ticks since the start (spinner frame).
+        ticks: usize,
+        /// Time since the start.
+        elapsed: Duration,
+    },
+    /// The file list arrived.
+    Done(Box<MagnetFiles>),
+    /// The fetch failed (or was interrupted).
+    Failed(String),
+}
+
+/// Spinner frames of the running fetch.
+const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /// The preview modal.
 #[derive(Debug, Clone, PartialEq)]
@@ -341,23 +447,138 @@ pub struct Preview {
     pub origins: Vec<Vec<String>>,
     /// First scrolled-off line.
     pub scroll: usize,
+    /// Magnet file list fetch (only for a single magnet source).
+    pub fetch: Fetch,
 }
 
 impl Preview {
+    /// A preview that has not fetched anything.
+    pub fn new(items: Vec<PreviewItem>, params: AddParams, origins: Vec<Vec<String>>) -> Self {
+        Self {
+            items,
+            params,
+            origins,
+            scroll: 0,
+            fetch: Fetch::Idle,
+        }
+    }
+
+    /// The magnet whose file list can be fetched: the request must consist of
+    /// exactly one magnet (a file selection applies to a single torrent).
+    pub fn fetchable_uri(&self) -> Option<&str> {
+        match self.params.sources.as_slice() {
+            [AddSource::Uris { uris }] if uris.len() == 1 => {
+                let u = uris[0].as_str();
+                u.get(..7)
+                    .is_some_and(|p| p.eq_ignore_ascii_case("magnet:"))
+                    .then_some(u)
+            }
+            _ => None,
+        }
+    }
+
+    /// Whether a fetch is running.
+    pub fn fetching(&self) -> bool {
+        matches!(self.fetch, Fetch::Running { .. })
+    }
+
     /// Whether confirming is blocked, and why.
     pub fn blocker(&self) -> Option<&str> {
+        if let Fetch::Done(m) = &self.fetch
+            && m.chosen().is_empty()
+        {
+            return Some("select at least one file");
+        }
         self.items
             .iter()
             .find_map(|i| i.problem.as_ref().filter(|p| p.1).map(|p| p.0.as_str()))
     }
 
+    /// The request to send: with fetched metadata the magnet is replaced by
+    /// its `.torrent` and the chosen files.
+    pub fn confirm_params(&self) -> AddParams {
+        let mut p = self.params.clone();
+        if let Fetch::Done(m) = &self.fetch
+            && p.sources.len() == 1
+        {
+            let name = m.name.replace(['/', '\\'], "_");
+            p.sources[0] = AddSource::Torrent {
+                name: format!("{name}.torrent"),
+                data_base64: m.torrent_base64.clone(),
+            };
+            p.options.select_files = Some(m.chosen());
+        }
+        p
+    }
+
+    /// A tick while fetching: advance the spinner. Returns whether it did.
+    pub fn on_tick(&mut self, tick: Duration) -> bool {
+        if let Fetch::Running { ticks, elapsed, .. } = &mut self.fetch {
+            *ticks += 1;
+            *elapsed += tick;
+            true
+        } else {
+            false
+        }
+    }
+
     /// Handle a key.
     pub fn key(&mut self, key: KeyEvent) -> PreviewOutcome {
+        if self.fetching() {
+            return if key.code == KeyCode::Esc {
+                self.fetch = Fetch::Idle;
+                PreviewOutcome::CancelFetch
+            } else {
+                PreviewOutcome::Stay
+            };
+        }
+        if let Fetch::Done(m) = &mut self.fetch {
+            match key.code {
+                KeyCode::Down | KeyCode::Char('j') => m.move_by(1),
+                KeyCode::Up | KeyCode::Char('k') => m.move_by(-1),
+                KeyCode::PageDown => m.move_by(10),
+                KeyCode::PageUp => m.move_by(-10),
+                KeyCode::Home | KeyCode::Char('g') => m.cursor = 0,
+                KeyCode::End | KeyCode::Char('G') => m.cursor = m.files.len().saturating_sub(1),
+                KeyCode::Char(' ') => {
+                    let c = m.cursor;
+                    if let Some(f) = m.files.get_mut(c) {
+                        f.checked = !f.checked;
+                    }
+                    m.move_by(1);
+                }
+                KeyCode::Char('a') => {
+                    let all = m.files.iter().all(|f| f.checked);
+                    for f in &mut m.files {
+                        f.checked = !all;
+                    }
+                }
+                KeyCode::Esc | KeyCode::Char('n' | 'q') | KeyCode::Backspace => {
+                    return PreviewOutcome::Back;
+                }
+                KeyCode::Enter | KeyCode::Char('y') if self.blocker().is_none() => {
+                    return PreviewOutcome::Confirm;
+                }
+                _ => {}
+            }
+            return PreviewOutcome::Stay;
+        }
         match key.code {
             KeyCode::Esc | KeyCode::Char('n' | 'q') | KeyCode::Backspace => PreviewOutcome::Back,
             KeyCode::Enter | KeyCode::Char('y') if self.blocker().is_none() => {
                 PreviewOutcome::Confirm
             }
+            KeyCode::Char('f') => match self.fetchable_uri().map(str::to_owned) {
+                Some(uri) => {
+                    self.fetch = Fetch::Running {
+                        uri: uri.clone(),
+                        ticks: 0,
+                        elapsed: Duration::ZERO,
+                    };
+                    PreviewOutcome::Fetch(uri)
+                }
+                None => PreviewOutcome::Stay,
+            },
             KeyCode::Down | KeyCode::Char('j') => {
                 self.scroll += 1;
                 PreviewOutcome::Stay
@@ -381,16 +602,43 @@ impl Preview {
     /// Footer hints.
     pub fn hints(&self) -> Vec<(String, String)> {
         let mut h = Vec::new();
+        if self.fetching() {
+            h.push(("Esc".to_owned(), "cancel fetch".to_owned()));
+            return h;
+        }
         if self.blocker().is_none() {
             h.push(("Enter".to_owned(), "add".to_owned()));
+        }
+        if let Fetch::Done(_) = self.fetch {
+            h.push(("Space".into(), "toggle file".into()));
+            h.push(("a".into(), "all/none".into()));
+        } else if self.fetchable_uri().is_some() {
+            h.push(("f".into(), "fetch file list".into()));
         }
         h.push(("Esc".into(), "back to form".into()));
         h.push(("↑↓".into(), "scroll".into()));
         h
     }
 
-    fn lines(&self, theme: &Theme) -> Vec<Line<'static>> {
+    /// Keys of the preview for the help screen.
+    pub fn key_help() -> Vec<(String, String)> {
+        [
+            ("Enter / y", "add"),
+            ("Esc / n / q", "back to the form"),
+            ("↑ ↓ PgUp PgDn", "scroll"),
+            ("f", "magnet: fetch the file list (Esc cancels)"),
+            ("Space", "file list: toggle the file under the cursor"),
+            ("a", "file list: select all / none"),
+        ]
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect()
+    }
+
+    /// Lines of the preview, and the line of the file-list cursor if shown.
+    fn lines(&self, theme: &Theme) -> (Vec<Line<'static>>, Option<usize>) {
         let o = &self.params.options;
+        let mut cursor_line = None;
         let mut out = vec![Line::from(vec![
             Span::raw(format!("Add {} to ", plural(self.items.len(), "download"))),
             Span::styled(
@@ -403,21 +651,65 @@ impl Preview {
         ])];
         out.push(Line::default());
         for (i, it) in self.items.iter().enumerate() {
-            let mut head = vec![
+            let files = match &self.fetch {
+                Fetch::Done(m) if i == 0 && self.fetchable_uri().is_some() => Some(m),
+                _ => None,
+            };
+            let (kind, name, bytes) = match files {
+                Some(m) => ("torrent", m.name.clone(), Some(m.chosen_bytes())),
+                None => (it.kind.as_str(), it.name.clone(), it.size),
+            };
+            let head = vec![
                 Span::styled(format!("{}. ", i + 1), theme.dim),
-                Span::styled(format!("[{}] ", it.kind), theme.key),
-                Span::raw(it.name.clone()),
+                Span::styled(format!("[{kind}] "), theme.key),
+                Span::raw(name),
+                Span::styled(
+                    match bytes {
+                        Some(s) => format!("  {}", size(s)),
+                        None => "  size unknown".to_owned(),
+                    },
+                    theme.dim,
+                ),
             ];
-            head.push(Span::styled(
-                match it.size {
-                    Some(s) => format!("  {}", size(s)),
-                    None => "  size unknown".to_owned(),
-                },
-                theme.dim,
-            ));
             out.push(Line::from(head));
-            for d in &it.details {
-                out.push(Line::styled(format!("     {d}"), theme.dim));
+            if let Some(m) = files {
+                out.push(Line::styled(
+                    format!("     info-hash {}", m.info_hash),
+                    theme.dim,
+                ));
+                out.push(Line::styled(
+                    format!(
+                        "     {} of {} selected",
+                        m.chosen().len(),
+                        plural(m.files.len(), "file")
+                    ),
+                    theme.dim,
+                ));
+                for (n, f) in m.files.iter().enumerate() {
+                    if n == m.cursor {
+                        cursor_line = Some(out.len());
+                    }
+                    let text = format!(
+                        "   {} [{}] {:>3}  {}  ({})",
+                        if n == m.cursor { '▸' } else { ' ' },
+                        if f.checked { 'x' } else { ' ' },
+                        f.index,
+                        f.path,
+                        size(f.length)
+                    );
+                    out.push(if n == m.cursor {
+                        Line::styled(text, theme.accent)
+                    } else {
+                        Line::raw(text)
+                    });
+                }
+            } else {
+                for d in &it.details {
+                    out.push(Line::styled(format!("     {d}"), theme.dim));
+                }
+                if i == 0 && self.fetchable_uri().is_some() {
+                    out.extend(self.fetch_status(theme));
+                }
             }
             if let Some((p, fatal)) = &it.problem {
                 out.push(Line::styled(
@@ -426,7 +718,35 @@ impl Preview {
                 ));
             }
         }
-        out
+        (out, cursor_line)
+    }
+
+    /// Lines about the fetch under the magnet item.
+    fn fetch_status(&self, theme: &Theme) -> Vec<Line<'static>> {
+        match &self.fetch {
+            Fetch::Idle => vec![Line::from(vec![
+                Span::raw("     "),
+                Span::styled("f", theme.key),
+                Span::styled(" Fetch file list: choose files before adding", theme.dim),
+            ])],
+            Fetch::Running { ticks, elapsed, .. } => vec![Line::from(vec![
+                Span::raw("     "),
+                Span::styled(SPINNER[ticks % SPINNER.len()], theme.accent),
+                Span::raw(format!(
+                    " fetching metadata… {}s (Esc to cancel)",
+                    elapsed.as_secs()
+                )),
+            ])],
+            Fetch::Failed(e) => vec![
+                Line::styled(format!("     ! file list failed: {e}"), theme.warn),
+                Line::from(vec![
+                    Span::raw("     "),
+                    Span::styled("f", theme.key),
+                    Span::styled(" retry, or Enter to add the magnet as it is", theme.dim),
+                ]),
+            ],
+            Fetch::Done(_) => Vec::new(),
+        }
     }
 
     /// Draw the modal.
@@ -443,19 +763,40 @@ impl Preview {
             .title(Span::styled(" Preview ", theme.accent));
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
-        let mut lines = self.lines(theme);
+        let (mut lines, cursor_line) = self.lines(theme);
         let h = usize::from(inner.height).saturating_sub(2);
-        let scroll = self.scroll.min(lines.len().saturating_sub(h));
+        let max_scroll = lines.len().saturating_sub(h);
+        let scroll = match cursor_line {
+            Some(c) => c.saturating_sub(h / 2).min(max_scroll),
+            None => self.scroll.min(max_scroll),
+        };
         lines = lines.into_iter().skip(scroll).take(h).collect();
         lines.push(Line::default());
-        lines.push(match self.blocker() {
-            Some(b) => Line::styled(format!("Cannot add: {b}"), theme.error),
-            None => Line::from(vec![
+        lines.push(if self.fetching() {
+            Line::from(vec![
+                Span::styled("Esc", theme.key),
+                Span::raw(" cancel fetch"),
+            ])
+        } else if let Some(b) = self.blocker() {
+            Line::styled(format!("Cannot add: {b}"), theme.error)
+        } else if let Fetch::Done(_) = self.fetch {
+            Line::from(vec![
+                Span::styled("Enter", theme.key),
+                Span::raw(" add   "),
+                Span::styled("Space", theme.key),
+                Span::raw(" toggle   "),
+                Span::styled("a", theme.key),
+                Span::raw(" all/none   "),
+                Span::styled("Esc", theme.key),
+                Span::raw(" back"),
+            ])
+        } else {
+            Line::from(vec![
                 Span::styled("Enter", theme.key),
                 Span::raw(" add   "),
                 Span::styled("Esc", theme.key),
                 Span::raw(" back"),
-            ]),
+            ])
         });
         frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
     }

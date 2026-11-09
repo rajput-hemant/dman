@@ -35,10 +35,10 @@ expression: "render(&mut s, 120, 40)"
 │  d Del                 Remove (keep files)                                                                           │
 │  D                     Remove and delete files                                                                       │
 │  x                     Purge stopped downloads (keep files)                                                          │
+│  n                     Rename (not while active; file under cursor in Detail)                                        │
+│  w                     Show / hide the global speed graph                                                            │
 │  K                     Move up in queue                                                                              │
 │  J                     Move down in queue                                                                            │
-│  T                     Move to top of queue                                                                          │
-│  B                     Move to bottom of queue                                                                       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  Connected to daemon 0.1.0
  j down  k up  PgDn pgdn  Esc back

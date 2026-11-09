@@ -57,6 +57,8 @@ pub enum Action {
     RemoveDelete,
     /// Drop stopped downloads from the list (files are kept).
     Purge,
+    /// Rename the cursor download (or, in the detail Files tab, the file under the cursor).
+    Rename,
     /// Move the cursor download one place towards the front of the queue.
     MoveUp,
     /// Move the cursor download one place towards the back of the queue.
@@ -71,6 +73,8 @@ pub enum Action {
     LimitDown,
     /// Set the maximum number of concurrent downloads.
     SetMaxConcurrent,
+    /// Show or hide the global speed graph.
+    ToggleGraph,
     /// Open the detail view of the cursor download.
     OpenDetail,
     /// Detail: next tab.
@@ -149,6 +153,7 @@ impl Action {
         Action::Remove,
         Action::RemoveDelete,
         Action::Purge,
+        Action::Rename,
         Action::MoveUp,
         Action::MoveDown,
         Action::MoveTop,
@@ -156,6 +161,7 @@ impl Action {
         Action::LimitUp,
         Action::LimitDown,
         Action::SetMaxConcurrent,
+        Action::ToggleGraph,
         Action::OpenDetail,
         Action::DetailNextTab,
         Action::DetailPrevTab,
@@ -209,6 +215,7 @@ impl Action {
             Action::Remove => "remove",
             Action::RemoveDelete => "remove_delete",
             Action::Purge => "purge",
+            Action::Rename => "rename",
             Action::MoveUp => "move_up",
             Action::MoveDown => "move_down",
             Action::MoveTop => "move_top",
@@ -216,6 +223,7 @@ impl Action {
             Action::LimitUp => "limit_up",
             Action::LimitDown => "limit_down",
             Action::SetMaxConcurrent => "max_concurrent",
+            Action::ToggleGraph => "toggle_graph",
             Action::OpenDetail => "detail",
             Action::DetailNextTab => "detail_next_tab",
             Action::DetailPrevTab => "detail_prev_tab",
@@ -275,6 +283,7 @@ impl Action {
             Action::Remove => "Remove (keep files)",
             Action::RemoveDelete => "Remove and delete files",
             Action::Purge => "Purge stopped downloads (keep files)",
+            Action::Rename => "Rename (not while active; file under cursor in Detail)",
             Action::MoveUp => "Move up in queue",
             Action::MoveDown => "Move down in queue",
             Action::MoveTop => "Move to top of queue",
@@ -282,6 +291,7 @@ impl Action {
             Action::LimitUp => "Raise global download limit",
             Action::LimitDown => "Lower global download limit",
             Action::SetMaxConcurrent => "Set max concurrent downloads",
+            Action::ToggleGraph => "Show / hide the global speed graph",
             Action::OpenDetail => "Open detail",
             Action::DetailNextTab => "Detail: next tab",
             Action::DetailPrevTab => "Detail: previous tab",
@@ -340,6 +350,7 @@ impl Action {
             Action::Remove => "remove",
             Action::RemoveDelete => "remove+files",
             Action::Purge => "purge",
+            Action::Rename => "rename",
             Action::MoveUp => "queue up",
             Action::MoveDown => "queue down",
             Action::MoveTop => "queue top",
@@ -347,6 +358,7 @@ impl Action {
             Action::LimitUp => "limit+",
             Action::LimitDown => "limit-",
             Action::SetMaxConcurrent => "max conc.",
+            Action::ToggleGraph => "graph",
             Action::OpenDetail => "detail",
             Action::DetailNextTab => "next tab",
             Action::DetailPrevTab => "prev tab",
@@ -422,6 +434,7 @@ impl Action {
                 | Action::LimitUp
                 | Action::LimitDown
                 | Action::SetMaxConcurrent
+                | Action::Rename
                 | Action::Shutdown
                 | Action::DetailToggleFile
                 | Action::DetailToggleAllFiles

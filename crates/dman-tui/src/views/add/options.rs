@@ -202,6 +202,14 @@ impl OptionsForm {
         }
     }
 
+    /// Whether every field is empty and every checkbox unchecked.
+    pub fn is_pristine(&self) -> bool {
+        self.values.iter().all(|v| match v {
+            Value::Text(e) => e.is_empty(),
+            Value::Check(c) => !c,
+        })
+    }
+
     /// State of a checkbox (false for text fields).
     pub fn checked(&self, f: Field) -> bool {
         matches!(self.values[f.index()], Value::Check(true))

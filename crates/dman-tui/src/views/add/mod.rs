@@ -13,7 +13,7 @@
 //!
 //! Layout of the module: [`source`] (detection), [`options`] (form and
 //! validation), [`browser`] (local file browser, daemon directory picker),
-//! [`preview`] (plan, request, preview modal), [`torrent`] (bencode reader).
+//! [`preview`] (plan, request, preview modal with the magnet file list).
 //!
 //! [`View::Add`]: crate::views::View::Add
 
@@ -21,7 +21,6 @@ pub mod browser;
 pub mod options;
 pub mod preview;
 pub mod source;
-pub mod torrent;
 
 use std::collections::{HashMap, HashSet};
 
@@ -34,7 +33,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 
 use self::browser::{DirOutcome, DirPicker, FileBrowser, FileOutcome, LocalListing};
 use self::options::{Field, OptionsForm};
-use self::preview::{Loaded, Planned, Preview, PreviewOutcome};
+use self::preview::{Fetch, Loaded, MagnetFiles, Planned, Preview, PreviewOutcome};
 use self::source::{PathStatus, Severity, Token};
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
@@ -42,6 +41,7 @@ use crate::app::{Cmd, State};
 use crate::format::{plural, truncate};
 use crate::theme::Theme;
 use crate::views::View;
+use crate::widgets::confirm::ConfirmState;
 use crate::widgets::editor::Editor;
 
 /// Actions shown in the footer of the form.
@@ -115,6 +115,11 @@ impl AddState {
             sources: Editor::from_text(text, false),
             ..Self::default()
         }
+    }
+
+    /// Whether anything was typed or toggled (leaving then asks first).
+    pub fn is_dirty(&self) -> bool {
+        !self.sources.is_empty() || !self.form.is_pristine()
     }
 
     /// Every source on every line.
@@ -339,10 +344,21 @@ fn overlay_key(state: &mut State, key: KeyEvent) -> Vec<Cmd> {
             }
         },
         Overlay::Preview(p) => match p.key(key) {
-            PreviewOutcome::Stay => {}
+            PreviewOutcome::Stay | PreviewOutcome::CancelFetch => {}
             PreviewOutcome::Back => return cmds,
+            PreviewOutcome::Fetch(uri) => {
+                let cmds = state.call_quiet(ApiCall::PreviewMagnet { uri });
+                if cmds.is_empty() {
+                    // Offline: the call was refused (the status line says why).
+                    overlay_fetch_idle(&mut overlay);
+                }
+                if let Some(a) = add_mut(state) {
+                    a.overlay = Some(overlay);
+                }
+                return cmds;
+            }
             PreviewOutcome::Confirm => {
-                let params = p.params.clone();
+                let params = p.confirm_params();
                 a.submitting = Some(p.origins.clone());
                 let cmds = state.call(ApiCall::Add(Box::new(params)));
                 if cmds.is_empty()
@@ -476,12 +492,82 @@ fn open_preview(a: &mut AddState, plan: &[Planned], files: &Loaded) {
             paused: parsed.paused,
         }
     });
-    a.overlay = Some(Overlay::Preview(Box::new(Preview {
+    a.overlay = Some(Overlay::Preview(Box::new(Preview::new(
         items,
         params,
-        origins: plan.iter().map(Planned::tokens).collect(),
-        scroll: 0,
-    })));
+        plan.iter().map(Planned::tokens).collect(),
+    ))));
+}
+
+fn overlay_fetch_idle(overlay: &mut Overlay) {
+    if let Overlay::Preview(p) = overlay {
+        p.fetch = Fetch::Idle;
+    }
+}
+
+/// The confirmation shown when Esc would throw away a filled-in form.
+pub fn discard_confirm() -> ConfirmState {
+    ConfirmState::discard(
+        "Discard this form? y/N",
+        vec!["What you entered in the add form is lost.".into()],
+    )
+}
+
+/// Every add view on the stack (a help screen may sit above it).
+fn add_views(state: &mut State) -> impl Iterator<Item = &mut AddState> {
+    state.views.iter_mut().filter_map(|v| match v {
+        View::Add(a) => Some(&mut **a),
+        _ => None,
+    })
+}
+
+/// Tick: advance the spinner of a running magnet fetch. Returns whether the
+/// screen needs a redraw because of it.
+pub fn on_tick(state: &mut State) -> bool {
+    let tick = state.tick;
+    let mut animated = false;
+    for a in add_views(state) {
+        if let Some(Overlay::Preview(p)) = &mut a.overlay {
+            animated |= p.on_tick(tick);
+        }
+    }
+    animated
+}
+
+/// The connection dropped: a running fetch will never be answered.
+pub fn on_disconnect(state: &mut State) {
+    for a in add_views(state) {
+        if let Some(Overlay::Preview(p)) = &mut a.overlay
+            && p.fetching()
+        {
+            p.fetch = Fetch::Failed("lost the connection to the daemon".into());
+        }
+    }
+}
+
+/// The daemon answered `jobs.preview_magnet`. A fetch that was cancelled (or
+/// whose preview was closed) is no longer running, so its answer is dropped.
+pub fn on_magnet_preview(state: &mut State, uri: &str, result: &Result<ApiReply, String>) {
+    for a in add_views(state) {
+        let Some(Overlay::Preview(p)) = &mut a.overlay else {
+            continue;
+        };
+        if !matches!(&p.fetch, Fetch::Running { uri: u, .. } if u == uri) {
+            continue;
+        }
+        p.fetch = match result {
+            Ok(ApiReply::MagnetPreview(m)) if m.files.is_empty() => {
+                Fetch::Failed("the torrent lists no files".into())
+            }
+            Ok(ApiReply::MagnetPreview(m)) => Fetch::Done(Box::new(MagnetFiles::from_preview(
+                m,
+                p.params.options.select_files.as_deref(),
+            ))),
+            Ok(_) => Fetch::Failed("unexpected reply".into()),
+            Err(e) => Fetch::Failed(e.clone()),
+        };
+        p.scroll = 0;
+    }
 }
 
 /// Bracketed paste into the add view.

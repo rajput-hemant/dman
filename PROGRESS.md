@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 37 %** · Current milestone: **M3 — detail and control** · Last updated: 2026-11-09
+**Overall: 41 %** · Current milestone: **M3 — detail and control** · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -59,10 +59,10 @@ commit this file together with the code it describes.
 - [x] Detail view in TUI: tabs Files (progress, size, selection toggles while not started), Peers, Trackers (status unknown), Pieces (piece map), Speed (per-job graph), Options (editable while waiting/paused; refuse with reason when active)
 - [x] Rename: waiting/paused → `out`/`index-out` (full mapping, spike); completed → move on disk + record in rename log; never for active (reason shown). API `jobs.rename`, TUI dialog, CLI `dman rename`
 - [x] Magnet preview backend: `jobs.preview_magnet` (metadata-only in a private dir, not a job, cleaned up), CLI `dman preview`; new crate dman-torrent
-- [ ] TUI: rename dialog (Downloads + Detail) and magnet preview with file selection in the Add preview (use dman-torrent instead of the TUI's own bencode copy)
-- [ ] Runtime limits: per-download limit changes from TUI; global limits/max-concurrent persisted to config (ConfigDoc), CLI already has `limit`/`max-concurrent`
-- [ ] Global speed graph in downloads view (toggle), engine shutdown from UI already exists — verify
-- [ ] Help screen lists popup keys; Esc in a non-empty Add form asks before discarding
+- [x] TUI: rename dialog (Downloads + Detail) and magnet preview with file selection in the Add preview (use dman-torrent instead of the TUI's own bencode copy)
+- [ ] Runtime limits: per-download limits editable in Detail → Options (done); global limits/max-concurrent persisted to config (ConfigDoc) — being done with M4 schedule work
+- [x] Global speed graph in downloads view (`w`); engine/daemon shutdown from UI is `Q` (confirmed)
+- [x] Help screen lists popup keys; Esc in a non-empty Add form asks before discarding
 
 ### M4 … M8
 Detailed task lists are written when the previous milestone finishes.

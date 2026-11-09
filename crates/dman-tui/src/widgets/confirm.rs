@@ -39,6 +39,8 @@ pub enum ConfirmNext {
     Call(ApiCall),
     /// Ask again with this dialog.
     Then(Box<ConfirmState>),
+    /// Leave the top view, dropping what was typed in it.
+    LeaveView,
 }
 
 /// A confirmation dialog.
@@ -72,6 +74,16 @@ impl ConfirmState {
             lines,
             mode: ConfirmMode::YesNo,
             next: ConfirmNext::Then(Box::new(next)),
+        }
+    }
+
+    /// A y/N dialog that leaves the top view when confirmed.
+    pub fn discard(title: impl Into<String>, lines: Vec<String>) -> Self {
+        Self {
+            title: title.into(),
+            lines,
+            mode: ConfirmMode::YesNo,
+            next: ConfirmNext::LeaveView,
         }
     }
 
@@ -118,6 +130,7 @@ impl ConfirmState {
     fn confirmed(&self) -> ModalOutcome {
         match &self.next {
             ConfirmNext::Call(c) => ModalOutcome::Api(c.clone()),
+            ConfirmNext::LeaveView => ModalOutcome::LeaveView,
             ConfirmNext::Then(next) => {
                 ModalOutcome::Replace(crate::widgets::Modal::Confirm(next.as_ref().clone()))
             }

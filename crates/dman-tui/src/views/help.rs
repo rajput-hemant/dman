@@ -1,4 +1,4 @@
-//! Help screen: the full keymap grouped by context, plus fixed modal keys.
+//! Help screen: the full keymap grouped by context, plus the keys of popups.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -10,6 +10,10 @@ use crate::app::{Cmd, State};
 use crate::keymap::{Context, Keymap};
 use crate::theme::Theme;
 use crate::views::View;
+use crate::views::add::browser::{DirPicker, FileBrowser};
+use crate::views::add::preview::Preview;
+use crate::widgets::palette::PaletteState;
+use crate::widgets::prompt::PromptState;
 
 /// Help view state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -18,38 +22,46 @@ pub struct HelpState {
     pub scroll: usize,
 }
 
-/// Keys of modals and text inputs, which are not configurable.
-const FIXED: &[(&str, &[(&str, &str)])] = &[
-    (
-        "Command palette",
-        &[
-            ("type", "fuzzy search"),
-            ("Enter", "run"),
-            ("↑ ↓ / Ctrl-n Ctrl-p", "choose"),
-            ("Esc", "close"),
-        ],
-    ),
-    (
-        "Confirmation",
-        &[
-            ("y", "confirm"),
-            ("n / Esc", "cancel"),
-            (
-                "DELETE + Enter",
-                "second confirmation before files are deleted",
-            ),
-        ],
-    ),
-    (
-        "Text input (filter, prompts)",
-        &[
-            ("Enter", "accept"),
-            ("Esc", "cancel"),
-            ("← → Home End", "move"),
-            ("Ctrl-u / Ctrl-w", "clear / delete word"),
-        ],
-    ),
-];
+/// Popups and overlays with their (non-configurable) keys. The lists come
+/// from the popups' own footer hints where they have them, so the help cannot
+/// drift from what the popup does.
+fn popups() -> Vec<(&'static str, Vec<(String, String)>)> {
+    let own = |keys: &[(&str, &str)]| -> Vec<(String, String)> {
+        keys.iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect()
+    };
+    vec![
+        ("Command palette", {
+            let mut h = PaletteState::hints();
+            h.insert(0, ("type".into(), "fuzzy search".into()));
+            h.push(("Ctrl-n / Ctrl-p".into(), "choose".into()));
+            h
+        }),
+        (
+            "Confirmation",
+            own(&[
+                ("y", "confirm"),
+                ("n / Esc", "cancel (the default answer is no)"),
+                (
+                    "DELETE + Enter",
+                    "second confirmation before files are deleted",
+                ),
+            ]),
+        ),
+        ("Prompt (rename, option, max concurrent)", {
+            let mut h = PromptState::hints();
+            h.extend(own(&[
+                ("← → Home End", "move"),
+                ("Ctrl-u / Ctrl-w", "clear / delete word"),
+            ]));
+            h
+        }),
+        ("File browser (Add: Ctrl-o)", FileBrowser::hints()),
+        ("Directory picker (Add: Ctrl-f)", DirPicker::hints()),
+        ("Preview (Add: Ctrl-s)", Preview::key_help()),
+    ]
+}
 
 /// The help text as lines.
 pub fn lines(keymap: &Keymap, theme: &Theme) -> Vec<Line<'static>> {
@@ -76,16 +88,17 @@ pub fn lines(keymap: &Keymap, theme: &Theme) -> Vec<Line<'static>> {
         }
         out.push(Line::default());
     }
-    for (name, keys) in FIXED {
-        out.push(Line::styled(*name, theme.section));
-        for (k, what) in *keys {
+    out.push(Line::styled("Popups", theme.section));
+    for (name, keys) in popups() {
+        out.push(Line::styled(format!("  {name}"), theme.accent));
+        for (k, what) in keys {
             out.push(Line::from(vec![
-                Span::styled(format!("  {k:<key_w$}"), theme.key),
-                Span::raw(*what),
+                Span::styled(format!("    {k:<w$}", w = key_w - 2), theme.key),
+                Span::raw(what),
             ]));
         }
-        out.push(Line::default());
     }
+    out.push(Line::default());
     out.push(Line::styled(
         "Keys can be changed in config.toml: [keys] pause = [\"p\", \"ctrl-s\"]",
         theme.dim,

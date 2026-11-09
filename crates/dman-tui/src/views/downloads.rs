@@ -70,6 +70,8 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::Remove => confirm_remove(state, false),
         Action::RemoveDelete => confirm_remove(state, true),
         Action::Purge => confirm_purge(state),
+        Action::Rename => rename_cursor(state),
+        Action::ToggleGraph => crate::widgets::graph::toggle(state),
         Action::MoveUp => reorder(state, Reorder::By(-1)),
         Action::MoveDown => reorder(state, Reorder::By(1)),
         Action::MoveTop => reorder(state, Reorder::Top),
@@ -213,6 +215,18 @@ pub fn confirm_remove_ids(state: &mut State, ids: Vec<JobId>, delete_files: bool
     };
     state.modal = Some(Modal::Confirm(dialog));
     Vec::new()
+}
+
+fn rename_cursor(state: &mut State) -> Vec<Cmd> {
+    let Some(id) = state.list.cursor else {
+        state.status.info("No download under the cursor");
+        return Vec::new();
+    };
+    let name = state.jobs.get(&id).map(|j| j.name.clone());
+    match name {
+        Some(name) => super::rename::open(state, id, None, &name),
+        None => Vec::new(),
+    }
 }
 
 fn confirm_purge(state: &mut State) -> Vec<Cmd> {

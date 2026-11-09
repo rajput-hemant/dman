@@ -1,14 +1,11 @@
 //! Drawing of the detail view.
 
-use dman_proto::{Job, JobDetail, PieceMap, SpeedSample};
+use dman_proto::{Job, JobDetail, PieceMap};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
-use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{
-    Axis, Block, Borders, Cell, Chart, Dataset, GraphType, Paragraph, Row, Table, Tabs,
-};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Tabs};
 
 use super::{DetailState, Tab, option_rows};
 use crate::app::State;
@@ -132,7 +129,13 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
             Tab::Peers => peers(frame, body, t, d, detail),
             Tab::Trackers => trackers(frame, body, t, d, detail),
             Tab::Pieces => pieces(frame, body, t, detail),
-            Tab::Speed => speed(frame, body, t, &detail.speed_history),
+            Tab::Speed => crate::widgets::graph::speed_chart(
+                frame,
+                body,
+                t,
+                &detail.speed_history,
+                "No speed samples yet (history is kept while the download runs).",
+            ),
             Tab::Options => options(frame, body, t, d, detail),
         },
     }
@@ -406,66 +409,6 @@ fn pieces(frame: &mut Frame<'_>, area: Rect, t: &Theme, detail: &JobDetail) {
         })
         .collect();
     frame.render_widget(Paragraph::new(lines), grid);
-}
-
-fn speed(frame: &mut Frame<'_>, area: Rect, t: &Theme, history: &[SpeedSample]) {
-    let (Some(first), Some(last)) = (history.first(), history.last()) else {
-        frame.render_widget(
-            Paragraph::new(Line::styled(
-                "No speed samples yet (history is kept while the download runs).",
-                t.dim,
-            )),
-            area,
-        );
-        return;
-    };
-    let at = |s: &SpeedSample| (s.t - last.t) as f64 / 1000.0;
-    let down: Vec<(f64, f64)> = history.iter().map(|s| (at(s), s.down as f64)).collect();
-    let up: Vec<(f64, f64)> = history.iter().map(|s| (at(s), s.up as f64)).collect();
-    let max = history
-        .iter()
-        .map(|s| s.down.max(s.up))
-        .max()
-        .unwrap_or(0)
-        .max(1);
-    let top = max as f64 * 1.1;
-    let span = at(first).min(-10.0);
-    let secs = format!("{:.0}s ago", -span);
-    // Truncation intended: labels are rounded bytes per second.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let labels = vec![
-        Span::raw("0"),
-        Span::raw(format::speed((top / 2.0) as u64)),
-        Span::raw(format::speed(top as u64)),
-    ];
-    let datasets = vec![
-        Dataset::default()
-            .name("down")
-            .marker(Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(t.ok)
-            .data(&down),
-        Dataset::default()
-            .name("up")
-            .marker(Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(t.warn)
-            .data(&up),
-    ];
-    let chart = Chart::new(datasets)
-        .x_axis(
-            Axis::default()
-                .style(t.dim)
-                .bounds([span, 0.0])
-                .labels(vec![Span::raw(secs), Span::raw("now")]),
-        )
-        .y_axis(
-            Axis::default()
-                .style(t.dim)
-                .bounds([0.0, top])
-                .labels(labels),
-        );
-    frame.render_widget(chart, area);
 }
 
 fn options(frame: &mut Frame<'_>, area: Rect, t: &Theme, d: &DetailState, detail: &JobDetail) {

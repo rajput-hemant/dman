@@ -550,7 +550,10 @@ fn paste_in_list_opens_add_view() {
     let mut s = state();
     update(&mut s, Msg::Paste("magnet:?xt=urn:btih:abc".into()));
     assert!(matches!(s.view(), View::Add(a) if a.sources.text().starts_with("magnet:")));
+    // The pasted text is a non-empty form: Esc asks before discarding.
     code(&mut s, KeyCode::Esc);
+    assert!(matches!(s.modal, Some(Modal::Confirm(_))));
+    key(&mut s, 'y');
     assert!(matches!(s.view(), View::Downloads));
 }
 
@@ -791,6 +794,12 @@ mod add_view {
         typed(&mut s, "qp:?");
         assert_eq!(add(&s).sources.text(), "qp:?");
         code(&mut s, KeyCode::Esc);
+        key(&mut s, 'y');
+        assert!(matches!(s.view(), View::Downloads));
+        // An empty form closes without asking.
+        key(&mut s, 'a');
+        code(&mut s, KeyCode::Esc);
+        assert!(s.modal.is_none());
         assert!(matches!(s.view(), View::Downloads));
     }
 
@@ -1104,6 +1113,288 @@ mod add_view {
         assert!(code(&mut s, KeyCode::Enter).is_empty());
         assert!(matches!(add(&s).overlay, Some(Overlay::Preview(_))));
         assert!(add(&s).submitting.is_none());
+    }
+
+    // ------------------------------------------------------- discard confirm
+
+    #[test]
+    fn esc_with_a_filled_form_asks_before_discarding() {
+        let mut s = open();
+        typed(&mut s, "http://a/f");
+        code(&mut s, KeyCode::Esc);
+        let Some(Modal::Confirm(c)) = &s.modal else {
+            panic!("expected a confirmation, got {:?}", s.modal);
+        };
+        assert!(c.title.contains("Discard this form?"), "{}", c.title);
+        assert!(matches!(s.view(), View::Add(_)));
+        // `n` (and Esc) keep editing; the text is still there.
+        key(&mut s, 'n');
+        assert!(s.modal.is_none());
+        assert_eq!(add(&s).sources.text(), "http://a/f");
+        code(&mut s, KeyCode::Esc);
+        code(&mut s, KeyCode::Esc);
+        assert!(s.modal.is_none() && matches!(s.view(), View::Add(_)));
+        // `y` discards.
+        code(&mut s, KeyCode::Esc);
+        assert!(key(&mut s, 'y').is_empty());
+        assert!(s.modal.is_none());
+        assert!(matches!(s.view(), View::Downloads));
+    }
+
+    #[test]
+    fn a_touched_option_counts_as_a_filled_form() {
+        let mut s = open();
+        code(&mut s, KeyCode::Tab);
+        code(&mut s, KeyCode::Down); // from the mirror checkbox to the directory
+        typed(&mut s, "/data");
+        code(&mut s, KeyCode::Esc);
+        assert!(matches!(s.modal, Some(Modal::Confirm(_))));
+        key(&mut s, 'y');
+        assert!(matches!(s.view(), View::Downloads));
+    }
+
+    // ----------------------------------------------------- magnet file list
+
+    const MAGNET: &str = "magnet:?xt=urn:btih:abc&dn=Some+Movie";
+
+    fn preview_of(s: &State) -> &crate::views::add::preview::Preview {
+        match &add(s).overlay {
+            Some(Overlay::Preview(p)) => p,
+            other => panic!("no preview open: {other:?}"),
+        }
+    }
+
+    fn magnet_preview_reply() -> ApiReply {
+        let files = [
+            ("Some.Movie/movie.mkv", 700u64),
+            ("Some.Movie/sub.srt", 1),
+            ("Some.Movie/extras.zip", 90),
+        ]
+        .iter()
+        .zip(1u32..)
+        .map(|((path, mib), index)| dman_proto::FileInfo {
+            index,
+            path: (*path).into(),
+            length: mib * (1 << 20),
+            completed: 0,
+            selected: true,
+        })
+        .collect();
+        ApiReply::MagnetPreview(Box::new(dman_proto::method::MagnetPreview {
+            info_hash: "0123456789abcdef0123456789abcdef01234567".into(),
+            name: "Some.Movie".into(),
+            total_bytes: 791 * (1 << 20),
+            files,
+            torrent_base64: "ZDQ6aW5mb2Vl".into(),
+        }))
+    }
+
+    fn deliver_magnet(s: &mut State, result: Result<ApiReply, String>) {
+        update(
+            s,
+            Msg::ActionResult {
+                call: ApiCall::PreviewMagnet { uri: MAGNET.into() },
+                result,
+            },
+        );
+    }
+
+    /// A magnet in the preview, fetch requested and answered.
+    fn fetched() -> State {
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        deliver_magnet(&mut s, Ok(magnet_preview_reply()));
+        s
+    }
+
+    #[test]
+    fn fetch_file_list_select_and_add_the_torrent() {
+        use crate::views::add::preview::Fetch;
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        ctrl(&mut s, 's');
+        assert_eq!(preview_of(&s).fetchable_uri(), Some(MAGNET));
+        let cmds = key(&mut s, 'f');
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::PreviewMagnet { uri: MAGNET.into() })]
+        );
+        assert!(preview_of(&s).fetching());
+        deliver_magnet(&mut s, Ok(magnet_preview_reply()));
+        let Fetch::Done(m) = &preview_of(&s).fetch else {
+            panic!("not fetched: {:?}", preview_of(&s).fetch);
+        };
+        assert_eq!(m.chosen(), vec![1, 2, 3], "everything starts selected");
+        // Space unchecks the file under the cursor and moves on; uncheck file 2.
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        let Fetch::Done(m) = &preview_of(&s).fetch else {
+            unreachable!()
+        };
+        assert_eq!(m.chosen(), vec![1, 3]);
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        assert_eq!(
+            params.sources,
+            vec![AddSource::Torrent {
+                name: "Some.Movie.torrent".into(),
+                data_base64: "ZDQ6aW5mb2Vl".into(),
+            }]
+        );
+        assert_eq!(params.options.select_files, Some(vec![1, 3]));
+    }
+
+    #[test]
+    fn all_toggles_every_file_and_an_empty_choice_blocks_adding() {
+        let mut s = fetched();
+        key(&mut s, 'a'); // all are selected: this clears them
+        assert_eq!(preview_of(&s).blocker(), Some("select at least one file"));
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        key(&mut s, 'a');
+        assert!(preview_of(&s).blocker().is_none());
+        key(&mut s, 'G');
+        key(&mut s, ' ');
+        key(&mut s, 'a');
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        assert_eq!(params.options.select_files, Some(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn without_fetching_the_magnet_is_added_as_before() {
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        ctrl(&mut s, 's');
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        assert_eq!(
+            params.sources,
+            vec![AddSource::Uris {
+                uris: vec![MAGNET.into()]
+            }]
+        );
+        assert_eq!(params.options.select_files, None);
+    }
+
+    #[test]
+    fn esc_cancels_the_fetch_and_drops_its_answer() {
+        use crate::views::add::preview::Fetch;
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        // While fetching, Enter does not add and other keys are ignored.
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(preview_of(&s).fetching());
+        // Esc cancels the fetch only; the preview stays.
+        assert!(code(&mut s, KeyCode::Esc).is_empty());
+        assert_eq!(preview_of(&s).fetch, Fetch::Idle);
+        // The late answer is dropped.
+        deliver_magnet(&mut s, Ok(magnet_preview_reply()));
+        assert_eq!(preview_of(&s).fetch, Fetch::Idle);
+        // The magnet can still be added as it is.
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        assert!(matches!(&params.sources[..], [AddSource::Uris { .. }]));
+    }
+
+    #[test]
+    fn fetch_failure_can_be_retried() {
+        use crate::views::add::preview::Fetch;
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        deliver_magnet(&mut s, Err("timed out after 120 s".into()));
+        assert!(
+            matches!(&preview_of(&s).fetch, Fetch::Failed(e) if e.contains("timed out")),
+            "{:?}",
+            preview_of(&s).fetch
+        );
+        assert_eq!(key(&mut s, 'f').len(), 1);
+        assert!(preview_of(&s).fetching());
+    }
+
+    #[test]
+    fn fetch_is_refused_offline_and_fails_on_disconnect() {
+        use crate::views::add::preview::Fetch;
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        ctrl(&mut s, 's');
+        disconnect(&mut s);
+        assert!(key(&mut s, 'f').is_empty());
+        assert_eq!(preview_of(&s).fetch, Fetch::Idle);
+        assert!(status_text(&s).contains("disabled"), "{}", status_text(&s));
+        // A fetch running when the connection drops can never be answered.
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        disconnect(&mut s);
+        assert!(matches!(preview_of(&s).fetch, Fetch::Failed(_)));
+    }
+
+    #[test]
+    fn only_a_single_magnet_can_be_fetched() {
+        let mut s = open();
+        typed(&mut s, "http://a/f");
+        ctrl(&mut s, 's');
+        assert!(key(&mut s, 'f').is_empty());
+        let mut s = open();
+        type_lines(&mut s, &[MAGNET, "magnet:?xt=urn:btih:def"]);
+        ctrl(&mut s, 's');
+        assert_eq!(preview_of(&s).fetchable_uri(), None);
+        assert!(key(&mut s, 'f').is_empty());
+        assert!(!preview_of(&s).fetching());
+    }
+
+    #[test]
+    fn the_spinner_keeps_redrawing_only_while_fetching() {
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        ctrl(&mut s, 's');
+        s.dirty = false;
+        update(&mut s, Msg::Tick);
+        assert!(!s.dirty);
+        key(&mut s, 'f');
+        s.dirty = false;
+        update(&mut s, Msg::Tick);
+        assert!(s.dirty);
+        assert!(render(&mut s, 80, 24).contains("fetching metadata"));
+    }
+
+    #[test]
+    fn preselected_files_seed_the_checkboxes() {
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        code(&mut s, KeyCode::Tab);
+        // Walk to the select-files field.
+        while add(&s).focus != Focus::Field(crate::views::add::options::Field::SelectFiles) {
+            code(&mut s, KeyCode::Tab);
+        }
+        typed(&mut s, "2");
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        deliver_magnet(&mut s, Ok(magnet_preview_reply()));
+        let crate::views::add::preview::Fetch::Done(m) = &preview_of(&s).fetch else {
+            panic!("not fetched");
+        };
+        assert_eq!(m.chosen(), vec![2]);
+    }
+
+    #[test]
+    fn snapshot_magnet_file_list_80x24() {
+        let mut s = fetched();
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_magnet_fetching_80x24() {
+        let mut s = open();
+        typed(&mut s, MAGNET);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        insta::assert_snapshot!(render(&mut s, 80, 24));
     }
 
     // ------------------------------------------------------------ snapshots
@@ -1593,4 +1884,392 @@ fn snapshot_detail_disconnected_80x24() {
     open_detail(&mut s, 1);
     disconnect(&mut s);
     insta::assert_snapshot!(render(&mut s, 80, 24));
+}
+
+// ------------------------------------------------------------------- rename
+
+use crate::widgets::prompt::PromptKind;
+
+fn prompt(s: &State) -> &crate::widgets::prompt::PromptState {
+    match &s.modal {
+        Some(Modal::Prompt(p)) => p,
+        other => panic!("no prompt open: {other:?}"),
+    }
+}
+
+fn select_job(s: &mut State, id: u64) {
+    s.list.cursor = Some(JobId(id));
+}
+
+fn rename_call(id: u64, name: &str, file_index: Option<u32>) -> Cmd {
+    Cmd::Api(ApiCall::Rename {
+        id: JobId(id),
+        name: name.into(),
+        file_index,
+    })
+}
+
+fn replace_prompt_text(s: &mut State, text: &str) {
+    press(s, KeyCode::Char('u'), KeyModifiers::CONTROL);
+    typed(s, text);
+}
+
+#[test]
+fn rename_is_offered_for_waiting_and_paused_jobs() {
+    for (id, name) in [
+        (4, "Big Buck Bunny (1080p).mp4"),
+        (5, "archlinux-2026.11.01-x86_64.iso"),
+    ] {
+        let mut s = state();
+        select_job(&mut s, id);
+        assert!(key(&mut s, 'n').is_empty());
+        let p = prompt(&s);
+        assert_eq!(
+            p.kind,
+            PromptKind::Rename {
+                id: JobId(id),
+                file_index: None
+            }
+        );
+        assert_eq!(p.input.text(), name, "pre-filled with the current name");
+        assert_eq!(p.title, "Rename");
+        replace_prompt_text(&mut s, "new.iso");
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(cmds, vec![rename_call(id, "new.iso", None)]);
+        assert!(s.modal.is_none());
+        assert!(status_text(&s).contains("Renaming"));
+    }
+}
+
+#[test]
+fn rename_of_a_completed_job_says_it_moves_the_file() {
+    let mut s = state();
+    select_job(&mut s, 6);
+    key(&mut s, 'n');
+    let p = prompt(&s);
+    assert!(p.title.contains("move on disk"), "{}", p.title);
+    assert!(p.label.contains("moved on disk"), "{}", p.label);
+    assert_eq!(p.input.text(), "report-q3.pdf");
+}
+
+#[test]
+fn rename_is_refused_for_active_transfers_with_the_reason() {
+    for id in [1, 2, 3] {
+        let mut s = state();
+        select_job(&mut s, id);
+        assert!(key(&mut s, 'n').is_empty());
+        assert!(s.modal.is_none(), "job {id}");
+        assert_eq!(
+            status_text(&s),
+            "cannot rename an active transfer — pause it first"
+        );
+    }
+    // Failed jobs are not renamed either.
+    let mut s = state();
+    select_job(&mut s, 7);
+    key(&mut s, 'n');
+    assert!(s.modal.is_none());
+    assert!(status_text(&s).contains("only waiting, paused or completed"));
+}
+
+#[test]
+fn rename_from_the_palette_and_offline() {
+    let mut s = state();
+    select_job(&mut s, 5);
+    crate::app::apply_action(&mut s, Action::Rename);
+    assert!(matches!(s.modal, Some(Modal::Prompt(_))));
+    let mut s = state();
+    select_job(&mut s, 5);
+    disconnect(&mut s);
+    key(&mut s, 'n');
+    assert!(s.modal.is_none());
+    assert!(status_text(&s).contains("disabled"), "{}", status_text(&s));
+}
+
+#[test]
+fn rename_rejects_empty_names_and_paths() {
+    let mut s = state();
+    select_job(&mut s, 5);
+    key(&mut s, 'n');
+    replace_prompt_text(&mut s, "");
+    assert!(code(&mut s, KeyCode::Enter).is_empty());
+    assert!(status_text(&s).contains("empty"), "{}", status_text(&s));
+    key(&mut s, 'n');
+    replace_prompt_text(&mut s, "a/b");
+    assert!(code(&mut s, KeyCode::Enter).is_empty());
+    assert!(
+        status_text(&s).contains("not a path"),
+        "{}",
+        status_text(&s)
+    );
+    // Esc cancels without a call.
+    key(&mut s, 'n');
+    assert!(code(&mut s, KeyCode::Esc).is_empty());
+    assert!(s.modal.is_none());
+}
+
+#[test]
+fn rename_in_detail_uses_the_file_under_the_cursor() {
+    let mut s = state();
+    open_detail(&mut s, 5); // paused, four files
+    assert_eq!(detail_state(&s).tab, views::detail::Tab::Files);
+    key(&mut s, 'j');
+    key(&mut s, 'j');
+    key(&mut s, 'n');
+    let p = prompt(&s);
+    assert_eq!(
+        p.kind,
+        PromptKind::Rename {
+            id: JobId(5),
+            file_index: Some(3)
+        }
+    );
+    assert_eq!(
+        p.input.text(),
+        "part-3.bin",
+        "the file name, not its folder"
+    );
+    replace_prompt_text(&mut s, "renamed.bin");
+    let cmds = code(&mut s, KeyCode::Enter);
+    assert_eq!(cmds, vec![rename_call(5, "renamed.bin", Some(3))]);
+}
+
+#[test]
+fn rename_in_detail_off_the_files_tab() {
+    // Several files, not complete: the Files tab is needed.
+    let mut s = state();
+    open_detail(&mut s, 5);
+    key(&mut s, '2');
+    key(&mut s, 'n');
+    assert!(s.modal.is_none());
+    assert!(status_text(&s).contains("Files tab"), "{}", status_text(&s));
+    // Completed: the whole output is renamed (no file index).
+    let mut s = state();
+    open_detail(&mut s, 6);
+    key(&mut s, '2');
+    key(&mut s, 'n');
+    assert_eq!(
+        prompt(&s).kind,
+        PromptKind::Rename {
+            id: JobId(6),
+            file_index: None
+        }
+    );
+}
+
+#[test]
+fn rename_in_detail_is_refused_while_active() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    key(&mut s, 'n');
+    assert!(s.modal.is_none());
+    assert_eq!(
+        status_text(&s),
+        "cannot rename an active transfer — pause it first"
+    );
+}
+
+#[test]
+fn rename_result_reaches_the_status_line_and_refreshes_the_detail() {
+    let mut s = state();
+    open_detail(&mut s, 5);
+    let call = ApiCall::Rename {
+        id: JobId(5),
+        name: "x.bin".into(),
+        file_index: Some(1),
+    };
+    let cmds = update(
+        &mut s,
+        Msg::ActionResult {
+            call: call.clone(),
+            result: Ok(ApiReply::Done),
+        },
+    );
+    assert_eq!(status_text(&s), "Renamed #5 to 'x.bin'");
+    assert_eq!(cmds, vec![Cmd::Api(ApiCall::Detail(JobId(5)))]);
+    update(
+        &mut s,
+        Msg::ActionResult {
+            call,
+            result: Err("cannot rename an active transfer — pause it first".into()),
+        },
+    );
+    assert!(status_text(&s).starts_with("Rename failed: cannot rename"));
+}
+
+#[test]
+fn snapshot_rename_prompt_80x24() {
+    let mut s = state();
+    select_job(&mut s, 5);
+    key(&mut s, 'n');
+    insta::assert_snapshot!(render(&mut s, 80, 24));
+}
+
+#[test]
+fn snapshot_rename_complete_prompt_80x24() {
+    let mut s = state();
+    select_job(&mut s, 6);
+    key(&mut s, 'n');
+    insta::assert_snapshot!(render(&mut s, 80, 24));
+}
+
+// -------------------------------------------------------------------- graph
+
+fn history_calls(cmds: &[Cmd]) -> usize {
+    cmds.iter()
+        .filter(|c| matches!(c, Cmd::Api(ApiCall::StatsHistory)))
+        .count()
+}
+
+fn history_reply() -> Result<ApiReply, String> {
+    let h = (0..90i64)
+        .map(|i| dman_proto::SpeedSample {
+            t: 1_700_000_000_000 + i * 1000,
+            down: (6 + 8 * u64::try_from((i * 7) % 11).unwrap_or(0) / 10) * (1 << 20),
+            up: (200 + 40 * u64::try_from(i % 9).unwrap_or(0)) * 1024,
+        })
+        .collect();
+    Ok(ApiReply::History(h))
+}
+
+fn deliver_history(s: &mut State) {
+    update(
+        s,
+        Msg::ActionResult {
+            call: ApiCall::StatsHistory,
+            result: history_reply(),
+        },
+    );
+}
+
+#[test]
+fn graph_is_hidden_by_default_and_toggles_with_w() {
+    let mut s = state();
+    assert!(!s.graph.visible);
+    assert_eq!(s.layout().graph.height, 0);
+    let cmds = key(&mut s, 'w');
+    assert!(s.graph.visible);
+    assert_eq!(cmds, vec![Cmd::Api(ApiCall::StatsHistory)]);
+    assert!(s.layout().graph.height > 0);
+    assert!(key(&mut s, 'w').is_empty());
+    assert!(!s.graph.visible);
+    assert_eq!(s.layout().graph.height, 0);
+}
+
+#[test]
+fn graph_refreshes_every_two_seconds_only_while_visible() {
+    let mut s = state(); // tick = 250 ms
+    assert_eq!(history_calls(&ticks(&mut s, 40)), 0, "hidden: no polling");
+    key(&mut s, 'w');
+    deliver_history(&mut s);
+    assert_eq!(history_calls(&ticks(&mut s, 7)), 0);
+    assert_eq!(history_calls(&ticks(&mut s, 1)), 1, "after 2 s");
+    // One request at a time.
+    assert_eq!(history_calls(&ticks(&mut s, 20)), 0);
+    deliver_history(&mut s);
+    assert_eq!(history_calls(&ticks(&mut s, 8)), 1);
+    // Hiding it stops the polling.
+    deliver_history(&mut s);
+    key(&mut s, 'w');
+    assert_eq!(history_calls(&ticks(&mut s, 40)), 0);
+}
+
+#[test]
+fn graph_does_not_refresh_while_another_view_covers_it() {
+    let mut s = state();
+    key(&mut s, 'w');
+    deliver_history(&mut s);
+    key(&mut s, '?');
+    assert_eq!(history_calls(&ticks(&mut s, 20)), 0);
+    key(&mut s, 'q');
+    assert_eq!(
+        history_calls(&ticks(&mut s, 1)),
+        1,
+        "due as soon as it is back"
+    );
+}
+
+#[test]
+fn graph_history_and_live_stats() {
+    let mut s = state();
+    let stats = |down| dman_proto::GlobalStats {
+        download_speed: down,
+        ..sample_stats()
+    };
+    // Hidden: stats events are not collected.
+    update(&mut s, Msg::Event(Event::Stats { stats: stats(1) }));
+    assert!(s.graph.history.is_empty());
+    key(&mut s, 'w');
+    deliver_history(&mut s);
+    assert_eq!(s.graph.history.len(), 90);
+    let last_t = s.graph.history.last().map(|h| h.t).unwrap_or_default();
+    update(&mut s, Msg::Event(Event::Stats { stats: stats(42) }));
+    assert_eq!(s.graph.history.len(), 91);
+    let last = s
+        .graph
+        .history
+        .last()
+        .copied()
+        .unwrap_or(dman_proto::SpeedSample {
+            t: 0,
+            down: 0,
+            up: 0,
+        });
+    assert_eq!((last.down, last.t > last_t), (42, true));
+}
+
+#[test]
+fn graph_toggle_offline_shows_the_panel_without_asking_the_daemon() {
+    let mut s = state();
+    disconnect(&mut s);
+    assert!(key(&mut s, 'w').is_empty());
+    assert!(s.graph.visible);
+    assert_eq!(history_calls(&ticks(&mut s, 20)), 0);
+}
+
+#[test]
+fn graph_panel_leaves_the_list_its_rows() {
+    let mut s = state();
+    update(&mut s, Msg::Resize(120, 40));
+    let before = s.list_height();
+    key(&mut s, 'w');
+    let after = s.list_height();
+    assert!(after < before && after >= 20, "{before} -> {after}");
+    // Too small a terminal: no panel, the list keeps its room.
+    update(&mut s, Msg::Resize(80, 12));
+    assert_eq!(s.layout().graph.height, 0);
+}
+
+#[test]
+fn snapshot_downloads_with_graph_120x40() {
+    let mut s = state();
+    key(&mut s, 'w');
+    deliver_history(&mut s);
+    insta::assert_snapshot!(render(&mut s, 120, 40));
+}
+
+// --------------------------------------------------------------------- help
+
+#[test]
+fn help_lists_popup_keys() {
+    let s = state();
+    let text: String = views::help::lines(&s.keymap, &s.theme)
+        .iter()
+        .map(|l| l.to_string() + "\n")
+        .collect();
+    for needle in [
+        "Popups",
+        "Command palette",
+        "Confirmation",
+        "Prompt (rename",
+        "File browser",
+        "Directory picker",
+        "Preview",
+        "fetch the file list",
+        "use this dir",
+        "Rename",
+        "Show / hide the global speed graph",
+    ] {
+        assert!(text.contains(needle), "help lacks `{needle}`:\n{text}");
+    }
 }

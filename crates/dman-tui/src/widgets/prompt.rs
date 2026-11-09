@@ -17,6 +17,13 @@ pub enum PromptKind {
     MaxConcurrent,
     /// A per-download option of the detail view.
     JobOption(crate::views::detail::OptField),
+    /// A new name for a download (or one of its files).
+    Rename {
+        /// The download.
+        id: dman_proto::JobId,
+        /// 1-based file of a multi-file download.
+        file_index: Option<u32>,
+    },
 }
 
 /// Prompt state.

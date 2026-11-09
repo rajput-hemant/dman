@@ -4,11 +4,14 @@
 
 use dman_client::ReconnectingClient;
 use dman_proto::method::{
-    BatchResult, FsListParams, FsListing, LimitsUpdate, RemoveParams, Reorder,
+    BatchResult, FsListParams, FsListing, LimitsUpdate, MagnetPreview, RemoveParams, Reorder,
 };
-use dman_proto::{AddOutcome, AddParams, JobDetail, JobId, JobOptions, Limits};
+use dman_proto::{AddOutcome, AddParams, JobDetail, JobId, JobOptions, Limits, SpeedSample};
 
 use crate::format::{limit, plural};
+
+/// How long the daemon may take to fetch a magnet's metadata.
+pub const MAGNET_TIMEOUT_SECS: u32 = 120;
 
 /// A daemon call.
 #[derive(Debug, Clone, PartialEq)]
@@ -52,6 +55,22 @@ pub enum ApiCall {
         /// Fields to change; unset fields are left alone.
         options: Box<JobOptions>,
     },
+    /// `jobs.rename`.
+    Rename {
+        /// Job to rename.
+        id: JobId,
+        /// The new plain file name.
+        name: String,
+        /// 1-based file of a multi-file job.
+        file_index: Option<u32>,
+    },
+    /// `jobs.preview_magnet` (add preview; can take up to two minutes).
+    PreviewMagnet {
+        /// The magnet link.
+        uri: String,
+    },
+    /// `stats.history` (global speed graph; polled while it is visible).
+    StatsHistory,
     /// `daemon.shutdown`.
     Shutdown,
 }
@@ -80,6 +99,9 @@ impl ApiCall {
             ApiCall::FsList(_) => "Listing directory".into(),
             ApiCall::Detail(_) => "Loading detail".into(),
             ApiCall::SetOptions { .. } => "Saving option".into(),
+            ApiCall::Rename { .. } => "Renaming".into(),
+            ApiCall::PreviewMagnet { .. } => "Fetching magnet metadata".into(),
+            ApiCall::StatsHistory => "Loading speed history".into(),
             ApiCall::Shutdown => "Shutting down the daemon".into(),
         }
     }
@@ -99,6 +121,9 @@ impl ApiCall {
             ApiCall::FsList(_) => "List directory",
             ApiCall::Detail(_) => "Load detail",
             ApiCall::SetOptions { .. } => "Set option",
+            ApiCall::Rename { .. } => "Rename",
+            ApiCall::PreviewMagnet { .. } => "Magnet preview",
+            ApiCall::StatsHistory => "Speed history",
             ApiCall::Shutdown => "Shutdown",
         }
     }
@@ -134,6 +159,19 @@ impl ApiCall {
                 .set_options(id, *options)
                 .await
                 .map(|()| ApiReply::Done),
+            ApiCall::Rename {
+                id,
+                name,
+                file_index,
+            } => client
+                .rename(id, &name, file_index)
+                .await
+                .map(|()| ApiReply::Done),
+            ApiCall::PreviewMagnet { uri } => client
+                .preview_magnet(&uri, Some(MAGNET_TIMEOUT_SECS))
+                .await
+                .map(|p| ApiReply::MagnetPreview(Box::new(p))),
+            ApiCall::StatsHistory => client.stats_history().await.map(ApiReply::History),
             ApiCall::Shutdown => client.shutdown().await.map(|()| ApiReply::Done),
         };
         r.map_err(|e| e.to_string())
@@ -155,6 +193,10 @@ pub enum ApiReply {
     Listing(FsListing),
     /// Files, peers, … of one job.
     Detail(Box<JobDetail>),
+    /// The file list of a magnet.
+    MagnetPreview(Box<MagnetPreview>),
+    /// Global speed samples, oldest first.
+    History(Vec<SpeedSample>),
 }
 
 /// Severity of a status message.
@@ -171,6 +213,9 @@ pub enum Outcome {
 /// Status-line text for the result of `call`.
 pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome, String) {
     let verb = call.verb();
+    if let (ApiCall::Rename { id, name, .. }, Ok(_)) = (call, result) {
+        return (Outcome::Ok, format!("Renamed #{id} to '{name}'"));
+    }
     match result {
         Err(e) => (Outcome::Failed, format!("{verb} failed: {e}")),
         Ok(ApiReply::Batch(b)) => summarize_batch(verb, b),
@@ -186,6 +231,12 @@ pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome,
         Ok(ApiReply::Added(outcomes)) => summarize_add(outcomes),
         Ok(ApiReply::Listing(l)) => (Outcome::Ok, format!("Listed {}", l.path)),
         Ok(ApiReply::Detail(_)) => (Outcome::Ok, "Detail loaded".into()),
+        Ok(ApiReply::MagnetPreview(p)) => (
+            Outcome::Ok,
+            format!("Fetched {}", plural(p.files.len(), "file")),
+        ),
+        Ok(ApiReply::History(h)) => (Outcome::Ok, format!("{} speed samples", h.len())),
+
         Ok(ApiReply::Done) if matches!(call, ApiCall::SetOptions { .. }) => {
             (Outcome::Ok, "Option saved".into())
         }

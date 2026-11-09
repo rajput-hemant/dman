@@ -15,6 +15,7 @@
 pub mod confirm;
 pub mod editor;
 pub mod footer;
+pub mod graph;
 pub mod input;
 pub mod palette;
 pub mod prompt;
@@ -43,6 +44,8 @@ pub enum ModalOutcome {
     Run(Action),
     /// Close and call the daemon.
     Api(ApiCall),
+    /// Close and leave the top view (confirmed discard of a form).
+    LeaveView,
     /// Replace the modal with another (e.g. the second confirmation).
     Replace(Modal),
     /// Close and hand a prompt value to `update`.

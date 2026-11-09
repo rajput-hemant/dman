@@ -15,6 +15,7 @@ pub mod add;
 pub mod detail;
 pub mod downloads;
 pub mod help;
+pub mod rename;
 
 use crossterm::event::{KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::Frame;
@@ -22,7 +23,7 @@ use ratatui::Frame;
 use crate::action::Action;
 use crate::app::{Cmd, State};
 use crate::keymap::Context;
-use crate::widgets::{footer, status};
+use crate::widgets::{footer, graph, status};
 
 /// A full-screen view. `State::views[0]` is always [`View::Downloads`].
 #[derive(Debug, Clone, PartialEq)]
@@ -125,6 +126,9 @@ pub fn render(state: &State, frame: &mut Frame<'_>) {
         View::Detail(d) => detail::render(frame, l.body, state, d),
         View::Help(h) => help::render(frame, l.body, state, h),
         View::Add(a) => add::render(frame, l.body, state, a),
+    }
+    if l.graph.height > 0 {
+        graph::render_panel(frame, l.graph, state);
     }
     status::render_status(frame, l.status, state);
     footer::render(frame, l.footer, state);

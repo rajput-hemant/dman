@@ -29,6 +29,7 @@ use crate::views::add::browser::LocalListing;
 use crate::views::add::preview::Loaded;
 use crate::views::add::source::PathStatus;
 use crate::views::{self, View};
+use crate::widgets::graph::{self, GraphState};
 use crate::widgets::palette::PaletteState;
 use crate::widgets::prompt::PromptKind;
 use crate::widgets::{FilterState, Modal, ModalOutcome};
@@ -202,6 +203,8 @@ pub struct State {
     pub size: (u16, u16),
     /// Tick interval.
     pub tick: Duration,
+    /// The global speed graph of the downloads view (memory only).
+    pub graph: GraphState,
     /// Needs a redraw.
     pub dirty: bool,
 }
@@ -227,6 +230,7 @@ impl State {
             pending: 0,
             size: opts.size,
             tick: opts.tick,
+            graph: GraphState::default(),
             dirty: true,
         }
     }
@@ -347,10 +351,12 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Cmd> {
 }
 
 fn on_tick(state: &mut State) -> Vec<Cmd> {
-    let cmds = views::detail::on_tick(state);
+    let mut cmds = views::detail::on_tick(state);
+    cmds.extend(graph::on_tick(state));
+    let animating = views::add::on_tick(state);
     if matches!(state.conn, ConnState::Disconnected { .. }) && !state.retry_left.is_zero() {
         state.retry_left = state.retry_left.saturating_sub(state.tick);
-    } else if cmds.is_empty() {
+    } else if cmds.is_empty() && !animating {
         state.dirty = false;
     }
     cmds
@@ -403,6 +409,13 @@ pub fn on_modal_outcome(state: &mut State, outcome: ModalOutcome) -> Vec<Cmd> {
             state.modal = None;
             state.call(call)
         }
+        ModalOutcome::LeaveView => {
+            state.modal = None;
+            if state.views.len() > 1 {
+                state.views.pop();
+            }
+            Vec::new()
+        }
         ModalOutcome::Replace(m) => {
             state.modal = Some(m);
             Vec::new()
@@ -417,6 +430,9 @@ pub fn on_modal_outcome(state: &mut State, outcome: ModalOutcome) -> Vec<Cmd> {
 fn on_submit(state: &mut State, kind: PromptKind, value: &str) -> Vec<Cmd> {
     match kind {
         PromptKind::JobOption(field) => views::detail::submit_option(state, field, value),
+        PromptKind::Rename { id, file_index } => {
+            views::rename::submit(state, id, file_index, value)
+        }
         PromptKind::MaxConcurrent => match value.parse::<u32>() {
             Ok(n) if (1..=1000).contains(&n) => {
                 state.call(ApiCall::SetLimits(dman_proto::method::LimitsUpdate {
@@ -465,6 +481,13 @@ pub fn apply_action(state: &mut State, action: Action) -> Vec<Cmd> {
             Vec::new()
         }
         Action::Back => {
+            if let View::Add(a) = state.view()
+                && a.overlay.is_none()
+                && a.is_dirty()
+            {
+                state.modal = Some(Modal::Confirm(views::add::discard_confirm()));
+                return Vec::new();
+            }
             if state.views.len() > 1 {
                 state.views.pop();
             }
@@ -521,7 +544,14 @@ fn apply_event(state: &mut State, event: Event) {
             state.refresh_list();
             views::detail::close_if_gone(state);
         }
-        Event::Stats { stats } => state.stats = stats,
+        Event::Stats { stats } => {
+            if state.graph.visible {
+                state
+                    .graph
+                    .push_live(stats.download_speed, stats.upload_speed);
+            }
+            state.stats = stats;
+        }
         Event::Limits { limits } => state.limits = limits,
         Event::Message { level, text } => state.status.set(level, text),
         Event::Engine { status } => {
@@ -542,6 +572,8 @@ fn on_conn(state: &mut State, conn: ConnState) {
             state.retry_left = *retry_in;
             state.pending = 0;
             views::detail::on_disconnect(state);
+            graph::on_disconnect(state);
+            views::add::on_disconnect(state);
         }
         ConnState::Failed { error } => {
             state.status.error(format!("Cannot connect: {error}"));
@@ -557,7 +589,15 @@ fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String
         views::detail::on_detail_result(state, *id, result);
         return Vec::new();
     }
+    if matches!(call, ApiCall::StatsHistory) {
+        graph::on_result(state, result);
+        return Vec::new();
+    }
     state.pending = state.pending.saturating_sub(1);
+    if let ApiCall::PreviewMagnet { uri } = call {
+        views::add::on_magnet_preview(state, uri, result);
+        return Vec::new();
+    }
     if matches!(call, ApiCall::FsList(_)) {
         views::add::on_fs_listing(state, result);
         return Vec::new();
@@ -577,7 +617,7 @@ fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String
     if *call == ApiCall::Shutdown && result.is_ok() {
         return vec![Cmd::Quit];
     }
-    if let ApiCall::SetOptions { id, .. } = call {
+    if let ApiCall::SetOptions { id, .. } | ApiCall::Rename { id, .. } = call {
         // Success or refusal, re-read so the view shows what is really stored.
         return views::detail::refetch(state, *id);
     }

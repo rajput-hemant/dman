@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+┌ Sources · 1 item ────────────────────────────────────────────────────────────┐
+│m┌ Preview ─────────────────────────────────────────────────────────────────┐t│
+│ │Add 1 download to the profile's directory                                 │ │
+│ │                                                                          │ │
+│ │1. [torrent] Some.Movie  790.0 MiB                                        │ │
+│ │     info-hash 0123456789abcdef0123456789abcdef01234567                   │ │
+│ │     2 of 3 files selected                                                │ │
+└─│     [x]   1  Some.Movie/movie.mkv  (700.0 MiB)                           │─┘
+┌ │     [ ]   2  Some.Movie/sub.srt  (1.0 MiB)                               │─┐
+│ │   ▸ [x]   3  Some.Movie/extras.zip  (90.0 MiB)                           │ │
+│ │                                                                          │ │
+│ │Enter add   Space toggle   a all/none   Esc back                          │ │
+│ │                                                                          │ │
+│ │                                                                          │ │
+│ │                                                                          │ │
+│ │                                                                          │ │
+│ │                                                                          │ │
+│ │                                                                          │ │
+│ └──────────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ Enter add  Space toggle file  a all/none  Esc back to form  ↑↓ scroll

@@ -17,7 +17,7 @@ use dman_proto::{JobDetail, JobId, JobOptions, JobState};
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
 use crate::app::{Cmd, State};
-use crate::views::{View, downloads};
+use crate::views::{View, downloads, rename};
 use crate::widgets::Modal;
 use crate::widgets::prompt::{PromptKind, PromptState};
 
@@ -279,6 +279,7 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::DetailToggleFile => return Some(toggle_files(state, false)),
         Action::DetailToggleAllFiles => return Some(toggle_files(state, true)),
         Action::DetailEditOption => return Some(edit_option(state)),
+        Action::Rename => return Some(rename(state)),
         _ => return None,
     }
     Some(Vec::new())
@@ -352,6 +353,42 @@ fn toggle_files(state: &mut State, all: bool) -> Vec<Cmd> {
             ..JobOptions::default()
         }),
     })
+}
+
+/// The file name part of a path inside the torrent.
+fn basename(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Rename the file under the cursor (Files tab) or the whole download.
+fn rename(state: &mut State) -> Vec<Cmd> {
+    let Some(d) = top(state) else {
+        return Vec::new();
+    };
+    let (id, tab, cursor) = (d.id, d.tab, d.cursor);
+    if !rename::allowed(state, id) {
+        return Vec::new();
+    }
+    let Some(job) = state.jobs.get(&id) else {
+        return Vec::new();
+    };
+    let (job_name, complete) = (job.name.clone(), job.state == JobState::Complete);
+    let files = top(state)
+        .and_then(|d| d.detail.as_ref())
+        .map(|d| d.files.clone())
+        .unwrap_or_default();
+    if tab == Tab::Files
+        && let Some(f) = files.get(cursor)
+    {
+        return rename::open(state, id, Some(f.index), basename(&f.path));
+    }
+    if files.len() > 1 && !complete {
+        state
+            .status
+            .info("This download has several files: rename one on the Files tab (key 1)");
+        return Vec::new();
+    }
+    rename::open(state, id, None, &job_name)
 }
 
 fn edit_option(state: &mut State) -> Vec<Cmd> {

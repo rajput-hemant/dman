@@ -1,10 +1,10 @@
-//! Detail page: live header with a status sentence, files, peers, trackers, options,
-//! rename and info.
+//! Detail page: live header (name, status, progress, stat tiles), then tabs for
+//! files, peers, trackers, options (with rename) and info.
 
 use dman_proto::{Engine, Job, JobDetail, JobOptions, JobState};
 use maud::{Markup, html};
 
-use super::{ActionForm, Field, action_form, bar, display_name, field, is_torrent};
+use super::{ActionForm, Field, action_form, bar, display_name, field, icon, is_torrent};
 use super::{metadata_pending, state_label, state_name};
 use crate::fmt;
 
@@ -59,7 +59,17 @@ pub fn status_sentence(j: &Job) -> String {
     p.join(" \u{b7} ")
 }
 
-/// Live header (`#dhead`): title, badge, status sentence, big bar, figures, actions.
+fn tile(label: &str, value: String, sub: Option<String>) -> Markup {
+    html! {
+        div.tile {
+            span.tl { (label) }
+            span.tv { (value) }
+            @if let Some(s) = sub { span.ts { (s) } }
+        }
+    }
+}
+
+/// Live header (`#dhead`): name, pill, status sentence, big bar, stat tiles, actions.
 /// Pushed over SSE as `detail` (outer swap); `csrf` is `None` there.
 pub fn detail_head(base: &str, csrf: Option<&str>, j: &Job) -> Markup {
     let id = j.id.0;
@@ -69,7 +79,7 @@ pub fn detail_head(base: &str, csrf: Option<&str>, j: &Job) -> Markup {
     } else {
         Some(j.progress())
     };
-    let act = |a: &str, label: &'static str, class: &'static str| {
+    let act = |a: &str, label: &'static str, class: &'static str, ico: &str| {
         action_form(&ActionForm {
             url: format!("{base}/jobs/{id}/{a}"),
             label,
@@ -79,34 +89,56 @@ pub fn detail_head(base: &str, csrf: Option<&str>, j: &Job) -> Markup {
             vals: &[("back", "detail")],
             include: None,
             title: None,
+            icon: Some(icon(base, ico)),
         })
     };
     let remove = format!("{base}/jobs/{id}/remove?back=detail");
+    let kind = super::kind_icon(j);
+    let torrent = is_torrent(j);
+    let peers = if torrent {
+        tile(
+            "Peers",
+            j.connections.to_string(),
+            j.seeders.map(|s| format!("{s} seeds")),
+        )
+    } else {
+        tile("Connections", j.connections.to_string(), None)
+    };
     html! {
-        header #dhead.card.dhead sse-swap="detail" hx-swap="outerHTML" {
-            div.dtitle {
-                h1 { (display_name(j)) }
-                span class=(format!("badge {st}")) { (state_label(j)) }
-            }
-            p.status { (status_sentence(j)) }
-            @if let Some(e) = &j.error { p.jerr role="alert" { (e) } }
-            (bar(Some("dpb".into()), &format!("bar big {st}"), frac, "Progress"))
-            div.meta {
-                @if let Some(f) = frac { span.pct { (format!("{:.1}%", f * 100.0)) } }
-                @if j.total_bytes > 0 { span { (fmt::bytes(j.completed_bytes)) " of " (fmt::bytes(j.total_bytes)) } }
-                span { "\u{2193} " (fmt::speed0(j.download_speed)) }
-                span { "\u{2191} " (fmt::speed0(j.upload_speed)) }
-                @if is_torrent(j) { span { "uploaded " (fmt::bytes(j.uploaded_bytes)) " (ratio " (format!("{:.2}", j.ratio())) ")" } }
-            }
-            div.btnrow {
-                @match j.state {
-                    JobState::Paused => { (act("resume", "Resume", "btn primary")) }
-                    JobState::Error => { (act("resume", "Retry", "btn primary")) }
-                    JobState::Complete | JobState::Removed => {}
-                    _ => { (act("pause", "Pause", "btn")) }
+        header #dhead.dhead sse-swap="detail" hx-swap="outerHTML" {
+            div.dtop {
+                span class=(format!("ficon lg k-{kind}")) { (icon(base, kind)) }
+                div.dtitle {
+                    h1 { (display_name(j)) }
+                    p.dstatus { span class=(format!("pill {st}")) { span.dot {} (state_label(j)) } span.status { (status_sentence(j)) } }
                 }
-                a.btn href=(remove) hx-get=(remove) hx-target="#modal-body" hx-swap="innerHTML" { "Remove from list\u{2026}" }
-                a.btn.danger-outline href=(format!("{remove}&delete=1")) hx-get=(format!("{remove}&delete=1")) hx-target="#modal-body" hx-swap="innerHTML" { "Delete files\u{2026}" }
+                div.dact {
+                    @match j.state {
+                        JobState::Paused => { (act("resume", "Resume", "btn primary", "play")) }
+                        JobState::Error => { (act("resume", "Retry", "btn primary", "retry")) }
+                        JobState::Complete | JobState::Removed => {}
+                        _ => { (act("pause", "Pause", "btn", "pause")) }
+                    }
+                    a.btn href=(remove) hx-get=(remove) hx-target="#modal-body" hx-swap="innerHTML" { (icon(base, "x")) span { "Remove from list\u{2026}" } }
+                    a.btn.danger-outline href=(format!("{remove}&delete=1")) hx-get=(format!("{remove}&delete=1")) hx-target="#modal-body" hx-swap="innerHTML" { (icon(base, "trash")) span { "Delete files\u{2026}" } }
+                }
+            }
+            @if let Some(e) = &j.error { p.jerr role="alert" { (e) } }
+            div.dprog {
+                (bar(Some("dpb".into()), &format!("bar big {st}"), frac, "Progress"))
+                @if let Some(f) = frac { span.pct { (format!("{:.1}%", f * 100.0)) } }
+            }
+            div.tiles {
+                (tile("Download", fmt::speed0(j.download_speed), Some(format!("\u{2191} {}", fmt::speed0(j.upload_speed)))))
+                (tile("Time left", if j.state == JobState::Active { fmt::eta(j.eta_secs()) } else { "\u{2014}".into() }, None))
+                (tile("Size", if j.total_bytes > 0 { fmt::bytes(j.total_bytes) } else { "\u{2014}".into() },
+                    (j.total_bytes > 0 && j.completed_bytes < j.total_bytes).then(|| format!("{} done", fmt::bytes(j.completed_bytes)))))
+                (peers)
+                @if torrent {
+                    (tile("Ratio", format!("{:.2}", j.ratio()), Some(format!("{} up", fmt::bytes(j.uploaded_bytes)))))
+                } @else {
+                    (tile("Engine", (if j.engine == Engine::YtDlp { "yt-dlp" } else { "aria2" }).to_string(), None))
+                }
             }
         }
     }
@@ -118,10 +150,10 @@ pub fn detail_extra(d: &JobDetail) -> Markup {
     let torrent = is_torrent(&d.job);
     html! {
         @if !d.files.is_empty() {
-            section #files.card {
-                h2 { "Files " span.count { (d.files.len()) } }
-                table.list {
-                    thead { tr { th { "File" } th.num { "Size" } th { "Progress" } } }
+            section #files.panel role="tabpanel" aria-labelledby="t-files" {
+                h2.ph { "Files " span.count { (d.files.len()) } }
+                div.tblwrap { table.tbl {
+                    thead { tr { th { "File" } th.num { "Size" } th.progcol { "Progress" } } }
                     tbody {
                         @for f in d.files.iter().take(MAX_FILES) {
                             @let frac = if f.length == 0 { 0.0 } else { f.completed as f64 / f.length as f64 };
@@ -131,32 +163,32 @@ pub fn detail_extra(d: &JobDetail) -> Markup {
                                 td.prog data-label="Progress" {
                                     @if f.selected {
                                         (bar(None, "bar small", Some(frac), "File progress"))
-                                        " " span.pct { (format!("{:.0}%", frac * 100.0)) }
+                                        span.pct { (format!("{:.0}%", frac * 100.0)) }
                                     } @else { span.muted { "skipped" } }
                                 }
                             }
                         }
                     }
-                }
+                } }
                 @if d.files.len() > MAX_FILES { p.help { "Showing the first " (MAX_FILES) " files." } }
             }
         }
         @if torrent {
-            section #peers.card {
-                h2 { "Peers " span.count { (d.peers.len()) } }
+            section #peers.panel role="tabpanel" aria-labelledby="t-peers" {
+                h2.ph { "Peers " span.count { (d.peers.len()) } }
                 @if d.peers.is_empty() {
-                    p.muted { "No peers connected right now." }
+                    p.muted.pempty { "No peers connected right now." }
                 } @else {
-                    table.list {
+                    div.tblwrap { table.tbl {
                         thead { tr { th { "Address" } th.num { "Down" } th.num { "Up" } th.num { "Has" } th { "Seeder" } } }
                         tbody { @for p in &d.peers { tr {
-                            td data-label="Address" { (p.ip) ":" (p.port) }
+                            td.mono data-label="Address" { (p.ip) ":" (p.port) }
                             td.num data-label="Down" { (fmt::speed(p.download_speed)) }
                             td.num data-label="Up" { (fmt::speed(p.upload_speed)) }
                             td.num data-label="Has" { (format!("{:.0}%", p.progress * 100.0)) }
                             td data-label="Seeder" { (if p.seeder { "yes" } else { "no" }) }
                         } } }
-                    }
+                    } }
                 }
             }
         }
@@ -298,49 +330,66 @@ pub fn detail_page(base: &str, csrf: &str, d: &JobDetail) -> Markup {
     let j = &d.job;
     let torrent = is_torrent(j);
     let orig = OptValues::from_options(&d.options);
+    let mut tabs: Vec<(&str, &str)> = Vec::new();
+    if !d.files.is_empty() {
+        tabs.push(("files", "Files"));
+    }
+    if torrent {
+        tabs.push(("peers", "Peers"));
+        tabs.push(("trackers", "Trackers"));
+    }
+    tabs.push(("options", "Options"));
+    tabs.push(("info", "Info"));
+    let first = tabs[0].0;
     html! {
-        p.crumbs { a href=(format!("{base}/")) { "\u{2190} All downloads" } }
+        a.back href=(format!("{base}/")) { (icon(base, "arrow-left")) span { "All downloads" } }
         (detail_head(base, Some(csrf), j))
-        nav.tabs aria-label="Sections" {
-            @if !d.files.is_empty() { a href="#files" { "Files" } }
-            @if torrent { a href="#peers" { "Peers" } a href="#trackers" { "Trackers" } }
-            a href="#options" { "Options" }
-            a href="#info" { "Info" }
+        nav.tabs role="tablist" aria-label="Sections" {
+            @for (id, label) in &tabs {
+                a #(format!("t-{id}")) href=(format!("#{id}")) role="tab" data-tab=(id)
+                    aria-controls=(id) aria-selected=(if *id == first { "true" } else { "false" }) { (label) }
+            }
         }
-        div #dextra sse-swap="extra" hx-swap="innerHTML" { (detail_extra(d)) }
-        @if torrent {
-            section #trackers.card {
-                h2 { "Trackers " span.count { (d.trackers.len()) } }
-                p.help { "dman does not query trackers, so their status shows as unknown." }
-                @if d.trackers.is_empty() { p.muted { "No trackers (DHT and peer exchange only)." } }
-                @else {
-                    table.list {
-                        thead { tr { th { "URL" } th.num { "Tier" } th { "Status" } } }
-                        tbody { @for t in &d.trackers { tr {
-                            td.name data-label="URL" { (t.url) }
-                            td.num data-label="Tier" { (t.tier) }
-                            td data-label="Status" { span.muted { "unknown" } }
-                        } } }
+        div.panels data-tab=(first) {
+            div #dextra sse-swap="extra" hx-swap="innerHTML" { (detail_extra(d)) }
+            @if torrent {
+                section #trackers.panel role="tabpanel" aria-labelledby="t-trackers" {
+                    h2.ph { "Trackers " span.count { (d.trackers.len()) } }
+                    p.help { "dman does not query trackers, so their status shows as unknown." }
+                    @if d.trackers.is_empty() { p.muted { "No trackers (DHT and peer exchange only)." } }
+                    @else {
+                        div.tblwrap { table.tbl {
+                            thead { tr { th { "URL" } th.num { "Tier" } th { "Status" } } }
+                            tbody { @for t in &d.trackers { tr {
+                                td.name data-label="URL" { (t.url) }
+                                td.num data-label="Tier" { (t.tier) }
+                                td data-label="Status" { span.muted { "unknown" } }
+                            } } }
+                        } }
                     }
                 }
             }
-        }
-        section #options.card {
-            h2 { "Options" }
-            (options_form(base, csrf, j, &orig, &orig, Note::None))
-            h3 { "Rename" }
-            (rename_form(base, csrf, d, display_name(j), None))
-        }
-        section #info.card {
-            h2 { "Info" }
-            table.kv {
-                tr { th { "Source" } td.wrap { (j.source) } }
-                tr { th { "Folder" } td.wrap { (j.dir) } }
-                @if let Some(h) = d.info_hash.as_ref().or(j.info_hash.as_ref()) { tr { th { "Info hash" } td.wrap { code { (h) } } } }
-                @if let Some(c) = &d.comment { tr { th { "Comment" } td.wrap { (c) } } }
-                tr { th { "Added" } td { (fmt::timestamp(j.added_at)) " UTC" } }
-                @if let Some(c) = j.completed_at { tr { th { "Completed" } td { (fmt::timestamp(c)) " UTC" } } }
-                tr { th { "Engine" } td { (if j.engine == Engine::YtDlp { "yt-dlp" } else { "aria2" }) } }
+            section #options.panel role="tabpanel" aria-labelledby="t-options" {
+                div.card {
+                    h2.ph { "Speed and seeding" }
+                    (options_form(base, csrf, j, &orig, &orig, Note::None))
+                }
+                div.card {
+                    h2.ph { "Rename" }
+                    (rename_form(base, csrf, d, display_name(j), None))
+                }
+            }
+            section #info.panel role="tabpanel" aria-labelledby="t-info" {
+                h2.ph { "Info" }
+                dl.kv {
+                    div { dt { "Source" } dd.wrap.mono { (j.source) } }
+                    div { dt { "Folder" } dd.wrap.mono { (j.dir) } }
+                    @if let Some(h) = d.info_hash.as_ref().or(j.info_hash.as_ref()) { div { dt { "Info hash" } dd.wrap.mono { (h) } } }
+                    @if let Some(c) = &d.comment { div { dt { "Comment" } dd.wrap { (c) } } }
+                    div { dt { "Added" } dd { (fmt::timestamp(j.added_at)) " UTC" } }
+                    @if let Some(c) = j.completed_at { div { dt { "Completed" } dd { (fmt::timestamp(c)) " UTC" } } }
+                    div { dt { "Engine" } dd { (if j.engine == Engine::YtDlp { "yt-dlp" } else { "aria2" }) } }
+                }
             }
         }
     }

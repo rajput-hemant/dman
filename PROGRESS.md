@@ -112,6 +112,7 @@ commit this file together with the code it describes.
 - [x] Single delete confirmation (U1) in TUI, CLI, web
 - [x] Top-notch TUI (user request): research brief (.plan/tui-design-brief.md) + redesign P0 and most of P1 (themes, dashboard, preview pane, two-line rows, toasts + undo, layered dialogs, which-key for sort, mouse toggle, animations)
 - [ ] TUI leftovers: two-pane Add form (P1.8), braille piece map + speed windows, which-key for g/v/l, custom theme files; split app.rs/theme.rs/render.rs
+- [x] Web UI modern redesign (user request): app shell + sidebar, design tokens, light/dark + toggle, command menu, list rows, stat tiles, toasts with actions; access model U3
 - [ ] Flaky: one gated daemon test failed once in a full run (not reproduced in 2 reruns) — watch
 - [x] Video quality picker UI in TUI, CLI and web (+ undo remove via jobs.restore): if ask_quality → probe → picker (video + audio lists, presets) with "Use as my default" and "Never ask again" checkboxes; else add with defaults; Settings toggle to ask again
 - [x] Web UI overhaul: paste-to-add + drag & drop, cards with progress bars, compact filters, bulk actions, one-click download from search, magnet file picker, folder picker, live detail, grouped settings, toasts, accessible responsive design
@@ -177,6 +178,7 @@ commit this file together with the code it describes.
 | Q8 | License undecided/proprietary; deps permissive only (cargo-deny) — exception: MPL-2.0 allowed (file-level copyleft; scraper deps, nucleo-matcher), approved 2026-11-09 |
 | Q9 | CLI output: table + `--json` |
 | U2 | (user) TUI redesign: calm blue-violet default theme; two-line list rows on ≥30-row terminals; undo for remove-from-list (daemon `jobs.restore`, never for deleted files); animations up to 30 fps only while animating (`[ui] animations = false` disables) |
+| U3 | (user) Web UI: no login on loopback (default bind) — opens directly; token login only when bound to the network; invisible same-origin/CSRF/Host checks stay |
 | U1 | (user, 2026-11-09) Deleting files is confirmed ONCE (one explicit "Remove and DELETE files?" prompt) — overrides the spec's second confirmation; non-interactive CLI still needs `--delete-files --yes` |
 
 ## Key dependencies (versions checked 2026-11-09)

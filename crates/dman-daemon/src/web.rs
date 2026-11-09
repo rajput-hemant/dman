@@ -19,19 +19,24 @@ use crate::server::{self, ServerState};
 /// How long open connections (SSE streams) get to finish when the web UI stops.
 const STOP_GRACE: Duration = Duration::from_secs(2);
 
-/// Decides how the access token is handled for `web`:
+/// Decides how the access token is handled for `web` (decision U3):
 ///
+/// * loopback bind (without `require_login`): no login and no token at all; the web
+///   layer still refuses other sites (same-origin, CSRF and `Host` checks);
 /// * a token exists in secrets.toml: used;
-/// * none, `allow_unauthenticated`: no authentication at all;
-/// * none, loopback bind: a token is generated;
-/// * none, any other bind: refused.
+/// * none, `allow_unauthenticated` (network bind): no authentication at all;
+/// * none, loopback with `require_login`: a token is generated;
+/// * none, any other bind: refused (`dman serve` generates one first).
 pub fn resolve_token(web: &Web, secrets: &mut Secrets) -> Result<Option<SecretString>, RpcError> {
+    if web.loopback_without_login() {
+        return Ok(None);
+    }
     if let Some(t) = secrets.get(&web.token_ref)
         && !t.expose_secret().is_empty()
     {
         return Ok(Some(t));
     }
-    if web.allow_unauthenticated {
+    if web.allow_unauthenticated && !web.require_login {
         return Ok(None);
     }
     if !web.is_loopback() {
@@ -48,7 +53,7 @@ pub fn resolve_token(web: &Web, secrets: &mut Secrets) -> Result<Option<SecretSt
 }
 
 /// Checks that `web` can be started (values valid, token policy satisfied) without
-/// binding anything. Generates the token for loopback binds.
+/// binding anything. Generates the token for loopback binds with `require_login`.
 pub fn preflight(web: &Web, paths: &Paths) -> Result<(), RpcError> {
     web.validate().map_err(RpcError::invalid)?;
     if let Some(t) = &web.tls {
@@ -191,6 +196,8 @@ impl WebHost {
                 title: web.title.clone(),
                 exposed,
                 tls: acceptor.is_some(),
+                bind: Some(ip),
+                allowed_hosts: web.allowed_hosts.clone(),
             },
         );
         if exposed && acceptor.is_none() {

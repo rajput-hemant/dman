@@ -17,7 +17,7 @@ use crate::auth::Ctx;
 use crate::views::{self, LimitValues, Nav, SettingsData, WebInfo};
 use crate::{AppState, fmt};
 
-fn web_info(st: &AppState, h: &HeaderMap) -> WebInfo {
+fn web_info(st: &AppState, h: &HeaderMap, csrf: &str) -> WebInfo {
     let host = h
         .get(header::HOST)
         .and_then(|v| v.to_str().ok())
@@ -35,6 +35,7 @@ fn web_info(st: &AppState, h: &HeaderMap) -> WebInfo {
         auth: st.token.is_some(),
         exposed: st.exposed,
         tls: https,
+        csrf: csrf.to_string(),
     }
 }
 
@@ -70,7 +71,7 @@ async fn render(
         schedule: schedule.as_ref(),
         engines: &engines,
         video: video.as_ref(),
-        web: web_info(st, h),
+        web: web_info(st, h, &ctx.csrf),
     };
     let content = views::settings_page(&st.base, &ctx.csrf, &data);
     full_page(st, ctx, Nav::Settings, "Settings", "", toasts, content).await

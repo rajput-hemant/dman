@@ -1,6 +1,11 @@
-//! Authentication (access token, session cookie, bearer), CSRF protection and
-//! security headers. One middleware ([`guard`]) covers every route.
+//! Authentication (access token, session cookie, bearer), CSRF protection, the
+//! DNS-rebinding defence and security headers. One middleware ([`guard`]) covers
+//! every route.
 //!
+//! * No token (loopback, decision U3): no login at all. What keeps other websites out
+//!   is invisible to the user: the `Host` header must name loopback, the bind address
+//!   or an allowed host (a rebound DNS name never passes), requests relayed by a proxy
+//!   are refused on a loopback-only UI, and the CSRF checks below.
 //! * Cookie: `dman_session=<32 random bytes, base64url>`, `HttpOnly; SameSite=Strict`,
 //!   `Secure` when the request came in over https, 7 days. Sessions live in memory.
 //! * CSRF, two independent layers on every state-changing request: the `Origin`
@@ -104,6 +109,50 @@ fn origin_ok(h: &HeaderMap) -> bool {
         .any(|host| host.eq_ignore_ascii_case(a))
 }
 
+/// Host name of a `Host` header value, without port and brackets, lowercase.
+fn host_name(h: &str) -> String {
+    let h = h.trim();
+    let name = if let Some(rest) = h.strip_prefix('[') {
+        rest.split(']').next().unwrap_or("")
+    } else {
+        match h.rsplit_once(':') {
+            Some((n, p)) if !n.contains(':') && p.chars().all(|c| c.is_ascii_digit()) => n,
+            _ => h,
+        }
+    };
+    name.trim_end_matches('.').to_ascii_lowercase()
+}
+
+/// DNS-rebinding defence for the login-free UI: a page of another site that got its
+/// DNS name pointed at this machine still sends that name as `Host`.
+fn host_allowed(st: &AppState, h: &HeaderMap) -> bool {
+    let Some(host) = header_str(h, header::HOST) else {
+        return false;
+    };
+    let name = host_name(host);
+    if name == "localhost" || name.ends_with(".localhost") || st.allowed_hosts.contains(&name) {
+        return true;
+    }
+    match name.parse::<std::net::IpAddr>() {
+        Ok(ip) => {
+            ip.is_loopback() || st.bind == Some(ip) || st.bind.is_some_and(|b| b.is_unspecified())
+        }
+        Err(_) => false,
+    }
+}
+
+/// A reverse proxy relayed the request (it may come from anywhere).
+fn proxied(h: &HeaderMap) -> bool {
+    [
+        "forwarded",
+        "x-forwarded-for",
+        "x-forwarded-host",
+        "x-real-ip",
+    ]
+    .iter()
+    .any(|n| h.contains_key(*n))
+}
+
 fn plain(status: StatusCode, msg: &'static str) -> Response {
     (status, msg).into_response()
 }
@@ -162,6 +211,22 @@ async fn guarded(st: &Arc<AppState>, mut req: Request, next: Next, path: &str) -
     let method = req.method().clone();
     let public = path == "/login" || path.starts_with("/static/");
     let changing = !matches!(method, Method::GET | Method::HEAD | Method::OPTIONS);
+    if st.token.is_none() {
+        if !host_allowed(st, req.headers()) {
+            return plain(
+                StatusCode::MISDIRECTED_REQUEST,
+                "unknown host name: open dman by its loopback address (127.0.0.1 or \
+                 localhost) or list the name in web.allowed_hosts",
+            );
+        }
+        if !st.exposed && proxied(req.headers()) {
+            return plain(
+                StatusCode::FORBIDDEN,
+                "this web UI has no login because it only listens on this computer; \
+                 behind a reverse proxy set web.require_login = true",
+            );
+        }
+    }
     if changing && !origin_ok(req.headers()) {
         return plain(StatusCode::FORBIDDEN, "cross-origin request refused");
     }
@@ -309,6 +374,10 @@ fn redirect(to: &str) -> Response {
 }
 
 pub async fn login_form(State(st): State<Arc<AppState>>) -> Response {
+    if st.token.is_none() {
+        // Nothing to log in to: go straight to the downloads.
+        return redirect(&format!("{}/", st.base));
+    }
     html(views::login_page(&st.base, &st.title, None))
 }
 
@@ -358,7 +427,8 @@ pub async fn logout(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Resp
     {
         s.remove(id);
     }
-    let mut r = redirect(&format!("{}/login", st.base));
+    let to = if st.token.is_some() { "/login" } else { "/" };
+    let mut r = redirect(&format!("{}{to}", st.base));
     r.headers_mut()
         .append(header::SET_COOKIE, set_cookie(&st, &headers, "", 0));
     r

@@ -1,4 +1,5 @@
-//! The browser UI served by the daemon: login, CSRF, SSE, runtime control, safety.
+//! The browser UI served by the daemon: no login on loopback (U3) with the invisible
+//! CSRF/Origin/Host checks, token login on network binds, SSE, runtime control, safety.
 //! No aria2 is needed; a missing engine is fine.
 
 use std::path::Path;
@@ -187,75 +188,13 @@ fn web_config(root: &Path) -> (Config, u16) {
 
 // ----- tests ------------------------------------------------------------------
 
-#[tokio::test(flavor = "multi_thread")]
-async fn login_cookie_csrf_actions_and_events() {
-    let root = tempfile::tempdir().unwrap();
-    let (cfg, port) = web_config(root.path());
-    let (d, client) = Daemon::start(root.path(), cfg).await;
-    let token = d.secret("web").expect("web token generated for loopback");
-    assert_ne!(Some(token.clone()), d.secret("daemon"), "separate secrets");
-
-    // Not logged in: redirect to the login page, which is public.
-    let r = get(port, "/", None).await;
-    assert_eq!(r.status, 303);
-    assert_eq!(r.header("location"), Some("/login"));
-    let r = get(port, "/login", None).await;
-    assert_eq!(r.status, 200);
-    assert!(!r.body.contains(&token));
-    // A static asset needs no login.
-    let r = get(port, "/static/htmx.min.js", None).await;
-    assert_eq!(r.status, 200, "{}", r.head);
-
-    // Wrong token, then the right one.
-    let r = http(
-        port,
-        "POST",
-        "/login",
-        &[("Content-Type", "application/x-www-form-urlencoded".into())],
-        "token=nope",
-    )
-    .await;
-    assert_eq!(r.status, 401);
-    let cookie = login(port, "", &token).await;
-
-    // Logged in: the downloads page renders from jobs.list (empty: no engine, no jobs).
-    let r = get(port, "/", Some(&cookie)).await;
-    assert_eq!(r.status, 200);
-    assert!(
-        r.body.contains("<title>") && r.body.contains("dman"),
-        "{}",
-        r.body
-    );
-    let csrf = csrf_of(&r.body);
-
-    // A state-changing request needs the CSRF token ...
-    let hdr = |csrf: Option<&str>| {
-        let mut h = vec![
-            ("Cookie", cookie.clone()),
-            ("Origin", format!("http://127.0.0.1:{port}")),
-        ];
-        if let Some(c) = csrf {
-            h.push(("X-CSRF-Token", c.to_owned()));
-        }
-        h
-    };
-    let r = http(port, "POST", "/queue/pause-all", &hdr(None), "").await;
-    assert_eq!(r.status, 403);
-    // ... and then reaches the daemon.
-    // htmx requests get a toast fragment ...
-    let mut htmx = hdr(Some(&csrf));
-    htmx.push(("HX-Request", "true".to_owned()));
-    let r = http(port, "POST", "/queue/pause-all", &htmx, "").await;
-    assert_eq!(r.status, 200, "{}", r.body);
-    assert!(r.body.contains("paused"), "{}", r.body);
-    // ... and plain form posts (no JavaScript) are redirected back to the list.
-    let r = http(port, "POST", "/queue/resume-all", &hdr(Some(&csrf)), "").await;
-    assert_eq!(r.status, 303, "{}", r.body);
-
-    // SSE: the stream starts with the stats line.
+async fn sse_first_event(port: u16, cookie: Option<&str>) -> String {
     let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    let cookie = cookie
+        .map(|c| format!("Cookie: {c}\r\n"))
+        .unwrap_or_default();
     let req = format!(
-        "GET /events?rows=1 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nCookie: {cookie}\r\nAccept: text/event-stream\r\n\r\n"
+        "GET /events?rows=1 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{cookie}Accept: text/event-stream\r\n\r\n"
     );
     s.write_all(req.as_bytes()).await.unwrap();
     let mut seen = String::new();
@@ -269,14 +208,163 @@ async fn login_cookie_csrf_actions_and_events() {
         assert!(n > 0, "stream closed: {seen}");
         seen.push_str(&String::from_utf8_lossy(&buf[..n]));
     }
+    seen
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn loopback_opens_without_login_but_refuses_other_sites() {
+    let root = tempfile::tempdir().unwrap();
+    let (cfg, port) = web_config(root.path());
+    let (d, client) = Daemon::start(root.path(), cfg).await;
+    assert!(d.secret("web").is_none(), "no token on loopback");
+    let st = client.web_status().await.unwrap();
+    assert!(st.enabled && !st.auth && !st.exposed);
+
+    // No cookie, no login page: the downloads page right away.
+    let r = get(port, "/", None).await;
+    assert_eq!(r.status, 200, "{}", r.head);
+    assert!(r.body.contains("<title>") && !r.body.contains("Log out"));
+    let r = get(port, "/login", None).await;
+    assert_eq!((r.status, r.header("location")), (303, Some("/")));
+    let csrf = csrf_of(&get(port, "/", None).await.body);
+
+    // Same origin + the token from the page (htmx sends it by itself): works.
+    let origin = |o: &str| {
+        vec![
+            ("Origin", o.to_owned()),
+            ("X-CSRF-Token", csrf.clone()),
+            ("HX-Request", "true".to_owned()),
+        ]
+    };
+    let me = format!("http://127.0.0.1:{port}");
+    let r = http(port, "POST", "/queue/pause-all", &origin(&me), "").await;
+    assert_eq!(r.status, 200, "{}", r.body);
+    assert!(r.body.contains("paused"), "{}", r.body);
+    // Without the token, or from another site (even with it): refused.
+    let r = http(
+        port,
+        "POST",
+        "/queue/pause-all",
+        &[("Origin", me.clone())],
+        "",
+    )
+    .await;
+    assert_eq!(r.status, 403);
+    let r = http(
+        port,
+        "POST",
+        "/queue/resume-all",
+        &origin("http://evil.example"),
+        "",
+    )
+    .await;
+    assert_eq!(r.status, 403);
+    assert!(r.body.contains("cross-origin"), "{}", r.body);
+    let mut site = origin(&me);
+    site.push(("Sec-Fetch-Site", "cross-site".to_owned()));
+    assert_eq!(
+        http(port, "POST", "/queue/resume-all", &site, "")
+            .await
+            .status,
+        403
+    );
+
+    // DNS rebinding: a foreign name in Host is refused, for reads too.
+    let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    s.write_all(b"GET / HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut raw = Vec::new();
+    s.read_to_end(&mut raw).await.unwrap();
+    let r = parse(&raw);
+    assert_eq!(r.status, 421, "{}", r.head);
+    assert!(!r.body.contains(&csrf));
+
+    // Live updates need no cookie either.
+    let seen = sse_first_event(port, None).await;
     assert!(seen.starts_with("HTTP/1.1 200") && seen.contains("text/event-stream"));
-    drop(s);
+
+    d.stop(&client).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn network_bind_requires_the_token_login() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut cfg, port) = web_config(root.path());
+    cfg.web.bind = "0.0.0.0".into();
+    Secrets::load(&Paths::with_root(root.path()))
+        .unwrap()
+        .ensure("web")
+        .unwrap();
+    let (d, client) = Daemon::start(root.path(), cfg).await;
+    let token = d.secret("web").expect("web token");
+    assert_ne!(Some(token.clone()), d.secret("daemon"), "separate secrets");
+
+    // Not logged in: redirect to the login page, which is public.
+    let r = get(port, "/", None).await;
+    assert_eq!(r.status, 303);
+    assert_eq!(r.header("location"), Some("/login"));
+    let r = get(port, "/login", None).await;
+    assert_eq!(r.status, 200);
+    assert!(!r.body.contains(&token));
+    assert_eq!(get(port, "/static/htmx.min.js", None).await.status, 200);
+    assert_eq!(get(port, "/events", None).await.status, 401);
+
+    // Wrong token, then the right one.
+    let r = http(
+        port,
+        "POST",
+        "/login",
+        &[("Content-Type", "application/x-www-form-urlencoded".into())],
+        "token=nope",
+    )
+    .await;
+    assert_eq!(r.status, 401);
+    let cookie = login(port, "", &token).await;
+    let r = get(port, "/", Some(&cookie)).await;
+    assert_eq!(r.status, 200);
+    assert!(r.body.contains("Log out"), "{}", r.body);
+    let csrf = csrf_of(&r.body);
+
+    let hdr = |csrf: Option<&str>| {
+        let mut h = vec![
+            ("Cookie", cookie.clone()),
+            ("Origin", format!("http://127.0.0.1:{port}")),
+        ];
+        if let Some(c) = csrf {
+            h.push(("X-CSRF-Token", c.to_owned()));
+        }
+        h
+    };
+    assert_eq!(
+        http(port, "POST", "/queue/pause-all", &hdr(None), "")
+            .await
+            .status,
+        403
+    );
+    let r = http(port, "POST", "/queue/resume-all", &hdr(Some(&csrf)), "").await;
+    assert_eq!(r.status, 303, "{}", r.body);
+    let seen = sse_first_event(port, Some(&cookie)).await;
+    assert!(seen.starts_with("HTTP/1.1 200"));
 
     // Log out invalidates the cookie.
     let r = http(port, "POST", "/logout", &hdr(Some(&csrf)), "").await;
     assert_eq!(r.status, 303);
     assert_eq!(get(port, "/", Some(&cookie)).await.status, 303);
+    d.stop(&client).await;
+}
 
+#[tokio::test(flavor = "multi_thread")]
+async fn require_login_on_loopback_generates_a_token() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut cfg, port) = web_config(root.path());
+    cfg.web.require_login = true;
+    let (d, client) = Daemon::start(root.path(), cfg).await;
+    let token = d.secret("web").expect("token generated");
+    assert_eq!(get(port, "/", None).await.status, 303);
+    let cookie = login(port, "", &token).await;
+    assert_eq!(get(port, "/", Some(&cookie)).await.status, 200);
+    assert!(client.web_status().await.unwrap().auth);
     d.stop(&client).await;
 }
 
@@ -369,21 +457,17 @@ async fn web_start_stop_over_the_api() {
         })
         .await
         .unwrap();
-    assert!(st.enabled && st.auth && !st.exposed);
+    assert!(st.enabled && !st.auth && !st.exposed);
     assert_eq!(
         st.url.as_deref(),
         Some(format!("http://127.0.0.1:{port}/").as_str())
     );
-    assert_eq!(get(port, "/", None).await.status, 303);
-    assert!(d.secret("web").is_some());
+    assert_eq!(get(port, "/", None).await.status, 200);
+    assert!(d.secret("web").is_none(), "no token for loopback");
     let text = std::fs::read_to_string(d.paths.config_file()).unwrap();
     assert!(
         text.contains(&format!("port = {port}")) && text.contains("enabled = true"),
         "{text}"
-    );
-    assert!(
-        !text.contains(&d.secret("web").unwrap()),
-        "token never lands in config"
     );
     assert_eq!(c.web_status().await.unwrap().url, st.url);
 
@@ -395,7 +479,7 @@ async fn web_start_stop_over_the_api() {
     })
     .await
     .unwrap();
-    assert_eq!(get(port2, "/", None).await.status, 303);
+    assert_eq!(get(port2, "/", None).await.status, 200);
     assert!(TcpStream::connect(("127.0.0.1", port)).await.is_err());
 
     let st = c.web_stop(true).await.unwrap();
@@ -415,21 +499,18 @@ async fn base_path_is_applied() {
     let (mut cfg, port) = web_config(root.path());
     cfg.web.base_path = "/dman".into();
     let (d, c) = Daemon::start(root.path(), cfg).await;
-    let token = d.secret("web").unwrap();
 
     let r = get(port, "/dman/", None).await;
-    assert_eq!(r.status, 303);
-    assert_eq!(r.header("location"), Some("/dman/login"));
-    assert_eq!(get(port, "/dman", None).await.status, 303);
+    assert_eq!(r.status, 200);
+    assert!(r.body.contains("/dman/"), "links carry the base path");
+    assert_eq!(get(port, "/dman", None).await.status, 200);
+    let r = get(port, "/dman/login", None).await;
+    assert_eq!(r.header("location"), Some("/dman/"));
     assert_eq!(
         get(port, "/dman/static/htmx.min.js", None).await.status,
         200
     );
     assert_ne!(get(port, "/", None).await.status, 200);
-    let cookie = login(port, "/dman", &token).await;
-    let r = get(port, "/dman/", Some(&cookie)).await;
-    assert_eq!(r.status, 200);
-    assert!(r.body.contains("/dman/"), "links carry the base path");
     let st = c.web_status().await.unwrap();
     assert_eq!(
         st.url.as_deref(),

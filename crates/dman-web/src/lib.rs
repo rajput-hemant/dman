@@ -8,8 +8,11 @@
 //! * Live updates: `GET {base}/events` pushes changed download cards, the detail
 //!   header, search results, the stats bar and status messages, throttled to two
 //!   batches per second per client.
-//! * Auth: optional access token; session cookie or `Authorization: Bearer`; CSRF
-//!   protection (Origin check plus a per-session token) on every state-changing request.
+//! * Auth (decision U3): no login when the host serves loopback only; an access token
+//!   (session cookie or `Authorization: Bearer`) when it is reachable from the network.
+//!   Always, invisibly: CSRF protection (Origin/`Sec-Fetch-Site` check plus a per-page
+//!   token that htmx and `app.js` send by themselves) on every state-changing request,
+//!   and without a login a `Host` check against DNS rebinding.
 //! * No inline scripts or styles: the CSP is `default-src 'self'`.
 
 mod assets;
@@ -62,6 +65,12 @@ pub struct WebConfig {
     pub exposed: bool,
     /// The listener terminates TLS itself: session cookies are always `Secure`.
     pub tls: bool,
+    /// Bind address of the listener. Without a token, the `Host` header must name
+    /// loopback, this address (any IP address when it is unspecified) or one of
+    /// `allowed_hosts`. `None` = loopback only.
+    pub bind: Option<std::net::IpAddr>,
+    /// Extra host names accepted in the `Host` header when there is no token.
+    pub allowed_hosts: Vec<String>,
 }
 
 impl Default for WebConfig {
@@ -72,6 +81,8 @@ impl Default for WebConfig {
             title: "dman".into(),
             exposed: false,
             tls: false,
+            bind: None,
+            allowed_hosts: Vec::new(),
         }
     }
 }
@@ -87,6 +98,8 @@ pub(crate) struct AppState {
     pub token: Option<SecretString>,
     pub exposed: bool,
     pub tls: bool,
+    pub bind: Option<std::net::IpAddr>,
+    pub allowed_hosts: Vec<String>,
     pub sessions: Mutex<HashMap<String, auth::Session>>,
     /// CSRF token used when no access token is configured (no sessions).
     pub open_csrf: String,
@@ -140,6 +153,12 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         token: cfg.token,
         exposed: cfg.exposed,
         tls: cfg.tls,
+        bind: cfg.bind,
+        allowed_hosts: cfg
+            .allowed_hosts
+            .iter()
+            .map(|h| h.trim().trim_end_matches('.').to_ascii_lowercase())
+            .collect(),
         sessions: Mutex::new(HashMap::new()),
         open_csrf: auth::random_id(),
         video_cache: Mutex::new(None),

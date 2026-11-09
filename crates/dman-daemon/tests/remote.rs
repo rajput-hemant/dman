@@ -228,6 +228,8 @@ async fn web_over_https_sets_secure_cookie() {
     cfg.web.enabled = true;
     cfg.web.port = web_port;
     cfg.web.tls = Some(tls_files(&pki));
+    // Loopback has no login by default (U3); the cookie needs one.
+    cfg.web.require_login = true;
     let (d, client) = Daemon::start(root.path(), cfg, &TlsOptions::new()).await;
     let token = Secrets::load(&d.paths)
         .unwrap()

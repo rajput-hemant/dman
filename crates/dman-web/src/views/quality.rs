@@ -39,13 +39,13 @@ fn row(name: &str, idx: usize, c: &QualityChoice, selected: bool) -> Markup {
     };
     html! {
         li class=(if c.available { "qrow" } else { "qrow off" }) {
-            label.check {
+            label.qopt {
                 input type="radio" name=(name) value=(idx) checked[selected && c.available] disabled[!c.available];
                 span {
                     span.qlabel { (label_of(c)) }
-                    @if c.available && c.requires_ffmpeg { " " span.badge.paused title="ffmpeg merges the video and audio streams" { "needs ffmpeg" } }
+                    @if c.available && c.requires_ffmpeg { " " span.pill.paused title="ffmpeg merges the video and audio streams" { "needs ffmpeg" } }
                     @if !c.available {
-                        " " span.badge.error { "unavailable" }
+                        " " span.pill.error { "unavailable" }
                         " " span.help { (c.unavailable_reason.as_deref().unwrap_or("needs ffmpeg")) }
                     } @else if c.kind == QualityChoiceKind::VideoOnly && !kind.is_empty() {
                         " " span.help { (kind) }
@@ -63,8 +63,12 @@ pub fn quality_page(base: &str, csrf: &str, p: &QualityPage<'_>) -> Markup {
     let applies = quality::audio_applies(probe, p.sel);
     let title = probe.title.clone().unwrap_or_else(|| probe.url.clone());
     html! {
-        h1 { "Choose the quality" }
-        form #qualityform.card.stack method="post" action=(action) {
+        div.sheet {
+        div.sheethead {
+            span.eicon { (super::icon(base, "video")) }
+            h1 { "Choose the quality" }
+        }
+        form #qualityform.card.sheetcard method="post" action=(action) {
             input type="hidden" name="_csrf" value=(csrf);
             // Enter in the form downloads (the preset buttons below also submit).
             button.sr type="submit" name="act" value="download" tabindex="-1" aria-hidden="true" { "Download" }
@@ -92,7 +96,7 @@ pub fn quality_page(base: &str, csrf: &str, p: &QualityPage<'_>) -> Markup {
                 ul.qlist {
                     @for (i, c) in probe.video_choices.iter().enumerate() { (row("video", i, c, p.sel.video == i)) }
                     @if audio_only_row {
-                        li.qrow { label.check {
+                        li.qrow { label.qopt {
                             input type="radio" name="video" value=(probe.video_choices.len()) checked[p.sel.video == probe.video_choices.len()];
                             span { span.qlabel { "Audio only (no video)" } }
                         } }
@@ -108,12 +112,15 @@ pub fn quality_page(base: &str, csrf: &str, p: &QualityPage<'_>) -> Markup {
                     }
                 }
             }
-            label.check { input type="checkbox" name="use_default" value="1" checked[p.use_default]; span { " Use as my default " span.help { "(remember this quality for videos added without asking)" } } }
-            label.check { input type="checkbox" name="never_ask" value="1" checked[p.never_ask]; span { " Never ask again " span.help { "(always use my default; turn asking back on in Settings)" } } }
-            div.btnrow {
-                button.btn.primary.big type="submit" name="act" value="download" { "Download" }
-                a.btn href=(p.cancel) { "Cancel" }
+            div.swgroup {
+                (super::switch_row("use_default", p.use_default, "Use as my default", "Remember this quality for videos added without asking."))
+                (super::switch_row("never_ask", p.never_ask, "Never ask again", "Always use my default; turn asking back on in Settings."))
             }
+            div.formfoot {
+                a.btn.ghost href=(p.cancel) { "Cancel" }
+                button.btn.primary.lg type="submit" name="act" value="download" { "Download" }
+            }
+        }
         }
     }
 }

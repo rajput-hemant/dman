@@ -5,7 +5,7 @@ use dman_proto::search::ProviderInfo;
 use dman_proto::{Engine, Limits, VideoPreferences};
 use maud::{Markup, html};
 
-use super::{Field, field};
+use super::{Field, field, icon, switch_row};
 use crate::fmt;
 
 /// How the browser reached this UI.
@@ -14,6 +14,8 @@ pub struct WebInfo {
     pub auth: bool,
     pub exposed: bool,
     pub tls: bool,
+    /// Form token for the log-out button.
+    pub csrf: String,
 }
 
 /// Limit fields as typed, with an optional `(field, message)` error.
@@ -53,13 +55,20 @@ pub fn provider_row(base: &str, csrf: &str, idx: usize, p: &ProviderInfo) -> Mar
     html! {
         li.prov id=(row) {
             div.pinfo {
-                strong { (p.name) } " " span.muted { (p.kind) }
-                @if p.verified { " " span.badge.complete title="Checked against the live site" { "verified" } }
-                @else { " " span.badge.paused title="Not checked against the live site; it may need fixes" { "unverified" } }
+                div.pname {
+                    strong { (p.name) } span.muted { (p.kind) }
+                    @if p.verified { span.pill.complete title="Checked against the live site" { "verified" } }
+                    @else { span.pill.paused title="Not checked against the live site; it may need fixes" { "unverified" } }
+                }
                 @if let Some(d) = &p.description { p.help { (d) } }
-                @if !p.url.is_empty() { p.help.wrap { (p.url) } }
+                @if !p.url.is_empty() { p.help.wrap.mono { (p.url) } }
             }
-            div.btnrow {
+            div.pact {
+                form.inline method="post" action=(test) hx-post=(test) hx-target="#toasts" hx-swap="beforeend" hx-disabled-elt="find button" {
+                    input type="hidden" name="_csrf" value=(csrf);
+                    input type="hidden" name="name" value=(p.name);
+                    button.btn.small.ghost type="submit" { "Test" }
+                }
                 form.inline method="post" action=(set) hx-post=(set) hx-target=(format!("#{row}")) hx-swap="outerHTML" {
                     input type="hidden" name="_csrf" value=(csrf);
                     input type="hidden" name="name" value=(p.name);
@@ -67,13 +76,8 @@ pub fn provider_row(base: &str, csrf: &str, idx: usize, p: &ProviderInfo) -> Mar
                     input type="hidden" name="idx" value=(idx);
                     button.switch.on[p.enabled] type="submit" role="switch" aria-checked=(if p.enabled { "true" } else { "false" })
                         aria-label=(format!("Use {} for searches", p.name)) {
-                        span.knob {} (if p.enabled { "On" } else { "Off" })
+                        span.knob {} span.swst { (if p.enabled { "On" } else { "Off" }) }
                     }
-                }
-                form.inline method="post" action=(test) hx-post=(test) hx-target="#toasts" hx-swap="beforeend" hx-disabled-elt="find button" {
-                    input type="hidden" name="_csrf" value=(csrf);
-                    input type="hidden" name="name" value=(p.name);
-                    button.btn.small type="submit" { "Test" }
                 }
             }
         }
@@ -108,8 +112,8 @@ fn engines(list: &[EngineStatus]) -> Markup {
                 li {
                     div.ehead {
                         strong { (engine_name(s.engine)) }
-                        @if s.available { span.badge.complete { "Ready" } } @else { span.badge.error { "Not available" } }
-                        @if let Some(v) = &s.version { span.muted { (v) } }
+                        @if s.available { span.pill.complete { span.dot {} "Ready" } } @else { span.pill.error { span.dot {} "Not available" } }
+                        @if let Some(v) = &s.version { span.muted.mono { (v) } }
                     }
                     p.help { (engine_purpose(s.engine)) }
                     @if let Some(r) = &s.reason { p.warnmsg { (r) } }
@@ -120,8 +124,8 @@ fn engines(list: &[EngineStatus]) -> Markup {
                     div.ehead {
                         strong { "ffmpeg" }
                         @match &ff {
-                            Some(v) => { span.badge.complete { "Ready" } span.muted { (v.trim_start_matches("ffmpeg").trim()) } }
-                            None => { span.badge.paused { "Not found" } }
+                            Some(v) => { span.pill.complete { span.dot {} "Ready" } span.muted.mono { (v.trim_start_matches("ffmpeg").trim()) } }
+                            None => { span.pill.paused { span.dot {} "Not found" } }
                         }
                     }
                     p.help { "Optional. Lets yt-dlp merge separate video and audio streams. Without it, dman picks single-file formats or offers separate streams." }
@@ -169,21 +173,24 @@ fn select(id: &str, name: &str, label: &str, options: &[(&str, &str)], current: 
     }
 }
 
+fn head(title: &str, help: Markup) -> Markup {
+    html! { div.chead2 { h2 { (title) } p.help { (help) } } }
+}
+
 fn video_section(base: &str, csrf: &str, v: &VideoPreferences) -> Markup {
     let action = format!("{base}/settings/video");
     html! {
-        section #video.card {
-            h2 { "Video" }
-            p.help { "Downloads from video sites (YouTube and many others). When asking is on, dman shows the available qualities before it downloads." }
+        section #video.card.set {
+            (head("Video", html! { "Downloads from video sites (YouTube and many others). When asking is on, dman shows the available qualities before it downloads." }))
             form.stack method="post" action=(action) {
                 input type="hidden" name="_csrf" value=(csrf);
-                label.check { input type="checkbox" name="ask_quality" value="1" checked[v.ask_quality]; span { " Ask which quality to download " span.help { "(off: always use the defaults below)" } } }
-                div.grid2 {
+                div.swgroup { (switch_row("ask_quality", v.ask_quality, "Ask which quality to download", "Off: always use the defaults below.")) }
+                div.grid3 {
                     (select("v-quality", "default_quality", "Default quality", &QUALITY_OPTIONS, &v.default_quality))
                     (select("v-audio", "default_audio", "Preferred audio", &AUDIO_OPTIONS, &v.default_audio))
                     (select("v-container", "default_container", "Container", &CONTAINER_OPTIONS, v.default_container.as_deref().unwrap_or("")))
                 }
-                div.btnrow { button.btn.primary type="submit" { "Save video settings" } }
+                div.cardfoot { button.btn.primary type="submit" { "Save video settings" } }
             }
         }
     }
@@ -205,91 +212,120 @@ pub fn settings_page(base: &str, csrf: &str, s: &SettingsData<'_>) -> Markup {
     let orig = LimitValues::from_limits(s.limits);
     let rate_help = "Per second, e.g. 500K, 2M or 1.5G. Empty = no limit.";
     let action = format!("{base}/settings/limits");
+    let mut sections: Vec<(&str, &str)> = vec![
+        ("limits", "Speed"),
+        ("queue", "Queue"),
+        ("schedule", "Schedule"),
+    ];
+    if s.video.is_some() {
+        sections.push(("video", "Video"));
+    }
+    sections.extend([
+        ("providers", "Search providers"),
+        ("appearance", "Appearance"),
+        ("web", "Web access"),
+        ("engines", "Engines"),
+    ]);
     html! {
-        h1 { "Settings" }
-        nav.tabs aria-label="Sections" {
-            a href="#limits" { "Speed" } a href="#queue" { "Queue" } a href="#schedule" { "Schedule" }
-            @if s.video.is_some() { a href="#video" { "Video" } } a href="#providers" { "Search providers" } a href="#web" { "Web access" } a href="#engines" { "Engines" }
-        }
-        section #limits.card {
-            h2 { "Speed limits" }
-            p.help { "Caps for all downloads together. They apply right away and are saved to the config file." }
-            form.stack method="post" action=(action) {
-                input type="hidden" name="_csrf" value=(csrf);
-                input type="hidden" name="o_download" value=(orig.download);
-                input type="hidden" name="o_upload" value=(orig.upload);
-                div.grid2 {
-                    (field(&Field { id: "s-down", name: "download", label: "Download limit", value: &v.download,
-                        placeholder: "no limit", help: rate_help, error: err("download"), kind: "text" }))
-                    (field(&Field { id: "s-up", name: "upload", label: "Upload limit", value: &v.upload,
-                        placeholder: "no limit", help: rate_help, error: err("upload"), kind: "text" }))
-                }
-                div.btnrow { button.btn.primary type="submit" { "Save speed limits" } }
+        div.pagehead { h1 { "Settings" } }
+        div.setlayout {
+            nav.setnav aria-label="Sections" {
+                @for (id, l) in &sections { a href=(format!("#{id}")) { (l) } }
             }
-        }
-        section #queue.card {
-            h2 { "Queue" }
-            form.stack method="post" action=(action) {
-                input type="hidden" name="_csrf" value=(csrf);
-                input type="hidden" name="o_max_concurrent" value=(orig.max_concurrent);
-                (field(&Field { id: "s-max", name: "max_concurrent", label: "Downloads at the same time", value: &v.max_concurrent,
-                    placeholder: "3", help: "The rest wait in the queue and start in order. Seeding torrents do not count.",
-                    error: err("max_concurrent"), kind: "number" }))
-                @if let Some((f, m)) = &s.error { @if f.is_empty() { p.ferr role="alert" { (m) } } }
-                div.btnrow { button.btn.primary type="submit" { "Save queue size" } }
-            }
-        }
-        section #schedule.card {
-            h2 { "Schedule" }
-            @match s.schedule {
-                Some(sch) if !sch.windows.is_empty() => {
-                    p.help {
-                        "Times are in " (sch.time_zone) ". "
-                        @if sch.paused { strong { "Downloads are held by a pause window right now. " } }
-                        @if let Some(a) = &sch.active { "Active window: " (a) ". " }
-                        @if let Some(n) = sch.next_change { "Next change " (fmt::timestamp(n)) " UTC" @if let Some(w) = &sch.next_window { " (" (w) ")" } "." }
-                    }
-                    table.list {
-                        thead { tr { th { "Window" } th { "Days" } th { "Time" } th { "Does" } th.num { "Down" } th.num { "Up" } } }
-                        tbody { @for w in &sch.windows { tr {
-                            td data-label="Window" { (w.name) }
-                            td data-label="Days" { (w.days.join(", ")) }
-                            td data-label="Time" { (w.start) "\u{2013}" (w.end) }
-                            td data-label="Does" { (if w.action == "pause" { "pause downloads" } else { "run downloads" }) }
-                            td.num data-label="Down" { (w.download_limit.map_or("\u{2013}".to_string(), rate)) }
-                            td.num data-label="Up" { (w.upload_limit.map_or("\u{2013}".to_string(), rate)) }
-                        } } }
+            div.setcards {
+                section #limits.card.set {
+                    (head("Speed limits", html! { "Caps for all downloads together. They apply right away and are saved to the config file." }))
+                    form.stack method="post" action=(action) {
+                        input type="hidden" name="_csrf" value=(csrf);
+                        input type="hidden" name="o_download" value=(orig.download);
+                        input type="hidden" name="o_upload" value=(orig.upload);
+                        div.grid2 {
+                            (field(&Field { id: "s-down", name: "download", label: "Download limit", value: &v.download,
+                                placeholder: "no limit", help: rate_help, error: err("download"), kind: "text" }))
+                            (field(&Field { id: "s-up", name: "upload", label: "Upload limit", value: &v.upload,
+                                placeholder: "no limit", help: rate_help, error: err("upload"), kind: "text" }))
+                        }
+                        div.cardfoot { button.btn.primary type="submit" { "Save speed limits" } }
                     }
                 }
-                _ => { p.muted { "No schedule: downloads run any time." } }
+                section #queue.card.set {
+                    (head("Queue", html! { "How many downloads run at the same time. The rest wait in line and start in order." }))
+                    form.stack method="post" action=(action) {
+                        input type="hidden" name="_csrf" value=(csrf);
+                        input type="hidden" name="o_max_concurrent" value=(orig.max_concurrent);
+                        (field(&Field { id: "s-max", name: "max_concurrent", label: "Downloads at the same time", value: &v.max_concurrent,
+                            placeholder: "3", help: "Seeding torrents do not count.",
+                            error: err("max_concurrent"), kind: "number" }))
+                        @if let Some((f, m)) = &s.error { @if f.is_empty() { p.ferr role="alert" { (m) } } }
+                        div.cardfoot { button.btn.primary type="submit" { "Save queue size" } }
+                    }
+                }
+                section #schedule.card.set {
+                    (head("Schedule", html! { "Windows that pause downloads or change limits at set times. Edited in the config file (" code { "[[schedule]]" } ")." }))
+                    @match s.schedule {
+                        Some(sch) if !sch.windows.is_empty() => {
+                            p.help {
+                                "Times are in " (sch.time_zone) ". "
+                                @if sch.paused { strong { "Downloads are held by a pause window right now. " } }
+                                @if let Some(a) = &sch.active { "Active window: " (a) ". " }
+                                @if let Some(n) = sch.next_change { "Next change " (fmt::timestamp(n)) " UTC" @if let Some(w) = &sch.next_window { " (" (w) ")" } "." }
+                            }
+                            div.tblwrap { table.tbl {
+                                thead { tr { th { "Window" } th { "Days" } th { "Time" } th { "Does" } th.num { "Down" } th.num { "Up" } } }
+                                tbody { @for w in &sch.windows { tr {
+                                    td data-label="Window" { (w.name) }
+                                    td data-label="Days" { (w.days.join(", ")) }
+                                    td data-label="Time" { (w.start) "\u{2013}" (w.end) }
+                                    td data-label="Does" { (if w.action == "pause" { "pause downloads" } else { "run downloads" }) }
+                                    td.num data-label="Down" { (w.download_limit.map_or("\u{2013}".to_string(), rate)) }
+                                    td.num data-label="Up" { (w.upload_limit.map_or("\u{2013}".to_string(), rate)) }
+                                } } }
+                            } }
+                        }
+                        _ => { p.muted { "No schedule: downloads run any time." } }
+                    }
+                }
+                @if let Some(v) = s.video { (video_section(base, csrf, v)) }
+                section #providers.card.set {
+                    (head("Search providers", html! { "Sites the Search page asks. All are off by default; only enable sites that are legal where you live. " strong { "Test" } " runs a sample search." }))
+                    @if s.providers.is_empty() { p.muted { "No providers are configured." } }
+                    ul.provs { @for (i, p) in s.providers.iter().enumerate() { (provider_row(base, csrf, i, p)) } }
+                }
+                section #appearance.card.set {
+                    (head("Appearance", html! { "Saved in this browser only." }))
+                    div.themepick.jsonly role="group" aria-label="Theme" {
+                        @for (v, l, i) in [("system", "System", "monitor"), ("light", "Light", "sun"), ("dark", "Dark", "moon")] {
+                            button.btn type="button" data-theme-set=(v) aria-pressed="false" { (icon(base, i)) span { (l) } }
+                        }
+                    }
+                    p.help.nojs { "Follows your system setting (light or dark). Turn on JavaScript to choose." }
+                }
+                section #web.card.set {
+                    (head("Web access", html! { "Bind address, port, login and allowed host names are set in the " code { "[web]" } " section of the config file." }))
+                    dl.kv {
+                        div { dt { "Address" } dd.wrap { code { (s.web.url) } } }
+                        div { dt { "Login" } dd {
+                            @if s.web.auth { "Access token required. Show it on the dman host with " code { "dman serve --print-token" } "." }
+                            @else if s.web.exposed { span.warnmsg { "No access token: anyone who can reach this address controls dman." } }
+                            @else { "Not needed: this web UI only listens on this computer. Other websites cannot use it." }
+                        } }
+                        div { dt { "Network" } dd {
+                            @if s.web.exposed { "Reachable from other machines." } @else { "Only reachable from this computer (loopback)." }
+                            @if s.web.tls { " Encrypted (HTTPS)." }
+                        } }
+                    }
+                    @if s.web.auth {
+                        form.cardfoot method="post" action=(format!("{base}/logout")) {
+                            input type="hidden" name="_csrf" value=(s.web.csrf);
+                            button.btn type="submit" { (icon(base, "logout")) span { "Log out" } }
+                        }
+                    }
+                }
+                section #engines.card.set {
+                    (head("Engines", html! { "Programs dman drives on the host." }))
+                    (engines(s.engines))
+                }
             }
-            p.help { "Schedule windows are edited in the config file (" code { "[[schedule]]" } ")." }
-        }
-        @if let Some(v) = s.video { (video_section(base, csrf, v)) }
-        section #providers.card {
-            h2 { "Search providers" }
-            p.help { "Sites the Search page asks. All are off by default; only enable sites that are legal where you live. " strong { "Test" } " runs a sample search." }
-            @if s.providers.is_empty() { p.muted { "No providers are configured." } }
-            ul.provs { @for (i, p) in s.providers.iter().enumerate() { (provider_row(base, csrf, i, p)) } }
-        }
-        section #web.card {
-            h2 { "Web access" }
-            table.kv {
-                tr { th { "Address" } td.wrap { code { (s.web.url) } } }
-                tr { th { "Login" } td {
-                    @if s.web.auth { "An access token is required. Show it on the daemon host with " code { "dman serve --print-token" } "." }
-                    @else { span.warnmsg { "No access token: anyone who can reach this address controls dman." } }
-                } }
-                tr { th { "Network" } td {
-                    @if s.web.exposed { "Reachable from other machines." } @else { "Only reachable from this computer (loopback)." }
-                    @if s.web.tls { " Encrypted (HTTPS)." }
-                } }
-            }
-            p.help { "Bind address, port and token are set in the " code { "[web]" } " section of the config file." }
-        }
-        section #engines.card {
-            h2 { "Engines" }
-            (engines(s.engines))
         }
     }
 }

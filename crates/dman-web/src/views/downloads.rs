@@ -1,12 +1,12 @@
-//! Downloads page: paste box, compact filter row, cards with live progress, bulk bar,
-//! and the remove confirmation (single and bulk).
+//! Downloads page: paste box, segmented filter and search row, list rows with live
+//! progress, floating bulk bar, and the remove confirmation (single and bulk).
 
 use std::collections::BTreeMap;
 
-use dman_proto::{Job, JobState};
+use dman_proto::{Engine, Job, JobState};
 use maud::{Markup, html};
 
-use super::{ActionForm, action_form, bar, display_name, is_torrent, metadata_pending};
+use super::{ActionForm, action_form, bar, display_name, icon, is_torrent, metadata_pending};
 use super::{state_label, state_name};
 use crate::fmt;
 
@@ -19,6 +19,8 @@ pub struct TableQuery {
     pub all: bool,
     /// Also list removed downloads (hidden by default).
     pub removed: bool,
+    /// Segment: `""` (all), `active`, `done` or `failed`.
+    pub f: String,
     /// Just added: highlighted once (not part of the query string).
     pub fresh: Vec<u64>,
 }
@@ -40,6 +42,7 @@ impl TableQuery {
                 "dir" => t.desc = v == "desc",
                 "all" => t.all = v == "1",
                 "removed" => t.removed = v == "1",
+                "f" if matches!(v, "active" | "done" | "failed") => t.f = v.to_string(),
                 _ => {}
             }
         }
@@ -74,6 +77,19 @@ pub fn section_of(j: &Job) -> Option<Section> {
         JobState::Paused => Some(Section::Paused),
         JobState::Complete | JobState::Error => Some(Section::Stopped),
         JobState::Removed => None,
+    }
+}
+
+/// The job belongs to the segment `f` (`""` = all).
+fn in_segment(j: &Job, f: &str) -> bool {
+    match f {
+        "active" => matches!(
+            j.state,
+            JobState::Active | JobState::Seeding | JobState::Waiting | JobState::Paused
+        ),
+        "done" => j.state == JobState::Complete,
+        "failed" => j.state == JobState::Error,
+        _ => true,
     }
 }
 
@@ -132,6 +148,9 @@ pub fn table_qs(q: &TableQuery) -> String {
     if q.removed {
         s.append_pair("removed", "1");
     }
+    if !q.f.is_empty() {
+        s.append_pair("f", &q.f);
+    }
     let s = s.finish();
     if s.is_empty() {
         String::new()
@@ -140,7 +159,7 @@ pub fn table_qs(q: &TableQuery) -> String {
     }
 }
 
-/// Figures under the progress bar, depending on the state.
+/// Secondary line under the name: size and connections, depending on the state.
 fn figures(j: &Job) -> Vec<String> {
     let mut v = Vec::new();
     let size = if j.total_bytes == 0 {
@@ -157,18 +176,10 @@ fn figures(j: &Job) -> Vec<String> {
     match j.state {
         JobState::Active => {
             v.extend(size);
-            v.push(format!("\u{2193} {}", fmt::speed0(j.download_speed)));
-            if j.upload_speed > 0 {
-                v.push(format!("\u{2191} {}", fmt::speed0(j.upload_speed)));
-            }
-            if let Some(e) = j.eta_secs() {
-                v.push(format!("{} left", fmt::eta(Some(e))));
-            }
             v.push(peers_text(j));
         }
         JobState::Seeding => {
             v.extend(size);
-            v.push(format!("\u{2191} {}", fmt::speed0(j.upload_speed)));
             v.push(format!("ratio {:.2}", j.ratio()));
             v.push(peers_text(j));
         }
@@ -201,8 +212,31 @@ fn peers_text(j: &Job) -> String {
     }
 }
 
-/// The live part of a card: badge, progress bar, figures, error. The same markup is
-/// pushed over SSE (`job-<id>`, outer swap); ids let htmx animate the bar.
+/// Icon name for the kind of file a download is (`k-<name>` colours the tile).
+pub fn kind_icon(j: &Job) -> &'static str {
+    if j.engine == Engine::YtDlp {
+        return "video";
+    }
+    let name = display_name(j).to_ascii_lowercase();
+    let ext = name.rsplit_once('.').map_or("", |(_, e)| e);
+    match ext {
+        "mp4" | "mkv" | "webm" | "avi" | "mov" | "m4v" | "ts" | "flv" | "wmv" => "video",
+        "mp3" | "flac" | "m4a" | "ogg" | "opus" | "wav" | "aac" => "music",
+        "zip" | "rar" | "7z" | "tar" | "gz" | "xz" | "bz2" | "zst" | "tgz" | "deb" | "rpm" => {
+            "archive"
+        }
+        "iso" | "img" | "dmg" => "disc",
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "avif" => "image",
+        "pdf" | "epub" | "mobi" | "txt" | "doc" | "docx" | "odt" => "doc",
+        _ if metadata_pending(j) => "magnet",
+        _ if is_torrent(j) => "folder",
+        _ => "file",
+    }
+}
+
+/// The live part of a row: state pill, figures, progress, speed, time left, error.
+/// Pushed over SSE (`job-<id>`, outer swap); `display: contents` lets its parts sit
+/// in the row's grid columns. Fixed columns and tabular numbers: no layout shift.
 pub fn job_live(j: &Job) -> Markup {
     let id = j.id.0;
     let st = state_name(j.state);
@@ -211,26 +245,36 @@ pub fn job_live(j: &Job) -> Markup {
     } else {
         Some(j.progress())
     };
+    let moving = matches!(j.state, JobState::Active | JobState::Seeding);
     html! {
         div.live id=(format!("live-{id}")) sse-swap=(format!("job-{id}")) hx-swap="outerHTML" {
-            div.lrow {
-                span class=(format!("badge {st}")) { (state_label(j)) }
+            span class=(format!("pill {st}")) { span.dot {} (state_label(j)) }
+            span.jsub { (figures(j).join(" \u{b7} ")) }
+            span.jprog {
+                (bar(Some(format!("pb-{id}")), &format!("bar {st}"), frac, "Progress"))
                 @if let Some(f) = frac { span.pct { (format!("{:.1}%", f * 100.0)) } }
-                @else { span.pct.muted { "getting file list\u{2026}" } }
+                @else { span.pct.muted { "file list\u{2026}" } }
             }
-            (bar(Some(format!("pb-{id}")), &format!("bar {st}"), frac, "Progress"))
-            div.meta { @for f in figures(j) { span { (f) } } }
+            span.jspd {
+                @if moving {
+                    @if j.state == JobState::Active { span title="Download speed" { "\u{2193} " (fmt::speed0(j.download_speed)) } }
+                    @if j.upload_speed > 0 || j.state == JobState::Seeding { span.up title="Upload speed" { "\u{2191} " (fmt::speed0(j.upload_speed)) } }
+                }
+            }
+            span.jeta title="Time left" {
+                @if j.state == JobState::Active { (j.eta_secs().map_or_else(|| "\u{2014}".to_string(), |e| fmt::eta(Some(e)))) }
+            }
             @if let Some(e) = &j.error { p.jerr { (e) } }
         }
     }
 }
 
-/// One download card.
+/// One download row.
 fn job_card(base: &str, csrf: &str, j: &Job, fresh: bool) -> Markup {
     let id = j.id.0;
     let name = display_name(j);
     let url = |a: &str| format!("{base}/jobs/{id}/{a}");
-    let act = |a: &str, label: &'static str, class: &'static str| {
+    let act = |a: &str, label: &'static str, class: &'static str, ico: Option<&str>| {
         action_form(&ActionForm {
             url: url(a),
             label,
@@ -239,10 +283,11 @@ fn job_card(base: &str, csrf: &str, j: &Job, fresh: bool) -> Markup {
             csrf: Some(csrf),
             vals: &[],
             include: Some("#filter"),
-            title: None,
+            title: ico.map(|_| label.to_string()),
+            icon: ico.map(|i| icon(base, i)),
         })
     };
-    let reorder = |how: &'static str, label: &'static str| {
+    let reorder = |how: &'static str, label: &'static str, ico: &str| {
         action_form(&ActionForm {
             url: url("reorder"),
             label,
@@ -252,45 +297,62 @@ fn job_card(base: &str, csrf: &str, j: &Job, fresh: bool) -> Markup {
             vals: &[("how", how)],
             include: Some("#filter"),
             title: None,
+            icon: Some(icon(base, ico)),
         })
     };
     let primary = match j.state {
         JobState::Active | JobState::Seeding | JobState::Waiting => {
-            Some(act("pause", "Pause", "btn small"))
+            Some(act("pause", "Pause", "ib", Some("pause")))
         }
-        JobState::Paused => Some(act("resume", "Resume", "btn small primary")),
-        JobState::Error => Some(act("resume", "Retry", "btn small primary")),
+        JobState::Paused => Some(act("resume", "Resume", "ib acc", Some("play"))),
+        JobState::Error => Some(act("resume", "Retry", "ib acc", Some("retry"))),
         _ => None,
     };
+    let kind = kind_icon(j);
     html! {
         li id=(format!("job-{id}")) class=(format!("job st-{}{}", state_name(j.state), if fresh { " fresh" } else { "" })) {
             input.sel type="checkbox" name="ids" value=(id) form="bulk" aria-label=(format!("Select {name}"));
-            div.jmain {
-                a.jname href=(format!("{base}/jobs/{id}")) { (name) }
-                (job_live(j))
-            }
+            span class=(format!("ficon k-{kind}")) { (icon(base, kind)) }
+            a.jname href=(format!("{base}/jobs/{id}")) title=(name) { (name) }
+            (job_live(j))
             div.jact {
                 @if let Some(p) = primary { (p) }
                 details.menu {
-                    summary.btn.small.ghost aria-label=(format!("More actions for {name}")) title="More actions" { "\u{22ef}" }
+                    summary.ib aria-label=(format!("More actions for {name}")) title="More actions" { (icon(base, "more")) }
                     div.pop {
-                        a.mi href=(format!("{base}/jobs/{id}")) { "Details" }
+                        a.mi href=(format!("{base}/jobs/{id}")) { (icon(base, "info")) span.bl { "Details" } }
                         @if j.state == JobState::Waiting {
-                            (reorder("top", "Move to top"))
-                            (reorder("up", "Move up"))
-                            (reorder("down", "Move down"))
-                            (reorder("bottom", "Move to bottom"))
+                            (reorder("top", "Move to top", "top"))
+                            (reorder("up", "Move up", "up"))
+                            (reorder("down", "Move down", "down"))
+                            (reorder("bottom", "Move to bottom", "bottom"))
                         }
                         @if j.state.is_stopped() {
-                            (act("purge", "Clear from list", "mi"))
+                            (act("purge", "Clear from list", "mi", Some("check")))
                         }
                         @if j.state != JobState::Removed {
-                            a.mi href=(url("remove")) hx-get=(url("remove")) hx-target="#modal-body" hx-swap="innerHTML" { "Remove from list\u{2026}" }
-                            a.mi.danger href=(url("remove?delete=1")) hx-get=(url("remove?delete=1")) hx-target="#modal-body" hx-swap="innerHTML" { "Delete files\u{2026}" }
+                            hr;
+                            a.mi href=(url("remove")) hx-get=(url("remove")) hx-target="#modal-body" hx-swap="innerHTML" { (icon(base, "x")) span.bl { "Remove from list\u{2026}" } }
+                            a.mi.danger href=(url("remove?delete=1")) hx-get=(url("remove?delete=1")) hx-target="#modal-body" hx-swap="innerHTML" { (icon(base, "trash")) span.bl { "Delete files\u{2026}" } }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+/// Empty-state illustration (inline SVG; colours come from CSS classes).
+pub fn illustration() -> Markup {
+    html! {
+        svg.illus viewBox="0 0 160 112" aria-hidden="true" focusable="false" {
+            circle.il-glow cx="80" cy="44" r="34" {}
+            rect.il-box x="28" y="58" width="104" height="42" rx="12" {}
+            path.il-line d="M28 70h30l8 11h28l8-11h30" {}
+            path.il-arrow d="M80 18v34M68 41l12 12 12-12" {}
+            circle.il-dot cx="124" cy="22" r="3" {}
+            circle.il-dot cx="36" cy="32" r="2" {}
+            circle.il-dot cx="140" cy="48" r="2" {}
         }
     }
 }
@@ -301,7 +363,7 @@ pub fn jobs_table(base: &str, csrf: &str, jobs: &[Job], q: &TableQuery) -> Marku
     let any = jobs.iter().any(|j| section_of(j).is_some());
     let mut shown: Vec<&Job> = jobs
         .iter()
-        .filter(|j| section_of(j).is_some() && matches_filter(j, &q.q))
+        .filter(|j| section_of(j).is_some() && in_segment(j, &q.f) && matches_filter(j, &q.q))
         .collect();
     sort_jobs(&mut shown, q);
     let mut sections: BTreeMap<Section, Vec<&Job>> = BTreeMap::new();
@@ -320,8 +382,53 @@ pub fn jobs_table(base: &str, csrf: &str, jobs: &[Job], q: &TableQuery) -> Marku
         fresh: Vec::new(),
         ..q.clone()
     });
+    let segment = match q.f.as_str() {
+        "active" => "active",
+        "done" => "finished",
+        "failed" => "failed",
+        _ => "",
+    };
     html! {
         div #jobs.jobs hx-get=(refresh) hx-trigger="sse:jobs-changed" hx-swap="outerHTML" {
+            @if !any {
+                div.emptyst {
+                    (illustration())
+                    h2 { "No downloads yet" }
+                    p { "Paste a magnet or link above, drop a .torrent file anywhere on this page, or find something with " a href=(format!("{base}/search")) { "Search" } "." }
+                }
+            } @else if sections.is_empty() {
+                div.emptyst.small {
+                    @if q.q.is_empty() {
+                        p { "No " (segment) " downloads." }
+                    } @else {
+                        p { "No downloads match \u{201c}" (q.q) "\u{201d}." }
+                    }
+                    p { a.btn.small href=(format!("{base}/")) { "Show all" } }
+                }
+            } @else {
+                @for (sec, list) in &sections {
+                    section.sec {
+                        h2.sech { (sec.label()) span.count { (list.len()) } }
+                        @let limit = if *sec == Section::Stopped && !q.all { STOPPED_PAGE } else { usize::MAX };
+                        ul.rows {
+                            @for j in list.iter().take(limit) { (job_card(base, csrf, j, q.fresh.contains(&j.id.0))) }
+                        }
+                        @if list.len() > limit {
+                            @let all = table_qs(&TableQuery { all: true, ..q.clone() });
+                            p.showall { a.btn.small href=(format!("{base}/{all}")) hx-get=(format!("{base}/downloads/table{all}"))
+                                hx-target="#jobs" hx-swap="outerHTML" { "Show all " (list.len()) } }
+                        }
+                    }
+                }
+            }
+            @if q.removed && !removed.is_empty() {
+                section.sec.removed {
+                    h2.sech { "Removed" span.count { (removed.len()) } }
+                    ul.rows {
+                        @for j in removed.iter().take(200) { (job_card(base, csrf, j, false)) }
+                    }
+                }
+            }
             @if !removed.is_empty() || q.removed {
                 div.removedbar {
                     a.linkbtn href=(format!("{base}/{toggle}")) hx-get=(format!("{base}/downloads/table{toggle}"))
@@ -338,41 +445,8 @@ pub fn jobs_table(base: &str, csrf: &str, jobs: &[Job], q: &TableQuery) -> Marku
                             vals: &[],
                             include: Some("#filter"),
                             title: Some("Forget removed downloads (files are not touched)".into()),
+                            icon: None,
                         }))
-                    }
-                }
-            }
-            @if !any {
-                div.card.empty {
-                    h2 { "No downloads yet" }
-                    p { "Paste a magnet or link above, drop a .torrent file here, or " a href=(format!("{base}/search")) { "search for torrents" } "." }
-                }
-            } @else if sections.is_empty() {
-                div.card.empty {
-                    p { "No downloads match \u{201c}" (q.q) "\u{201d}." }
-                    p { a.btn.small href=(format!("{base}/")) { "Clear filter" } }
-                }
-            } @else {
-                @for (sec, list) in &sections {
-                    section.sec {
-                        h2 { (sec.label()) " " span.count { (list.len()) } }
-                        @let limit = if *sec == Section::Stopped && !q.all { STOPPED_PAGE } else { usize::MAX };
-                        ul.cards {
-                            @for j in list.iter().take(limit) { (job_card(base, csrf, j, q.fresh.contains(&j.id.0))) }
-                        }
-                        @if list.len() > limit {
-                            @let all = table_qs(&TableQuery { all: true, ..q.clone() });
-                            p.showall { a.btn.small href=(format!("{base}/{all}")) hx-get=(format!("{base}/downloads/table{all}"))
-                                hx-target="#jobs" hx-swap="outerHTML" { "Show all " (list.len()) } }
-                        }
-                    }
-                }
-            }
-            @if q.removed && !removed.is_empty() {
-                section.sec {
-                    h2 { "Removed " span.count { (removed.len()) } }
-                    ul.cards {
-                        @for j in removed.iter().take(200) { (job_card(base, csrf, j, false)) }
                     }
                 }
             }
@@ -398,30 +472,40 @@ const SORTS: [(&str, &str); 11] = [
 pub fn paste_box(base: &str, csrf: &str) -> Markup {
     let add = format!("{base}/add");
     html! {
-        form #paste.paste.card method="post" action=(add) enctype="multipart/form-data"
+        form #paste.paste method="post" action=(add) enctype="multipart/form-data"
             hx-post=(add) hx-encoding="multipart/form-data" hx-target="#jobs" hx-swap="outerHTML"
             hx-include="#filter" hx-disabled-elt="find button" hx-indicator="#paste-ind" {
             input type="hidden" name="_csrf" value=(csrf);
             input type="hidden" name="from" value="downloads";
-            label.plabel for="paste-in" { "Add a download" }
-            div.prow {
-                textarea #paste-in name="uris" rows="1" required
-                    placeholder="Paste a magnet, link or drop a .torrent file"
+            label.sr for="paste-in" { "Add a download" }
+            div.pastebox {
+                span.pico { (icon(base, "link")) }
+                textarea #paste-in name="uris" rows="1" data-kinds="paste-kind"
+                    placeholder="Paste a magnet or link\u{2026}"
                     autocomplete="off" spellcheck="false" aria-describedby="paste-help" {}
-                button.btn.primary.big type="submit" { "Add" }
+                span #paste-kind.kinds aria-live="polite" {}
+                button.btn.primary type="submit" { "Add" }
             }
             (super::quality::checking("paste-ind", true))
-            p.help #paste-help {
+            p.pastehelp #paste-help {
                 label.filepick {
                     input.sr type="file" name="file" accept=".torrent,.metalink,.meta4,application/x-bittorrent" multiple;
-                    span { "Choose a .torrent file" }
+                    (icon(base, "upload")) span { "Upload .torrent" }
                 }
-                " \u{b7} " a href=(add) { "More options" }
-                " \u{b7} " a href=(format!("{base}/search")) { "Search torrents" }
+                a href=(add) { (icon(base, "sliders")) span { "More options" } }
+                a href=(format!("{base}/search")) { (icon(base, "search")) span { "Search torrents" } }
+                span.drophint.jsonly { "or drop .torrent files anywhere" }
             }
         }
     }
 }
+
+const SEGMENTS: [(&str, &str); 4] = [
+    ("", "All"),
+    ("active", "Active"),
+    ("done", "Done"),
+    ("failed", "Failed"),
+];
 
 pub fn downloads_page(base: &str, csrf: &str, jobs: &[Job], q: &TableQuery) -> Markup {
     let cur = if q.sort.is_empty() {
@@ -429,41 +513,55 @@ pub fn downloads_page(base: &str, csrf: &str, jobs: &[Job], q: &TableQuery) -> M
     } else {
         format!("{}.{}", q.sort, if q.desc { "desc" } else { "asc" })
     };
-    let filtering = !q.q.is_empty() || !q.sort.is_empty();
+    let ib = |url: &str, label: &str, ico: &str| {
+        html! {
+            button.btn.small.ghost type="button" hx-post=(url) hx-target="#toasts" hx-swap="beforeend" {
+                (icon(base, ico)) span { (label) }
+            }
+        }
+    };
     html! {
-        h1.sr { "Downloads" }
+        div.pagehead {
+            h1 { "Downloads" }
+            div.headact {
+                (ib(&format!("{base}/queue/pause-all"), "Pause all", "pause"))
+                (ib(&format!("{base}/queue/resume-all"), "Resume all", "play"))
+            }
+        }
         (paste_box(base, csrf))
         div.toolbar {
-            input #ft.ftoggle type="checkbox" checked[filtering] aria-controls="filter";
-            label.btn.small.ftbtn for="ft" { "Filter" }
             form #filter.filter role="search" method="get" action=(format!("{base}/"))
                 hx-get=(format!("{base}/downloads/table")) hx-target="#jobs" hx-swap="outerHTML"
                 hx-trigger="input changed delay:250ms, change, submit" {
-                input type="search" name="q" value=(q.q) placeholder="Filter by name" aria-label="Filter downloads by name";
+                div.seg role="radiogroup" aria-label="Show" {
+                    @for (v, l) in SEGMENTS {
+                        label { input type="radio" name="f" value=(v) checked[q.f == v]; span { (l) } }
+                    }
+                }
+                div.fsearch {
+                    (icon(base, "search"))
+                    input type="search" name="q" value=(q.q) placeholder="Filter by name" aria-label="Filter downloads by name";
+                }
                 select name="sort" aria-label="Sort downloads" {
                     @for (v, l) in SORTS { option value=(v) selected[cur == v] { (l) } }
                 }
                 @if q.removed { input type="hidden" name="removed" value="1"; }
                 button.btn.small.nojs type="submit" { "Apply" }
             }
-            div.qbtns {
-                label.check.jsonly { input #selall type="checkbox"; " Select all" }
-                button.btn.small type="button" hx-post=(format!("{base}/queue/pause-all")) hx-target="#toasts" hx-swap="beforeend" { "Pause all" }
-                button.btn.small type="button" hx-post=(format!("{base}/queue/resume-all")) hx-target="#toasts" hx-swap="beforeend" { "Resume all" }
-            }
+            label.selall.jsonly { input #selall type="checkbox"; span { "Select all" } }
         }
         (jobs_table(base, csrf, jobs, q))
         form #bulk.bulkbar method="post" action=(format!("{base}/jobs/bulk"))
             hx-post=(format!("{base}/jobs/bulk")) hx-target="#jobs" hx-swap="outerHTML" hx-include="#filter" {
             input type="hidden" name="_csrf" value=(csrf);
             span #selcount.selcount { "Selected downloads:" }
-            button.btn.small type="submit" name="action" value="pause" { "Pause" }
-            button.btn.small type="submit" name="action" value="resume" { "Resume" }
+            button.btn.small type="submit" name="action" value="pause" { (icon(base, "pause")) span { "Pause" } }
+            button.btn.small type="submit" name="action" value="resume" { (icon(base, "play")) span { "Resume" } }
             button.btn.small type="submit" formmethod="get" formaction=(format!("{base}/jobs/bulk/remove"))
-                hx-get=(format!("{base}/jobs/bulk/remove")) hx-include="#bulk" hx-target="#modal-body" hx-swap="innerHTML" { "Remove\u{2026}" }
+                hx-get=(format!("{base}/jobs/bulk/remove")) hx-include="#bulk" hx-target="#modal-body" hx-swap="innerHTML" { (icon(base, "x")) span { "Remove\u{2026}" } }
             button.btn.small.danger type="submit" formmethod="get" formaction=(format!("{base}/jobs/bulk/remove")) name="delete" value="1"
-                hx-get=(format!("{base}/jobs/bulk/remove?delete=1")) hx-include="#bulk" hx-target="#modal-body" hx-swap="innerHTML" { "Delete files\u{2026}" }
-            button.btn.small.ghost.jsonly type="button" data-clear-sel { "Clear selection" }
+                hx-get=(format!("{base}/jobs/bulk/remove?delete=1")) hx-include="#bulk" hx-target="#modal-body" hx-swap="innerHTML" { (icon(base, "trash")) span { "Delete files\u{2026}" } }
+            button.ib.jsonly type="button" data-clear-sel aria-label="Clear selection" title="Clear selection" { (icon(base, "x")) }
         }
     }
 }
@@ -509,11 +607,13 @@ pub fn remove_form(base: &str, csrf: &str, t: &RemoveTarget<'_>, delete: bool) -
             @for j in &t.jobs { input type="hidden" name="ids" value=(j.id.0); }
             @if delete {
                 input type="hidden" name="delete_files" value="true";
+                span.cicon.bad { (icon(base, "trash")) }
                 h2 #modal-title { "Remove and permanently delete the files of " (what) "?" }
                 p { "The download leaves the list " strong { "and its files are deleted from disk" } ". This cannot be undone." }
             } @else {
+                span.cicon { (icon(base, "x")) }
                 h2 #modal-title { "Remove " (what) " from the list?" }
-                p { "Files already downloaded " strong { "stay on disk" } "." }
+                p { "Files already downloaded " strong { "stay on disk" } ". You can undo this for a few seconds." }
             }
             @if n > 1 {
                 ul.names {
@@ -521,12 +621,12 @@ pub fn remove_form(base: &str, csrf: &str, t: &RemoveTarget<'_>, delete: bool) -
                     @if n > 8 { li.muted { "and " (n - 8) " more" } }
                 }
             }
-            div.btnrow {
+            div.btnrow.end {
+                a.btn.ghost href=(t.cancel_href) data-close { "Cancel" }
                 @if delete { button.btn.danger type="submit" { "Delete files" } }
                 @else { button.btn.primary type="submit" { "Remove from list" } }
-                a.btn href=(t.cancel_href) data-close { "Cancel" }
             }
-            p.help {
+            p.help.alt {
                 a href=(other) hx-get=(other) hx-target="#modal-body" hx-swap="innerHTML" {
                     @if delete { "Keep the files and only remove from the list instead" }
                     @else { "Delete the files too\u{2026}" }

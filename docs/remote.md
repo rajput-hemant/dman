@@ -8,14 +8,30 @@ To use a daemon on another machine you have three options, from simplest to most
 2. built-in TLS (`wss://` / `https://`) with your own certificate,
 3. a TLS reverse proxy in front of the web UI.
 
-Every connection is authenticated with a token. Without TLS or a tunnel the token and all
-traffic cross the network in clear text.
+Every API connection is authenticated with a token. Without TLS or a tunnel the token and all
+traffic cross the network in clear text. The web UI asks for a token only when it is reachable
+from the network (see below).
 
 ## The token
 
 The daemon generates an API token on first start and stores it in `secrets.toml`
-(mode 0600) under the profile's `secret_ref` (default `daemon`). The web UI has its own token
-(`web` by default). Tokens are never logged.
+(mode 0600) under the profile's `secret_ref` (default `daemon`). Tokens are never logged.
+
+### The web UI token
+
+On its default loopback address (`127.0.0.1` or `::1`) the web UI has **no login**: open
+`http://127.0.0.1:6811/` and you are in, and no web token is created. Other websites still
+cannot drive it through your browser: every state-changing request must come from the page
+itself (`Origin`/`Sec-Fetch-Site` check plus a per-page CSRF token that the page sends on its
+own), and the `Host` header must name loopback, the bind address or an entry of
+`web.allowed_hosts`, which stops DNS-rebinding attacks. Requests relayed by a proxy
+(`X-Forwarded-For`, `Forwarded`, ...) are refused on a login-free loopback UI.
+
+When the web UI is bound to a network address it asks for its own access token (`web` in
+`secrets.toml`, see `web.token_ref`). `dman serve --bind 0.0.0.0` generates it on first use and
+`dman serve --print-token` shows it. Without a token the daemon refuses to serve a network
+address unless `web.allow_unauthenticated = true` (then every page shows a warning banner).
+`web.require_login = true` asks for the token on loopback too.
 
 To reach a daemon from another machine, copy its token into that machine's `secrets.toml`:
 
@@ -131,12 +147,14 @@ Use it only for quick tests; prefer `ca`.
 
 Binding the API beyond loopback without TLS is allowed (the token still protects it) but the
 daemon logs a warning recommending TLS or an SSH tunnel. A non-loopback web UI additionally
-refuses to start without an access token unless `web.allow_unauthenticated = true`.
+refuses to start without an access token unless `web.allow_unauthenticated = true`. A loopback
+web UI needs no token at all.
 
 ## Option 3: reverse proxy for the web UI
 
-Run the web UI on loopback and let a proxy terminate TLS. If it is mounted below a path, set
-`web.base_path`:
+Run the web UI on loopback and let a proxy terminate TLS. The proxy makes it reachable from
+elsewhere, so turn the login on with `require_login` (dman refuses proxied requests to a
+login-free UI). If it is mounted below a path, set `web.base_path`:
 
 ```toml
 [web]
@@ -144,6 +162,7 @@ enabled = true
 bind = "127.0.0.1"
 port = 6811
 base_path = "/dman"
+require_login = true
 ```
 
 Example nginx location (the page uses a long-lived event stream, so buffering is off and the read
@@ -171,8 +190,9 @@ WebSocket upgrades on `/api/v1/ws`.
 - Prefer TLS with a pinned `ca` or an SSH tunnel over plaintext. Never expose the plain
   `ws://` or `http://` listeners to the internet.
 - `insecure_skip_verify` defeats the purpose of TLS.
-- The web UI uses `HttpOnly; SameSite=Strict` cookies and CSRF tokens; it still needs
-  HTTPS when reachable beyond loopback.
+- The web UI checks `Origin`, CSRF tokens and (without a login) the `Host` header on every
+  request; with a login it uses `HttpOnly; SameSite=Strict` cookies. It still needs HTTPS when
+  reachable beyond loopback.
 - Rotate a token by editing `secrets.toml` on both sides and restarting the daemon.
 - Reconnection: the TUI and other long-lived clients reconnect automatically with backoff after
   a network drop or daemon restart, show the state as disconnected, disable actions meanwhile

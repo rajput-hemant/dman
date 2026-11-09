@@ -49,10 +49,15 @@ pub async fn run(ctx: &Ctx, args: &ServeArgs) -> Result<i32, CliError> {
     }
 }
 
-/// Makes sure the access token exists unless unauthenticated access was configured.
+/// Makes sure the access token exists when the UI asks for one: a network bind
+/// (unless unauthenticated access was configured) or `require_login`. Loopback
+/// without `require_login` needs no token (decision U3).
 fn ensure_token(ctx: &Ctx, web: &Web) -> Result<(), CliError> {
+    if web.loopback_without_login() || (web.allow_unauthenticated && !web.require_login) {
+        return Ok(());
+    }
     let mut secrets = Secrets::load(&ctx.paths)?;
-    if secrets.get(&web.token_ref).is_none() && !web.allow_unauthenticated {
+    if secrets.get(&web.token_ref).is_none() {
         secrets.ensure(&web.token_ref)?;
     }
     Ok(())
@@ -90,7 +95,8 @@ async fn foreground(ctx: &Ctx, web: Web, args: &ServeArgs) -> Result<i32, CliErr
         enabled: true,
         url: Some(web.url()),
         exposed: !web.is_loopback(),
-        auth: Secrets::load(&ctx.paths)?.get(&web.token_ref).is_some(),
+        auth: !web.loopback_without_login()
+            && Secrets::load(&ctx.paths)?.get(&web.token_ref).is_some(),
     };
     report(ctx, &status, &web, args)?;
     let mut config = ctx.config.clone();
@@ -116,10 +122,11 @@ fn persist(ctx: &Ctx, web: &Web) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Prints the URL and where the token lives; the token itself only with `--print-token`.
+/// Prints the URL. Loopback without login: just the URL. A network bind: where the
+/// token lives; the token itself only with `--print-token`.
 fn report(ctx: &Ctx, s: &WebStatus, web: &Web, args: &ServeArgs) -> Result<(), CliError> {
     let url = s.url.clone().unwrap_or_else(|| web.url());
-    let token = if args.print_token {
+    let token = if args.print_token && s.auth {
         Secrets::load(&ctx.paths)?
             .get(&web.token_ref)
             .map(|t| secrecy::ExposeSecret::expose_secret(&t).to_owned())
@@ -135,10 +142,17 @@ fn report(ctx: &Ctx, s: &WebStatus, web: &Web, args: &ServeArgs) -> Result<(), C
         }
         return print_json(&v);
     }
-    println!("web UI: {url}");
+    if !s.auth && !s.exposed {
+        println!("Web UI: {url} \u{2014} open it in your browser");
+        if args.print_token {
+            println!("(no token needed: the web UI only listens on this computer)");
+        }
+        return Ok(());
+    }
+    println!("Web UI: {url}");
     if s.auth {
         println!(
-            "access token: entry `{}` in {} (show it with `dman serve --print-token`)",
+            "Access token: entry `{}` in {} (show it with `dman serve --print-token`)",
             web.token_ref,
             ctx.paths.secrets_file().display()
         );

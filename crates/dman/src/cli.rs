@@ -382,7 +382,8 @@ pub struct ServeArgs {
         conflicts_with_all = ["bind", "port", "base_path", "print_token"]
     )]
     pub stop: bool,
-    /// Print the access token (secret!) after starting. Never printed otherwise.
+    /// Print the access token (secret!) after starting. Never printed otherwise; only
+    /// network binds (or `require_login`) use one.
     #[arg(long)]
     pub print_token: bool,
 }

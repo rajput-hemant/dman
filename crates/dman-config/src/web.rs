@@ -18,10 +18,17 @@ pub struct Web {
     pub port: u16,
     /// Mount point behind a reverse proxy, e.g. `"/"` or `"/dman"`.
     pub base_path: String,
-    /// Name of the secrets.toml entry holding the access token.
+    /// Name of the secrets.toml entry holding the access token. Only used when the UI
+    /// asks for a login: beyond loopback, or on loopback with `require_login`.
     pub token_ref: String,
     /// Allow serving a non-loopback address without any access token.
     pub allow_unauthenticated: bool,
+    /// Ask for the access token even on loopback, e.g. when a reverse proxy on this
+    /// machine makes the UI reachable from elsewhere. Off: loopback opens directly.
+    pub require_login: bool,
+    /// Extra host names accepted in the `Host` header when no login is asked for
+    /// (DNS-rebinding defence). Loopback names and IP addresses are always accepted.
+    pub allowed_hosts: Vec<String>,
     /// Shown in the header and tab title.
     pub title: String,
     /// Serve https with this certificate; plain http when absent.
@@ -38,6 +45,8 @@ impl Default for Web {
             base_path: "/".into(),
             token_ref: "web".into(),
             allow_unauthenticated: false,
+            require_login: false,
+            allowed_hosts: Vec::new(),
             title: "dman".into(),
             tls: None,
         }
@@ -53,6 +62,12 @@ impl Web {
     /// Whether the bind address is loopback (an unparsable one counts as exposed).
     pub fn is_loopback(&self) -> bool {
         self.bind_ip().is_some_and(|ip| ip.is_loopback())
+    }
+
+    /// Loopback bind without `require_login`: the UI opens directly, no token is used
+    /// (decision U3). Same-origin, CSRF and `Host` checks still apply.
+    pub fn loopback_without_login(&self) -> bool {
+        self.is_loopback() && !self.require_login
     }
 
     /// `http(s)://bind:port{base_path}` (IPv6 in brackets; base path without a trailing slash,
@@ -91,6 +106,16 @@ impl Web {
         if self.token_ref.trim().is_empty() {
             return Err("web.token_ref must not be empty".into());
         }
+        if let Some(h) = self.allowed_hosts.iter().find(|h| {
+            h.is_empty()
+                || !h
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-.".contains(c))
+        }) {
+            return Err(format!(
+                "web.allowed_hosts entry `{h}` is not a host name (letters, digits, `-` and `.`)"
+            ));
+        }
         Ok(())
     }
 }
@@ -128,7 +153,7 @@ mod tests {
     fn defaults_valid_and_loopback() {
         let w = Web::default();
         w.validate().unwrap();
-        assert!(!w.enabled && w.is_loopback());
+        assert!(!w.enabled && w.is_loopback() && w.loopback_without_login());
         assert_eq!(
             (w.port, w.base_path.as_str(), w.token_ref.as_str()),
             (6811, "/", "web")
@@ -155,7 +180,7 @@ mod tests {
             ..Web::default()
         };
         w.validate().unwrap();
-        assert!(!w.is_loopback());
+        assert!(!w.is_loopback() && !w.loopback_without_login());
         assert_eq!(w.url(), "http://0.0.0.0:6811/");
         w.base_path = "/dman/".into();
         assert_eq!(w.url(), "http://0.0.0.0:6811/dman");
@@ -177,5 +202,14 @@ mod tests {
         }
         w.base_path = "/dman".into();
         w.validate().unwrap();
+        w.allowed_hosts = vec!["nas.local".into()];
+        w.validate().unwrap();
+        w.allowed_hosts = vec!["evil.example:80".into()];
+        assert!(w.validate().is_err());
+        let w = Web {
+            require_login: true,
+            ..Web::default()
+        };
+        assert!(w.is_loopback() && !w.loopback_without_login());
     }
 }

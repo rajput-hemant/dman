@@ -1,9 +1,11 @@
-//! Search page: query box with provider chips, live results with one-click download,
-//! recent queries, and a friendly panel when no provider is enabled.
+//! Search page: big query field with provider pills, live results table with a
+//! seed-health indicator and one-click download, recent queries, and a friendly
+//! panel when no provider is enabled.
 
 use dman_proto::search::{ProviderInfo, ProviderStatus, SearchHistoryEntry, SearchResultDto};
 use maud::{Markup, html};
 
+use super::icon;
 use crate::fmt;
 
 pub struct SearchView<'a> {
@@ -44,6 +46,17 @@ fn sort_th(base: &str, v: &SearchView<'_>, key: &str, label: &str, class: &str) 
     }
 }
 
+/// Seed health: `0` dead, `1` weak, `2` fair, `3` good.
+fn health(seeders: Option<u32>) -> (u8, &'static str) {
+    match seeders {
+        None => (0, "unknown"),
+        Some(0) => (0, "no seeders"),
+        Some(1..=4) => (1, "weak"),
+        Some(5..=49) => (2, "fair"),
+        Some(_) => (3, "good"),
+    }
+}
+
 /// Provider status chips plus the results table (the SSE `search` payload).
 pub fn search_results(base: &str, csrf: Option<&str>, v: &SearchView<'_>) -> Markup {
     let running = v.search_id.is_some() && !v.finished;
@@ -52,41 +65,46 @@ pub fn search_results(base: &str, csrf: Option<&str>, v: &SearchView<'_>) -> Mar
             div.chips.status aria-label="Providers" {
                 @for (name, st) in v.providers {
                     @match st {
-                        ProviderStatus::Running => { span.chip.running { (name) ": searching\u{2026}" } }
+                        ProviderStatus::Running => { span.chip.running { span.spin {} (name) ": searching\u{2026}" } }
                         ProviderStatus::Done { count, elapsed_ms } => {
-                            span.chip.done title=(format!("{elapsed_ms} ms")) { (name) ": " (count) " results" }
+                            span.chip.done title=(format!("{elapsed_ms} ms")) { span.dot {} (name) ": " (count) " results" }
                         }
-                        ProviderStatus::Failed { error } => { span.chip.failed title=(error) { (name) " failed: " (error) } }
+                        ProviderStatus::Failed { error } => { span.chip.failed title=(error) { span.dot {} (name) " failed: " (error) } }
                     }
                 }
                 @if running { span.chip.running { span.spin {} "Searching\u{2026}" } }
             }
         }
         @if v.results.is_empty() {
-            @if v.finished { div.card.empty { p { "No results. Try fewer or different words, or enable more providers in " a href=(format!("{base}/settings#providers")) { "Settings" } "." } } }
+            @if v.finished {
+                div.emptyst.small {
+                    span.eicon { (icon(base, "search")) }
+                    p { "No results. Try fewer or different words, or enable more providers in " a href=(format!("{base}/settings#providers")) { "Settings" } "." }
+                }
+            } @else if running {
+                div.skel.rowskel aria-hidden="true" { @for _ in 0..4 { div.skrow { span.sk {} span.sk.short {} } } }
+            }
         } @else {
-            @if let Some(id) = v.search_id {
-                p.msort {
-                    "Sort: "
-                    @for (k, l) in [("", "Best match"), ("seeders", "Seeders"), ("size", "Size"), ("date", "Newest")] {
-                        @if v.sort == k { strong { (l) } } @else { a href=(format!("{base}/search?id={id}&sort={k}")) { (l) } }
-                        " "
+            div.resulthead {
+                p.help { strong { (v.results.len()) " results" } " \u{b7} Download starts right away; Options lets you pick a folder or files first." }
+                @if let Some(id) = v.search_id {
+                    nav.seg.links aria-label="Sort results" {
+                        @for (k, l) in [("", "Best match"), ("seeders", "Seeders"), ("size", "Size"), ("date", "Newest")] {
+                            a href=(format!("{base}/search?id={id}&sort={k}")) aria-current=[(v.sort == k).then_some("true")] { (l) }
+                        }
                     }
                 }
             }
-            p.help { (v.results.len()) " results \u{b7} " strong { "Download" } " starts right away; " strong { "Options" } " lets you pick a folder or files first." }
-            table.list.results {
+            div.tblwrap { table.tbl.results {
                 thead { tr {
                     (sort_th(base, v, "title", "Title", ""))
                     (sort_th(base, v, "size", "Size", "num"))
-                    (sort_th(base, v, "seeders", "Seeders", "num"))
-                    th.num { "Leechers" }
-                    th { "Source" }
+                    (sort_th(base, v, "seeders", "Health", ""))
                     (sort_th(base, v, "date", "Date", ""))
                     th { span.sr { "Actions" } }
                 } }
                 tbody { @for r in sorted(v) { (result_row(base, csrf, r)) } }
-            }
+            } }
         }
     }
 }
@@ -113,21 +131,28 @@ fn result_row(base: &str, csrf: Option<&str>, r: &SearchResultDto) -> Markup {
         None
     };
     let add = format!("{base}/search/add");
-    let seeders = r.seeders.unwrap_or(0);
+    let (level, word) = health(r.seeders);
+    let dash = || "\u{2013}".to_string();
     html! {
         tr {
-            td.name data-label="Title" { (r.title) }
-            td.num data-label="Size" { @if let Some(s) = r.size { (fmt::bytes(s)) } @else { "\u{2013}" } }
-            td.num data-label="Seeders" { span.seeds.good[seeders >= 10].low[seeders == 0] { (r.seeders.map_or("\u{2013}".into(), |s| s.to_string())) } }
-            td.num data-label="Leechers" { (r.leechers.map_or("\u{2013}".into(), |s| s.to_string())) }
-            td data-label="Source" { (r.sources.join(", ")) }
-            td data-label="Date" { @if let Some(d) = r.date { (fmt::timestamp(d).get(..10).unwrap_or("")) } }
+            td.name data-label="Title" {
+                span.rtitle { (r.title) }
+                span.rsrc { (r.sources.join(", ")) }
+            }
+            td.num data-label="Size" { @if let Some(s) = r.size { (fmt::bytes(s)) } @else { (dash()) } }
+            td data-label="Health" {
+                span class=(format!("health h{level}")) title=(format!("Seed health: {word}")) {
+                    span.hb {} span.hb {} span.hb {}
+                    span.hn { span.seeds { (r.seeders.map_or_else(dash, |s| s.to_string())) } span.leech { " / " (r.leechers.map_or_else(dash, |s| s.to_string())) } }
+                }
+            }
+            td.date data-label="Date" { @if let Some(d) = r.date { (fmt::timestamp(d).get(..10).unwrap_or("")) } }
             td.actions {
                 @if let Some(href) = &options_href {
                     form.inline method="post" action=(add) hx-post=(add) hx-target="#toasts" hx-swap="beforeend" hx-disabled-elt="find button" {
                         @if let Some(c) = csrf { input type="hidden" name="_csrf" value=(c); }
                         @for (k, val) in &vals { input type="hidden" name=(k) value=(val); }
-                        button.btn.small.primary type="submit" aria-label=(format!("Download {}", r.title)) { "Download" }
+                        button.btn.small.primary type="submit" aria-label=(format!("Download {}", r.title)) { (icon(base, "dl")) span { "Download" } }
                     }
                     a.btn.small.ghost href=(href) aria-label=(format!("Download {} with options", r.title)) { "Options\u{2026}" }
                 } @else { span.muted { "no link" } }
@@ -143,13 +168,13 @@ fn add_href(base: &str, uri: &str) -> String {
     format!("{base}/add?{qs}")
 }
 
-/// One provider with an enable switch (used by the no-provider panel).
+/// One provider with an enable button (used by the no-provider panel).
 fn enable_row(base: &str, csrf: &str, p: &ProviderInfo) -> Markup {
     html! {
         li.prov {
-            div {
-                strong { (p.name) } " " span.muted { (p.kind) }
-                @if p.verified { " " span.badge.complete { "verified" } } @else { " " span.badge.paused { "unverified" } }
+            div.pinfo {
+                div.pname { strong { (p.name) } span.muted { (p.kind) }
+                    @if p.verified { span.pill.complete { "verified" } } @else { span.pill.paused { "unverified" } } }
                 @if let Some(d) = &p.description { p.help { (d) } }
             }
             form.inline method="post" action=(format!("{base}/settings/provider")) {
@@ -174,11 +199,12 @@ pub fn search_page(
     let enabled: Vec<&ProviderInfo> = providers.iter().filter(|p| p.enabled).collect();
     let used: Vec<&str> = view.providers.iter().map(|(n, _)| n.as_str()).collect();
     html! {
-        h1 { "Search" }
+        div.pagehead { h1 { "Search" } }
         @if enabled.is_empty() {
             section.card.welcome {
+                span.eicon { (icon(base, "search")) }
                 h2 { "Turn on a search provider first" }
-                p { "dman searches public torrent indexes (\u{201c}providers\u{201d}). They are all off until you enable one. Only use sites that are legal where you live." }
+                p.sub { "dman searches public torrent indexes (\u{201c}providers\u{201d}). They are all off until you enable one. Only use sites that are legal where you live." }
                 @if providers.is_empty() {
                     p.muted { "No providers are configured. Add one to the config file (" code { "[[provider]]" } ") and reload." }
                 } @else {
@@ -187,26 +213,27 @@ pub fn search_page(
                 p.help { "You can change this any time in " a href=(format!("{base}/settings#providers")) { "Settings \u{2192} Search providers" } "." }
             }
         } @else {
-            form.searchform.card method="post" action=(format!("{base}/search")) role="search" {
+            form.searchhero method="post" action=(format!("{base}/search")) role="search" {
                 input type="hidden" name="_csrf" value=(csrf);
-                div.prow {
+                div.bigsearch {
+                    (icon(base, "search"))
                     input type="search" name="q" value=(query) placeholder="What are you looking for?" required aria-label="Search query" autofocus[query.is_empty()];
-                    button.btn.primary.big type="submit" { "Search" }
+                    button.btn.primary type="submit" { "Search" }
                 }
-                div.chips {
-                    span.help { "Providers:" }
+                div.chips.provpills {
+                    span.lbl { "Providers" }
                     @for p in &enabled {
                         label.chip.toggle {
                             input.sr type="checkbox" name="providers" value=(p.name) checked[used.is_empty() || used.contains(&p.name.as_str())];
-                            (p.name)
+                            (icon(base, "check")) span { (p.name) }
                         }
                     }
-                    a.help href=(format!("{base}/settings#providers")) { "Manage" }
+                    a.chip.ghost href=(format!("{base}/settings#providers")) { "Manage" }
                 }
             }
             @if !history.is_empty() {
                 div.chips.recent {
-                    span.help { "Recent:" }
+                    span.lbl { "Recent" }
                     @for h in history.iter().take(12) {
                         form.inline method="post" action=(format!("{base}/search")) {
                             input type="hidden" name="_csrf" value=(csrf);

@@ -1,0 +1,25 @@
+[package]
+name = "dman-config"
+description = "Configuration, paths and secrets handling for dman"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+bytesize.workspace = true
+etcetera.workspace = true
+getrandom = "0.3"
+secrecy.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+toml_edit = "0.25"
+url.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

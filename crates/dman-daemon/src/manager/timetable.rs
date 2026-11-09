@@ -286,7 +286,10 @@ impl Manager {
     /// Pushes the effective download/upload cap to aria2 when it is not
     /// there yet (after a change, an engine start or a failed attempt).
     pub(super) async fn sync_global_limits(&mut self) {
-        let want = (self.limits.download, self.limits.upload);
+        let want = (
+            self.aria2_download_limit(self.limits.download),
+            self.limits.upload,
+        );
         if self.timetable.applied == Some(want) {
             return;
         }
@@ -365,14 +368,15 @@ impl Manager {
         if (eff.download, eff.upload) != (self.limits.download, self.limits.upload) {
             match self.client.clone() {
                 Some(client) => {
+                    let dl = self.aria2_download_limit(eff.download);
                     if let Err(e) = client
-                        .change_global_option(&global_limits(eff.download, eff.upload, None))
+                        .change_global_option(&global_limits(dl, eff.upload, None))
                         .await
                     {
                         (self.timetable.base, self.timetable.temp) = previous;
                         return Err(engine_err(e));
                     }
-                    self.timetable.applied = Some((eff.download, eff.upload));
+                    self.timetable.applied = Some((dl, eff.upload));
                 }
                 // Applied when the engine starts.
                 None => self.timetable.applied = None,

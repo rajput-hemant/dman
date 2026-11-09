@@ -25,6 +25,7 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use crate::budget;
 use crate::ops;
 use crate::video::{build_spec, resolve_options, unavailable};
 
@@ -99,6 +100,9 @@ pub(crate) struct VideoRun {
     task: JoinHandle<()>,
     /// Stop requested; the process may still be exiting.
     pub(crate) stopping: bool,
+    /// The `--limit-rate` (global budget share / per-job limit) it was spawned with.
+    cap: Option<u64>,
+    spawned: std::time::Instant,
 }
 
 impl std::fmt::Debug for VideoRun {
@@ -106,6 +110,7 @@ impl std::fmt::Debug for VideoRun {
         f.debug_struct("VideoRun")
             .field("run", &self.run)
             .field("stopping", &self.stopping)
+            .field("cap", &self.cap)
             .finish_non_exhaustive()
     }
 }
@@ -262,11 +267,12 @@ impl Manager {
     pub(super) fn start_video(&mut self, id: JobId) {
         let Some(e) = self.jobs.get(&id) else { return };
         let opts = stored_options(&e.rec);
+        let cap = self.video_cap_for(id);
         let spec = build_spec(
             &e.rec.source,
             Path::new(&e.rec.dir),
             &opts,
-            e.rec.options.max_download_limit,
+            cap,
             &self.tools,
         );
         let started = spec.and_then(|spec| {
@@ -300,6 +306,8 @@ impl Manager {
                     shared,
                     task,
                     stopping: false,
+                    cap,
+                    spawned: std::time::Instant::now(),
                 });
                 e.disk_blocked = false;
                 e.rec.state = JobState::Active;
@@ -318,6 +326,81 @@ impl Manager {
         e.live = LiveFigures::default();
         e.dirty = true;
         self.urgent = true;
+    }
+
+    /// Running (not stopping) video jobs with their own rate limit.
+    fn running_videos(&self) -> Vec<(JobId, Option<u64>)> {
+        let mut v: Vec<(JobId, Option<u64>)> = self
+            .jobs
+            .values()
+            .filter(|e| e.video.as_ref().is_some_and(|v| !v.stopping))
+            .map(|e| (e.rec.id, e.rec.options.max_download_limit))
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// aria2 has running (or about to run) downloads: it holds one budget share.
+    fn aria2_active(&self) -> bool {
+        self.jobs
+            .values()
+            .any(|e| e.rec.engine == Engine::Aria2 && e.uses_slot())
+    }
+
+    /// The `--limit-rate` for video job `id` when it (re)starts now: its share
+    /// of the global limit (see [`crate::budget`]) or just its own limit.
+    fn video_cap_for(&self, id: JobId) -> Option<u64> {
+        let mut jobs = self.running_videos();
+        if !jobs.iter().any(|j| j.0 == id) {
+            let own = self
+                .jobs
+                .get(&id)
+                .and_then(|e| e.rec.options.max_download_limit);
+            jobs.push((id, own));
+        }
+        let limits: Vec<Option<u64>> = jobs.iter().map(|j| j.1).collect();
+        let caps = budget::video_caps(self.limits.download, &limits, self.aria2_active());
+        jobs.iter().position(|j| j.0 == id).and_then(|i| caps[i])
+    }
+
+    /// aria2's `max-overall-download-limit` under global limit `global`: what
+    /// the running video jobs leave of it (0 = unlimited).
+    pub(super) fn aria2_download_limit(&self, global: u64) -> u64 {
+        let limits: Vec<Option<u64>> = self.running_videos().into_iter().map(|j| j.1).collect();
+        let caps = budget::video_caps(global, &limits, true);
+        budget::aria2_limit(global, &caps)
+    }
+
+    /// Keeps the global download budget: respawns running video jobs whose
+    /// share changed materially (hysteresis in [`budget::should_respawn`]) and
+    /// pushes aria2's share. Every tick, after the scheduler.
+    pub(super) async fn balance_limits(&mut self) {
+        let global = self.limits.download;
+        if global > 0
+            || self
+                .jobs
+                .values()
+                .any(|e| e.video.as_ref().is_some_and(|v| v.cap.is_some()))
+        {
+            let running = self.running_videos();
+            let limits: Vec<Option<u64>> = running.iter().map(|j| j.1).collect();
+            let wanted = budget::video_caps(global, &limits, self.aria2_active());
+            let min = self.respawn_min;
+            let mut respawn = Vec::new();
+            for ((id, _), want) in running.iter().zip(wanted) {
+                let Some(v) = self.jobs.get(id).and_then(|e| e.video.as_ref()) else {
+                    continue;
+                };
+                if budget::should_respawn(v.cap, want, v.spawned.elapsed(), min) {
+                    respawn.push(*id);
+                }
+            }
+            for id in respawn {
+                tracing::debug!(%id, "respawning yt-dlp for a new rate share");
+                self.stop_video(id, JobState::Waiting);
+            }
+        }
+        self.sync_global_limits().await;
     }
 
     /// Asks a running yt-dlp to stop; the job goes to `state` now (the

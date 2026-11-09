@@ -19,6 +19,7 @@
 //! A missing aria2 does not stop the daemon: the API keeps working and reports
 //! the engine as unavailable.
 
+pub mod budget;
 pub mod disk;
 pub mod engine;
 pub mod history;

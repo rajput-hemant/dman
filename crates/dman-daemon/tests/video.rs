@@ -312,7 +312,7 @@ async fn assert_no_process(what: &str, root: &Path) {
 /// A stand-in for yt-dlp: `--version`, the `-o` template, `--print-to-file`
 /// marker and JSON progress lines like the real one. The last URL path
 /// segment selects the behaviour: `fail*` exits 1 with an `ERROR:` line,
-/// `split*` leaves unmerged `.fN.` files, `slow*` takes ~3 s, anything else is
+/// `split*` leaves unmerged `.fN.` files, `slow*` takes ~3 s, `long*` ~30 s, anything else is
 /// quick. Partial files are continued, like `--continue`. Every invocation's
 /// arguments are appended to `args.log` next to the script.
 const FAKE_YTDLP: &str = r#"#!/bin/bash
@@ -339,7 +339,7 @@ case "$name" in
     echo "$path" >> "$marker"; exit 0;;
 esac
 steps=5; delay=0.02
-case "$name" in slow*) steps=60; delay=0.05;; esac
+case "$name" in slow*) steps=60; delay=0.05;; long*) steps=600; delay=0.05;; esac
 part="$path.part"
 have=0; [ -f "$part" ] && have=$(stat -c %s "$part")
 total=$((steps*1000))
@@ -372,6 +372,152 @@ fn fake_args(root: &Path) -> Vec<String> {
 }
 
 // ----- tests without a real yt-dlp ---------------------------------------------
+
+/// The global download limit is split between the engines: a lone video job
+/// gets all of it as `--limit-rate`, a per-job limit below the share wins, and a
+/// limit change respawns a running job only after the hysteresis interval.
+#[tokio::test(flavor = "multi_thread")]
+async fn global_limit_throttles_ytdlp_with_hysteresis() {
+    let root = tempfile::tempdir().unwrap();
+    let ytdlp = fake_ytdlp(root.path());
+    let mut cfg = config(
+        root.path(),
+        "/nonexistent/aria2c",
+        &ytdlp.display().to_string(),
+        Some("/nonexistent/ffmpeg"),
+    );
+    cfg.limits.download = dman_config::ByteLimit(1_000_000);
+    cfg.limits.max_concurrent = 2;
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    let rates = |root: &Path| -> Vec<String> {
+        fake_args(root)
+            .iter()
+            .filter_map(|l| {
+                let mut it = l.split_whitespace().skip_while(|w| *w != "--limit-rate");
+                it.nth(1).map(str::to_owned)
+            })
+            .collect()
+    };
+    // The fake logs its arguments just after it started.
+    async fn spawned(root: &Path, n: usize) {
+        for _ in 0..100 {
+            if fake_args(root).len() >= n {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    // One job, no per-job limit: the whole budget.
+    let a = add_one(
+        &c,
+        video("https://e.example/v/longA", VideoOptions::default()),
+        JobOptions::default(),
+    )
+    .await;
+    wait_jobs(&c, 10, "A active", |j| state_of(j, a) == JobState::Active).await;
+    spawned(root.path(), 1).await;
+    assert_eq!(rates(root.path()), vec!["1000000"]);
+
+    // A second job with a low own limit keeps it; A's share halves, but A is
+    // within its 30 s hysteresis window and is not respawned.
+    let b = add_one(
+        &c,
+        video("https://e.example/v/longB", VideoOptions::default()),
+        JobOptions {
+            max_download_limit: Some(100_000),
+            ..Default::default()
+        },
+    )
+    .await;
+    wait_jobs(&c, 10, "B active", |j| state_of(j, b) == JobState::Active).await;
+    spawned(root.path(), 2).await;
+    assert_eq!(rates(root.path()), vec!["1000000", "100000"]);
+    c.limits_set(dman_proto::method::LimitsUpdate {
+        download: Some(400_000),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert_eq!(rates(root.path()).len(), 2, "no respawn inside the window");
+    c.remove(RemoveParams {
+        ids: vec![a, b],
+        delete_files: false,
+        force: false,
+    })
+    .await
+    .unwrap();
+    d.stop(&c).await;
+    assert_no_process("yt-dlp", root.path()).await;
+
+    // Second daemon with a short hysteresis interval: a change respawns once.
+    let root = tempfile::tempdir().unwrap();
+    let ytdlp = fake_ytdlp(root.path());
+    let mut cfg = config(
+        root.path(),
+        "/nonexistent/aria2c",
+        &ytdlp.display().to_string(),
+        Some("/nonexistent/ffmpeg"),
+    );
+    cfg.limits.download = dman_config::ByteLimit(1_000_000);
+    // Read when the daemon starts; only this test's cap changes depend on it.
+    dman_daemon::budget::RESPAWN_OVERRIDE_MS.store(2000, std::sync::atomic::Ordering::Relaxed);
+    let d = Daemon::start(root.path(), cfg).await;
+    dman_daemon::budget::RESPAWN_OVERRIDE_MS.store(0, std::sync::atomic::Ordering::Relaxed);
+    let c = d.client().await;
+    let a = add_one(
+        &c,
+        video("https://e.example/v/longC", VideoOptions::default()),
+        JobOptions::default(),
+    )
+    .await;
+    wait_jobs(&c, 10, "C active", |j| state_of(j, a) == JobState::Active).await;
+    spawned(root.path(), 1).await;
+    assert_eq!(rates(root.path()), vec!["1000000"]);
+    let set = |n: u64| {
+        c.limits_set(dman_proto::method::LimitsUpdate {
+            download: Some(n),
+            ..Default::default()
+        })
+    };
+    // A small change (< 25 %) never respawns.
+    set(900_000).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(2600)).await;
+    assert_eq!(rates(root.path()).len(), 1);
+    // A big change respawns once, with the new rate.
+    set(300_000).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while rates(root.path()).len() < 2 {
+        assert!(tokio::time::Instant::now() < deadline, "no respawn");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(rates(root.path()), vec!["1000000", "300000"]);
+    // Right after a respawn the next change waits for the interval.
+    wait_jobs(&c, 10, "C active again", |j| {
+        state_of(j, a) == JobState::Active
+    })
+    .await;
+    set(100_000).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(rates(root.path()).len(), 2, "hysteresis after a respawn");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while rates(root.path()).len() < 3 {
+        assert!(tokio::time::Instant::now() < deadline, "no second respawn");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(rates(root.path())[2], "100000");
+    c.remove(RemoveParams {
+        ids: vec![a],
+        delete_files: false,
+        force: false,
+    })
+    .await
+    .unwrap();
+    d.stop(&c).await;
+    assert_no_process("yt-dlp", root.path()).await;
+}
 
 /// A missing yt-dlp degrades gracefully: explained in `engine.status`, video
 /// adds and probes are refused with `EngineUnavailable`, nothing crashes.

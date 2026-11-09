@@ -42,6 +42,7 @@ impl Manager {
         self.pump_videos();
         let client = self.client.clone();
         self.schedule(client.as_ref()).await;
+        self.balance_limits().await;
         self.emit_changes();
         self.emit_finished();
         self.emit(Event::Stats {

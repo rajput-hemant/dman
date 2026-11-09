@@ -255,6 +255,8 @@ pub struct Manager {
     pub(crate) video_tx: video::VideoTx,
     /// Counter identifying yt-dlp runs (stale completions are ignored).
     pub(crate) video_runs: u64,
+    /// Minimum time between rate-share respawns of one video job.
+    pub(crate) respawn_min: Duration,
 }
 
 fn to_value<T: Serialize>(v: T) -> Result<Value, RpcError> {
@@ -305,6 +307,7 @@ impl Manager {
             tools,
             video_tx,
             video_runs: 0,
+            respawn_min: crate::budget::respawn_interval(),
         };
         let task = tokio::spawn(mgr.run(rx, cfg.engine, video_rx, cfg.video_tools));
         (ManagerHandle { tx }, task)

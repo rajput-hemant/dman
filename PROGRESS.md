@@ -104,7 +104,7 @@ commit this file together with the code it describes.
 - [ ] Missing web features vs TUI: magnet file selection (preview_magnet), daemon folder picker (fs.list), multi-select
 
 ### UX pass (requested by the user, 2026-11-09)
-- [ ] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
+- [x] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
 - [x] CLI: dynamic completions (job IDs, providers, profiles), `dman completions install`, help examples, SIGPIPE-safe output
 - [x] Seeding OFF by default (`[torrents] seed = false`; per-job `seed` override; setting a seed ratio/time on a job implies seeding)
 - [ ] Video quality picker (user request): backend — `[video] ask_quality` (default true) + `default_audio`, `video.preferences.get/set` (persisted), probe `video_choices`/`audio_choices`/`needs_choice`, "v+a" format ids, defaults used when no choice

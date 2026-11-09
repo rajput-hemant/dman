@@ -57,7 +57,14 @@ pub struct TuiOptions {
     pub profile: String,
     /// Show desktop notifications for finished jobs (`[notify] desktop`).
     pub desktop: bool,
+    /// Client-side state directory; a `welcome-shown` marker there keeps the
+    /// first-run welcome from showing again. `None` = remember it in memory
+    /// only (the welcome may show on every start with an empty list).
+    pub state_dir: Option<std::path::PathBuf>,
 }
+
+/// Name of the marker file in [`TuiOptions::state_dir`].
+pub const WELCOME_MARKER: &str = "welcome-shown";
 
 impl Default for TuiOptions {
     fn default() -> Self {
@@ -68,6 +75,7 @@ impl Default for TuiOptions {
             keys: None,
             profile: "local".into(),
             desktop: false,
+            state_dir: None,
         }
     }
 }
@@ -86,6 +94,10 @@ impl TuiOptions {
                 .cloned(),
             profile: profile.to_owned(),
             desktop: config.notify.desktop,
+            // The same discovery the CLI uses (honours DMAN_CONFIG_DIR).
+            state_dir: dman_config::Paths::discover()
+                .ok()
+                .map(|p| p.state_dir().to_path_buf()),
         }
     }
 
@@ -93,6 +105,7 @@ impl TuiOptions {
     /// as a warning on the status line.
     pub fn initial_state(&self) -> State {
         let (keymap, warnings) = Keymap::from_config(self.keys.as_ref());
+        let marker = self.state_dir.as_ref().map(|d| d.join(WELCOME_MARKER));
         let mut state = State::new(StateOptions {
             theme: Theme::resolve(&self.theme, Theme::no_color_env()),
             keymap,
@@ -101,6 +114,8 @@ impl TuiOptions {
             tick: Duration::from_millis(self.refresh_ms.clamp(50, 5000)),
             size: (80, 24),
             desktop: self.desktop,
+            welcome: !marker.as_ref().is_some_and(|m| m.exists()),
+            welcome_marker: marker,
         });
         if !warnings.is_empty() {
             state.status.warn(warnings.join("; "));

@@ -6,6 +6,7 @@ expression: "detail_snapshot('1', 5, 80, 24)"
  sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
 ┌ Download #5 ─────────────────────────────────────────────────────────────────┐
 │     Name  archlinux-2026.11.01-x86_64.iso                                    │
+│      Now  Paused — press r to resume                                         │
 │   Status  paused  ████░░░░░░░░░░░░  25%  300.0 MiB / 1.2 GiB                 │
 │    Speed  ▼ 0 B/s  ▲ 0 B/s  ETA -  peers 0/0  ratio -                        │
 │      Dir  /home/me/Downloads                                                 │
@@ -22,7 +23,6 @@ expression: "detail_snapshot('1', 5, 80, 24)"
 │                                                                              │
 │                                                                              │
 │                                                                              │
-│                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
  Connected to daemon 0.1.0
- Esc back  Tab next tab  Space toggle file  Enter edit  p pause  ? help
+ Esc back  r resume  Space toggle file  a all files  : palette  ? help

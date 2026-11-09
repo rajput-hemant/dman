@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  4 active · 2 waiting · 2 stopped      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+┌ Download #20 ────────────────────────────────────────────────────────────────┐
+│     Name  Some Movie                                                         │
+│      Now  Fetching torrent metadata… (asking peers for the file list)        │
+│   Status  active  ░░░░░░░░░░░░░░░░    -  0 B / -                             │
+│    Speed  ▼ 0 B/s  ▲ 0 B/s  ETA -  peers -  ratio -                          │
+│      Dir  /home/me/Downloads                                                 │
+│   Source  https://example.org/[METADATA]Some Movie                           │
+│ 1 Files │ 2 Peers │ 3 Trackers │ 4 Pieces │ 5 Speed │ 6 Options              │
+│Waiting for the torrent's metadata.                                           │
+│                                                                              │
+│A magnet link only names the torrent; the list of files, its                  │
+│size and pieces come from other peers. They appear here as soon               │
+│as they arrive (usually within a minute; longer with few peers).              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ Esc back  p pause  Tab next tab  d remove  D delete files  : palette  ? help

@@ -17,15 +17,15 @@ expression: "render(&mut s, 120, 40)"
 
 
 
-
-                              ┌ No search provider is enabled. Open the settings? y/N ───┐
-                              │All search providers are off by default, so a search      │
-                              │would find nothing. Enable the providers you want in the  │
-                              │providers settings (Space toggles one), then search.      │
+                              ┌ Choose search providers first? ──────────────────────────┐
+                              │No search site is switched on yet (they are all off until │
+                              │you choose), so a search would find nothing.              │
                               │                                                          │
-                              │y yes   n no                                              │
+                              │Yes opens the provider list: Space switches one on, Esc   │
+                              │comes back here to search.                                │
+                              │                                                          │
+                              │y / Enter yes     n / Esc no                              │
                               └──────────────────────────────────────────────────────────┘
-                                Type a query and press Enter · F2 providers · F3 history
 
 
 
@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 
 
  Connected to daemon 0.1.0
- y confirm  n/Esc cancel
+ y/Enter yes  n/Esc no, cancel

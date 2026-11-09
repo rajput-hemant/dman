@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 │                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  1337x: ok, 25 results
- Space toggle  t test  K queue up  J queue down  i import  e export  D remove  Esc back
+ Space toggle  t test  K queue up  J queue down  i import  e export  D remove  Esc back  : palette  ? help

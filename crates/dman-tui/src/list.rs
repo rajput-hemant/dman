@@ -145,6 +145,8 @@ pub enum Row {
     },
     /// A job.
     Job(JobId),
+    /// "N removed downloads hidden" (not selectable; shown last).
+    HiddenRemoved(usize),
 }
 
 /// The downloads list state.
@@ -172,6 +174,12 @@ pub struct DownloadsList {
     pub stopped_page: usize,
     /// Jobs per stopped page.
     pub page_size: usize,
+    /// A job to put the cursor on as soon as it is listed (a new download).
+    pub pending_focus: Option<JobId>,
+    /// Show removed downloads (history); hidden by default.
+    pub show_removed: bool,
+    /// Removed downloads matching the filter that are hidden.
+    pub hidden_removed: usize,
 }
 
 impl Default for DownloadsList {
@@ -188,6 +196,9 @@ impl Default for DownloadsList {
             anchor: None,
             stopped_page: 0,
             page_size: STOPPED_PAGE_SIZE,
+            pending_focus: None,
+            show_removed: false,
+            hidden_removed: 0,
         }
     }
 }
@@ -196,7 +207,12 @@ impl DownloadsList {
     /// Rebuild rows from `jobs`, keeping the cursor on the same job if possible.
     pub fn recompute(&mut self, jobs: &HashMap<JobId, Job>) {
         let old_pos = self.cursor_pos();
-        let matching = self.matching(jobs);
+        let mut matching = self.matching(jobs);
+        let before = matching.len();
+        if !self.show_removed {
+            matching.retain(|j| j.state != JobState::Removed);
+        }
+        self.hidden_removed = before - matching.len();
         let mut sections: [Vec<&Job>; 3] = Default::default();
         for job in matching {
             let i = match Section::of(job.state) {
@@ -220,11 +236,29 @@ impl DownloadsList {
         for (section, list) in all.into_iter().zip(&sections) {
             self.push_section(section, list);
         }
+        if self.hidden_removed > 0 {
+            self.rows.push(Row::HiddenRemoved(self.hidden_removed));
+        }
         self.selected.retain(|id| jobs.contains_key(id));
         if self.anchor.is_some_and(|a| !jobs.contains_key(&a)) {
             self.anchor = None;
         }
         self.restore_cursor(old_pos);
+        if let Some(id) = self.pending_focus
+            && self.order.contains(&id)
+        {
+            self.cursor = Some(id);
+            self.pending_focus = None;
+        }
+    }
+
+    /// Put the cursor on `id` now, or as soon as it appears in the list.
+    pub fn focus_when_listed(&mut self, id: JobId) {
+        if self.order.contains(&id) {
+            self.cursor = Some(id);
+        } else {
+            self.pending_focus = Some(id);
+        }
     }
 
     fn matching<'a>(&self, jobs: &'a HashMap<JobId, Job>) -> Vec<&'a Job> {

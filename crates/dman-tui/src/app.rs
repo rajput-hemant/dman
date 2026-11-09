@@ -104,6 +104,9 @@ pub enum Cmd {
         /// TOML text.
         content: String,
     },
+    /// Remember that the first-run welcome was shown by creating this
+    /// (empty) marker file (best effort; never answered).
+    MarkWelcomeShown(PathBuf),
     /// Show a desktop notification (best effort; never answered).
     Notify {
         /// Summary line.
@@ -175,6 +178,10 @@ pub struct StateOptions {
     pub size: (u16, u16),
     /// Show desktop notifications for finished jobs (`[notify] desktop`).
     pub desktop: bool,
+    /// Show the first-run welcome when the first snapshot has no jobs.
+    pub welcome: bool,
+    /// Marker file created once the welcome was shown (`None` = memory only).
+    pub welcome_marker: Option<PathBuf>,
 }
 
 impl Default for StateOptions {
@@ -187,6 +194,8 @@ impl Default for StateOptions {
             tick: Duration::from_millis(250),
             size: (80, 24),
             desktop: false,
+            welcome: false,
+            welcome_marker: None,
         }
     }
 }
@@ -236,6 +245,13 @@ pub struct State {
     pub providers: views::providers::ProvidersState,
     /// Desktop notifications for finished jobs are enabled.
     pub desktop: bool,
+    /// The add view shows its advanced options (remembered while running).
+    pub add_advanced: bool,
+    /// The first-run welcome may still be shown (cleared after the first
+    /// snapshot either way).
+    pub welcome_pending: bool,
+    /// Marker file recording that the welcome was shown.
+    pub welcome_marker: Option<PathBuf>,
     /// Time zone used to show schedule times (the client's local zone).
     pub time_zone: jiff::tz::TimeZone,
     /// Replaces the clock when set (tests).
@@ -269,6 +285,9 @@ impl State {
             search: views::search::SearchState::default(),
             providers: views::providers::ProvidersState::default(),
             desktop: opts.desktop,
+            add_advanced: false,
+            welcome_pending: opts.welcome,
+            welcome_marker: opts.welcome_marker,
             time_zone: jiff::tz::TimeZone::system(),
             now_override: None,
             dirty: true,
@@ -524,9 +543,15 @@ pub fn apply_action(state: &mut State, action: Action) -> Vec<Cmd> {
         return Vec::new();
     }
     // Add-view actions run from the palette elsewhere open the view first.
+    let mut cmds = Vec::new();
     if action.home_context() == Context::Add && !matches!(state.view(), View::Add(_)) {
-        state.views.push(View::Add(Box::default()));
+        cmds = views::add::push(state, views::add::AddState::default());
     }
+    cmds.extend(apply_action_inner(state, action));
+    cmds
+}
+
+fn apply_action_inner(state: &mut State, action: Action) -> Vec<Cmd> {
     match action {
         Action::Quit => vec![Cmd::Quit],
         Action::Palette => {
@@ -556,10 +581,7 @@ pub fn apply_action(state: &mut State, action: Action) -> Vec<Cmd> {
             }
             Vec::new()
         }
-        Action::Add => {
-            state.views.push(View::Add(Box::default()));
-            Vec::new()
-        }
+        Action::Add => views::add::push(state, views::add::AddState::default()),
         Action::Shutdown => {
             state.modal = Some(Modal::Confirm(views::downloads::shutdown_confirm()));
             Vec::new()
@@ -595,6 +617,7 @@ fn apply_event(state: &mut State, event: Event) -> Vec<Cmd> {
             state.limits = limits;
             state.refresh_list();
             views::detail::close_if_gone(state);
+            return crate::widgets::welcome::on_snapshot(state);
         }
         Event::JobsUpdated { jobs } => {
             for j in jobs {
@@ -768,8 +791,14 @@ fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String
         Outcome::Partial => state.status.warn(text),
         Outcome::Failed => state.status.error(text),
     }
-    if matches!(call, ApiCall::Add(_)) {
-        views::add::on_add_result(state, result);
+    if let (ApiCall::Remove { ids, delete_files }, Ok(ApiReply::Batch(b))) = (call, result)
+        && b.failed.is_empty()
+    {
+        let text = views::downloads::removed_message(state, ids, *delete_files);
+        state.status.info(text);
+    }
+    if let ApiCall::Add(params) = call {
+        views::add::on_add_result(state, params, result);
     }
     if *call == ApiCall::Shutdown && result.is_ok() {
         return vec![Cmd::Quit];

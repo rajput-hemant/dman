@@ -12,13 +12,14 @@ mod render;
 
 use std::time::Duration;
 
-use dman_proto::{JobDetail, JobId, JobOptions, JobState};
+use dman_proto::{Job, JobDetail, JobId, JobOptions, JobState};
 
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
 use crate::app::{Cmd, State};
 use crate::views::{View, downloads, rename};
 use crate::widgets::Modal;
+use crate::widgets::footer::{Hint, hint};
 use crate::widgets::prompt::{PromptKind, PromptState};
 
 pub use options::{OptField, OptRow, option_rows};
@@ -35,6 +36,105 @@ pub const FOOTER: &[Action] = &[
     Action::Resume,
     Action::Quit,
 ];
+
+/// Footer hints for the shown job and tab, most useful first.
+pub fn footer_hints(state: &State, d: &DetailState) -> Vec<Hint> {
+    let h = |a: Action, label: &str| hint(state, a, label);
+    let job = state.jobs.get(&d.id);
+    let editable = job.is_some_and(|j| j.state.is_renamable_in_place());
+    let mut v = vec![h(Action::Back, "back")];
+    match job.map(|j| j.state) {
+        Some(JobState::Paused) => v.push(h(Action::Resume, "resume")),
+        Some(JobState::Error) => v.push(h(Action::Resume, "retry")),
+        Some(JobState::Seeding) => v.push(h(Action::Pause, "stop seeding")),
+        Some(JobState::Active | JobState::Waiting) => v.push(h(Action::Pause, "pause")),
+        _ => {}
+    }
+    match d.tab {
+        Tab::Files if editable => {
+            v.push(h(Action::DetailToggleFile, "toggle file"));
+            v.push(h(Action::DetailToggleAllFiles, "all files"));
+        }
+        Tab::Options => v.push(h(Action::DetailEditOption, "edit")),
+        _ => {}
+    }
+    v.push(h(Action::DetailNextTab, "next tab"));
+    v.push(h(Action::Remove, "remove"));
+    v.push(h(Action::RemoveDelete, "delete files"));
+    v.push(h(Action::Rename, "rename"));
+    v.into_iter().flatten().collect()
+}
+
+/// Whether `job` is a magnet whose torrent metadata has not arrived yet.
+pub fn awaiting_metadata(job: &Job, detail: Option<&JobDetail>) -> bool {
+    use dman_proto::SourceKind;
+    if job.kind != SourceKind::Magnet || job.state.is_stopped() {
+        return false;
+    }
+    let placeholder = detail.is_none_or(|d| {
+        d.files.is_empty() || d.files.iter().all(|f| f.path.contains("[METADATA]"))
+    });
+    job.total_bytes == 0 && placeholder
+}
+
+/// One line saying what is happening and what can be done about it.
+pub fn summary(state: &State, job: &Job, detail: Option<&JobDetail>) -> String {
+    let key = |a: Action| {
+        state
+            .keymap
+            .keys_with_global(crate::keymap::Context::Detail, a)
+            .first()
+            .map_or_else(String::new, |k| crate::keymap::key_label(*k))
+    };
+    if awaiting_metadata(job, detail) {
+        return if job.state == JobState::Paused {
+            format!(
+                "Paused before the torrent's details arrived — press {} to resume",
+                key(Action::Resume)
+            )
+        } else {
+            "Fetching torrent metadata… (asking peers for the file list)".to_owned()
+        };
+    }
+    match job.state {
+        JobState::Active => {
+            let mut parts = vec!["Downloading".to_owned()];
+            if job.seeders.is_some() || job.info_hash.is_some() {
+                parts.push(crate::format::plural(job.connections as usize, "peer"));
+            } else if job.connections > 0 {
+                parts.push(crate::format::plural(
+                    job.connections as usize,
+                    "connection",
+                ));
+            }
+            if job.download_speed > 0 {
+                parts.push(crate::format::speed(job.download_speed));
+            }
+            match job.eta_secs() {
+                Some(_) => parts.push(format!("ETA {}", crate::format::eta(job.eta_secs()))),
+                None if job.download_speed == 0 => parts.push("waiting for data".to_owned()),
+                None => {}
+            }
+            parts.join(" · ")
+        }
+        JobState::Waiting => match job.queue_position {
+            Some(0) => "Queued — starts next, when a download slot is free".to_owned(),
+            Some(n) => format!("Queued — {n} ahead of it; starts when a slot is free"),
+            None => "Waiting to start".to_owned(),
+        },
+        JobState::Paused => format!("Paused — press {} to resume", key(Action::Resume)),
+        JobState::Seeding => format!(
+            "Seeding (sharing with others) — press {} to stop",
+            key(Action::Pause)
+        ),
+        JobState::Complete => "Finished — the files are in the folder below".to_owned(),
+        JobState::Error => format!(
+            "Failed — press {} to retry (partial files are kept)",
+            key(Action::Resume)
+        ),
+        JobState::Removed => "Removed from the queue — files on disk are kept".to_owned(),
+    }
+}
 
 /// How often the detail is re-read while the view is open.
 pub const REFRESH_EVERY: Duration = Duration::from_secs(1);

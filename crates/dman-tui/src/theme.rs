@@ -35,6 +35,8 @@ pub struct Theme {
     pub border: Style,
     /// Key names in the footer and help.
     pub key: Style,
+    /// The primary call to action of a view (e.g. "Enter  Add 1 download").
+    pub action: Style,
 }
 
 impl Theme {
@@ -58,6 +60,10 @@ impl Theme {
             banner_warn: Style::new().fg(Color::Black).bg(Color::Yellow),
             border: Style::new().fg(Color::Cyan),
             key: Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            action: Style::new()
+                .fg(Color::Black)
+                .bg(Color::Green)
+                .add_modifier(Modifier::BOLD),
         }
     }
 
@@ -80,6 +86,7 @@ impl Theme {
             banner_warn: Style::new().add_modifier(Modifier::REVERSED),
             border: Style::new(),
             key: bold,
+            action: Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD),
         }
     }
 
@@ -119,7 +126,15 @@ mod tests {
     #[test]
     fn mono_has_no_colours() {
         let t = Theme::mono();
-        for s in [t.text, t.dim, t.cursor, t.error, t.banner_error, t.key] {
+        for s in [
+            t.text,
+            t.dim,
+            t.cursor,
+            t.error,
+            t.banner_error,
+            t.key,
+            t.action,
+        ] {
             assert_eq!(s.fg, None);
             assert_eq!(s.bg, None);
         }

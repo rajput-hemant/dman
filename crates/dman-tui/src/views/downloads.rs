@@ -18,6 +18,7 @@ use crate::theme::Theme;
 use crate::views::View;
 use crate::widgets::Modal;
 use crate::widgets::confirm::ConfirmState;
+use crate::widgets::footer::{Hint, hint};
 use crate::widgets::prompt::{PromptKind, PromptState};
 
 /// Footer actions of this view.
@@ -35,6 +36,75 @@ pub const FOOTER: &[Action] = &[
     Action::OpenDetail,
     Action::Search,
 ];
+
+/// Footer hints for what is under the cursor (or marked), most useful first.
+pub fn footer_hints(state: &State) -> Vec<Hint> {
+    let h = |a: Action, label: &str| hint(state, a, label);
+    let marked = state.list.selected.len();
+    let job = state.list.cursor.and_then(|id| state.jobs.get(&id));
+    let mut v: Vec<Option<Hint>> = if marked > 0 {
+        vec![
+            h(Action::Pause, &format!("pause {marked}")),
+            h(Action::Resume, &format!("resume {marked}")),
+            h(Action::Remove, &format!("remove {marked}")),
+            h(Action::RemoveDelete, "delete files"),
+            h(Action::SelectNone, "unmark"),
+            h(Action::ToggleSelect, "mark"),
+        ]
+    } else {
+        match job.map(|j| j.state) {
+            None if state.list.filter.is_empty() => vec![
+                h(Action::Add, "add a link or torrent"),
+                h(Action::Search, "search torrents"),
+            ],
+            None => vec![
+                h(Action::SelectNone, "clear filter"),
+                h(Action::Filter, "edit filter"),
+                h(Action::Add, "add"),
+            ],
+            Some(JobState::Active) => vec![
+                h(Action::OpenDetail, "details"),
+                h(Action::Pause, "pause"),
+                h(Action::Remove, "remove"),
+            ],
+            Some(JobState::Seeding) => vec![
+                h(Action::OpenDetail, "details"),
+                h(Action::Pause, "stop seeding"),
+                h(Action::Remove, "remove"),
+            ],
+            Some(JobState::Paused) => vec![
+                h(Action::Resume, "resume"),
+                h(Action::OpenDetail, "details"),
+                h(Action::Remove, "remove"),
+            ],
+            Some(JobState::Waiting) => vec![
+                h(Action::OpenDetail, "details"),
+                h(Action::Pause, "pause"),
+                h(Action::Remove, "remove"),
+            ],
+            Some(JobState::Error) => vec![
+                h(Action::Resume, "retry"),
+                h(Action::OpenDetail, "details"),
+                h(Action::Remove, "remove"),
+            ],
+            Some(JobState::Complete | JobState::Removed) => vec![
+                h(Action::OpenDetail, "details"),
+                h(Action::Remove, "remove"),
+            ],
+        }
+    };
+    if marked == 0 && job.is_some() {
+        v.push(h(Action::RemoveDelete, "delete files"));
+        v.extend([
+            h(Action::Add, "add"),
+            h(Action::Search, "search"),
+            h(Action::Filter, "filter"),
+            h(Action::ToggleSelect, "mark"),
+        ]);
+    }
+    v.push(h(Action::Quit, "quit"));
+    v.into_iter().flatten().collect()
+}
 
 /// Global download limit steps in bytes/s (0 = unlimited sits above the top).
 const LIMIT_STEPS: &[u64] = &[
@@ -75,6 +145,16 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::CleanupUnselected => cleanup_cursor(state),
         Action::ReloadConfig => state.call(ApiCall::ReloadConfig),
         Action::ToggleGraph => crate::widgets::graph::toggle(state),
+        Action::ToggleRemoved => {
+            state.list.show_removed = !state.list.show_removed;
+            state.refresh_list();
+            state.status.info(if state.list.show_removed {
+                "Showing removed downloads (history)"
+            } else {
+                "Removed downloads hidden"
+            });
+            Vec::new()
+        }
         Action::MoveUp => reorder(state, Reorder::By(-1)),
         Action::MoveDown => reorder(state, Reorder::By(1)),
         Action::MoveTop => reorder(state, Reorder::Top),
@@ -124,6 +204,13 @@ fn navigate(state: &mut State, action: Action) -> Option<()> {
             l.move_by(1);
         }
         Action::SelectAll => l.select_all(),
+        // Esc / u: unmark; with nothing marked it clears the filter instead.
+        Action::SelectNone if l.selected.is_empty() && !l.filter.is_empty() => {
+            l.filter.clear();
+            l.offset = 0;
+            state.status.info("Filter cleared");
+            state.refresh_list();
+        }
         Action::SelectNone => l.select_none(),
         Action::SelectRange => l.select_range(),
         Action::SortNext | Action::SortReverse => {
@@ -203,21 +290,47 @@ pub fn confirm_remove_ids(state: &mut State, ids: Vec<JobId>, delete_files: bool
         lines.push(String::new());
         lines.push("Next you will be asked to confirm deleting the files.".into());
         let second = ConfirmState::typed(
-            "Delete files from disk?",
+            "Really delete the files?",
             vec![
                 format!("This permanently DELETES the files of {what} from disk."),
                 "It cannot be undone.".into(),
             ],
             call,
         );
-        ConfirmState::then(format!("Remove {what}?"), lines, second)
+        lines.insert(
+            0,
+            format!("Removes {what} from the list AND deletes the files from disk:"),
+        );
+        ConfirmState::then(format!("Remove and DELETE files of {what}?"), lines, second)
     } else {
         lines.push(String::new());
-        lines.push("Files on disk are kept.".into());
-        ConfirmState::yes_no(format!("Remove {what}?"), lines, call)
+        let d = state
+            .keymap
+            .label(crate::keymap::Context::Downloads, Action::RemoveDelete);
+        lines.push(format!(
+            "Files on disk are kept ({d} removes and deletes them)."
+        ));
+        ConfirmState::yes_no(format!("Remove {what} from the list?"), lines, call)
     };
     state.modal = Some(Modal::Confirm(dialog));
     Vec::new()
+}
+
+/// Status line after a successful remove: what happened to the files.
+pub fn removed_message(state: &State, ids: &[JobId], delete_files: bool) -> String {
+    let what = match ids {
+        [id] => match state.jobs.get(id) {
+            Some(j) => format!("'{}'", format::truncate(&j.name, 50)),
+            None => format!("download #{id}"),
+        },
+        _ => format::plural(ids.len(), "download"),
+    };
+    let files = match (delete_files, ids.len()) {
+        (false, _) => " (files kept)",
+        (true, 1) => " and deleted its files",
+        (true, _) => " and deleted their files",
+    };
+    format!("Removed {what}{files}")
 }
 
 fn rename_cursor(state: &mut State) -> Vec<Cmd> {
@@ -570,10 +683,41 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
             TableRow::new(cells).style(t.section)
         }
         Row::Job(id) => job_row(state, &cols, id, offline, name_w),
+        // Drawn over the whole width below (a cell would truncate it).
+        Row::HiddenRemoved(_) => TableRow::new(vec![Cell::from(""); cols.len()]),
     });
     let table = Table::new(rows, widths).header(header).column_spacing(1);
     frame.render_widget(table, area);
-    if l.rows.is_empty() {
+    if let Some(i) = l
+        .rows
+        .iter()
+        .position(|r| matches!(r, Row::HiddenRemoved(_)))
+        && i >= l.offset
+        && i - l.offset < height
+    {
+        let toggle = state
+            .keymap
+            .label(crate::keymap::Context::Downloads, Action::ToggleRemoved);
+        let purge = state
+            .keymap
+            .label(crate::keymap::Context::Downloads, Action::Purge);
+        let y = area.y + 1 + u16::try_from(i - l.offset).unwrap_or(0);
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                format!(
+                    "  Removed ({}) hidden — {toggle} shows, {purge} clears",
+                    l.hidden_removed
+                ),
+                t.dim,
+            )),
+            Rect {
+                y,
+                height: 1,
+                ..area
+            },
+        );
+    }
+    if l.order.is_empty() {
         render_empty(frame, area, state);
     }
 }
@@ -616,28 +760,54 @@ fn job_row(
 
 fn render_empty(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
-    let text = if !state.list.filter.is_empty() {
-        format!("No downloads match '{}'", state.list.filter)
-    } else if state.connected() {
-        let add = state
+    let key = |a: Action| {
+        state
             .keymap
-            .label(crate::keymap::Context::Downloads, Action::Add);
-        format!("No downloads yet — press {add} to add one")
+            .keys_with_global(crate::keymap::Context::Downloads, a)
+            .first()
+            .map(|k| crate::keymap::key_label(*k))
+            .unwrap_or_default()
+    };
+    let lines: Vec<Line<'static>> = if !state.list.filter.is_empty() {
+        vec![Line::from(vec![
+            Span::styled(
+                format!("No downloads match '{}' — ", state.list.filter),
+                t.dim,
+            ),
+            Span::styled(key(Action::SelectNone), t.key),
+            Span::styled(" clears", t.dim),
+        ])]
+    } else if state.connected() {
+        let mut keys = Vec::new();
+        for (a, what) in [
+            (Action::Add, "add a link or torrent"),
+            (Action::Search, "search torrents"),
+            (Action::Help, "all keys"),
+        ] {
+            if !keys.is_empty() {
+                keys.push(Span::raw("   "));
+            }
+            keys.push(Span::styled(key(a), t.key));
+            keys.push(Span::styled(format!("  {what}"), t.dim));
+        }
+        vec![
+            Line::styled("No downloads yet", t.accent),
+            Line::default(),
+            Line::from(keys),
+        ]
     } else {
-        "No data — waiting for the daemon".into()
+        vec![Line::styled("No data — waiting for the daemon", t.dim)]
     };
     if area.height < 3 {
         return;
     }
+    let h = u16::try_from(lines.len()).unwrap_or(1).min(area.height - 1);
     let msg = Rect {
-        y: area.y + area.height / 2,
-        height: 1,
+        y: area.y + 1 + (area.height - 1).saturating_sub(h) / 2,
+        height: h,
         ..area
     };
-    frame.render_widget(
-        Paragraph::new(Span::styled(text, t.dim)).alignment(Alignment::Center),
-        msg,
-    );
+    frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), msg);
 }
 
 #[cfg(test)]

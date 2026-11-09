@@ -419,11 +419,13 @@ pub fn on_providers_loaded(state: &mut State) {
 /// The modal explaining that every provider is off by default.
 pub fn first_run_prompt() -> ConfirmState {
     ConfirmState::run(
-        "No search provider is enabled. Open the settings? y/N",
+        "Choose search providers first?",
         vec![
-            "All search providers are off by default, so a search".into(),
-            "would find nothing. Enable the providers you want in the".into(),
-            "providers settings (Space toggles one), then search.".into(),
+            "No search site is switched on yet (they are all off until".into(),
+            "you choose), so a search would find nothing.".into(),
+            String::new(),
+            "Yes opens the provider list: Space switches one on, Esc".into(),
+            "comes back here to search.".into(),
         ],
         Action::SearchProviders,
     )
@@ -718,7 +720,9 @@ pub fn start(state: &mut State) -> Vec<Cmd> {
     let query = state.search.query.text().trim().to_owned();
     if query.is_empty() {
         state.search.focus = Focus::Query;
-        state.status.warn("Type a query first");
+        state
+            .status
+            .warn("Type what to search for first, then press Enter");
         return Vec::new();
     }
     if state.search.starting {
@@ -731,9 +735,18 @@ pub fn start(state: &mut State) -> Vec<Cmd> {
         .filter(|n| !state.search.off.contains(*n))
         .cloned()
         .collect();
+    if state.providers.loaded && enabled.is_empty() {
+        let key = key_hint(state, Action::SearchProviders);
+        state.status.warn(format!(
+            "Search: no providers enabled — press {key} to choose providers"
+        ));
+        return Vec::new();
+    }
     if !enabled.is_empty() && chosen.is_empty() {
         state.search.focus = Focus::Providers;
-        state.status.warn("Select at least one provider");
+        state
+            .status
+            .warn("Search: every provider is switched off below — press Space on one to use it");
         return Vec::new();
     }
     let category = Some(state.search.category.text().trim().to_owned()).filter(|c| !c.is_empty());
@@ -1098,16 +1111,16 @@ fn apply_history(state: &mut State, action: Action, page: isize) -> Option<Vec<C
         Action::Top => s.hist_cursor = 0,
         Action::Bottom => s.hist_cursor = last,
         Action::SearchHistory => s.history_open = false,
-        Action::SearchAdd | Action::SearchRun => return Some(rerun(state)),
+        Action::SearchAddDirect | Action::SearchRun => return Some(rerun(state)),
         // Everything else (sort, filter, add, …) is about the results below.
-        Action::SearchAddDirect
+        Action::SearchAdd
         | Action::ToggleSelect
         | Action::SelectAll
         | Action::SortNext
         | Action::SortReverse => {
             state
                 .status
-                .info("Close the history (h) to work on the results");
+                .info("Close the history (h or Esc) to work on the results");
         }
         _ => return None,
     }
@@ -1137,7 +1150,7 @@ fn rerun(state: &mut State) -> Vec<Cmd> {
 
 fn confirm_clear_history(state: &mut State) -> Vec<Cmd> {
     state.modal = Some(Modal::Confirm(ConfirmState::yes_no(
-        "Clear the search history? y/N",
+        "Clear the search history?",
         vec!["Removes every remembered query. Downloads are not affected.".into()],
         ApiCall::SearchHistoryClear,
     )));
@@ -1158,7 +1171,16 @@ fn begin_add(state: &mut State, direct: bool) -> Vec<Cmd> {
     }
     let targets = state.search.targets();
     if targets.is_empty() {
-        state.status.info("No result under the cursor");
+        let hidden = state
+            .search
+            .run
+            .as_ref()
+            .is_some_and(|r| !r.results.is_empty());
+        state.status.info(if hidden {
+            "Nothing to download: the filters hide every result (Ctrl-l clears them)"
+        } else {
+            "No result to download yet — run a search first (type, then Enter)"
+        });
         return Vec::new();
     }
     let mut cmds = Vec::new();
@@ -1272,12 +1294,10 @@ fn finish_add(state: &mut State) -> Vec<Cmd> {
         };
         state.call(ApiCall::Add(Box::new(params)))
     } else {
-        let mut a = AddState::with_text(&ready.join("\n"));
-        let cmds = a.check_cmds();
-        state.views.push(View::Add(Box::new(a)));
+        let cmds = crate::views::add::push(state, AddState::with_text(&ready.join("\n")));
         state.status.info(format!(
-            "Add view prefilled with {}",
-            plural(ready.len(), "source")
+            "{} ready to add: change options if you like, then press Enter",
+            plural(ready.len(), "link")
         ));
         cmds
     };
@@ -1303,42 +1323,64 @@ pub fn key_hint(state: &State, action: Action) -> String {
     k.map_or_else(String::new, |k| key_label(*k))
 }
 
-/// Footer hints that depend on the focus (text entry, selector, history).
-pub fn footer_hints(state: &State) -> Option<Vec<(String, String)>> {
-    use crate::keymap::{Context, key_label};
+/// Footer hints that depend on the focus (text entry, selector, history,
+/// results).
+pub fn footer_hints(state: &State) -> Vec<(String, String)> {
+    use crate::widgets::footer::{hint, own};
     let s = &state.search;
-    let key = |a: Action| {
-        state
-            .keymap
-            .keys(Context::Search, a)
-            .first()
-            .map_or_else(String::new, |k| key_label(*k))
+    let h = |a: Action, label: &str| hint(state, a, label);
+    let v: Vec<Option<(String, String)>> = if s.history_open {
+        vec![
+            Some(own("Enter", "search again")),
+            Some(own("↑↓", "choose")),
+            h(Action::SearchHistoryClear, "clear history"),
+            h(Action::SearchCancel, "close"),
+        ]
+    } else {
+        match s.focus {
+            Focus::Query | Focus::Category => vec![
+                Some(own("Enter", "search")),
+                h(Action::SearchNextField, "next field"),
+                h(Action::SearchProviders, "providers"),
+                h(Action::SearchCancel, "back"),
+            ],
+            Focus::Providers => vec![
+                Some(own("Space", "switch on/off")),
+                Some(own("←→", "move")),
+                Some(own("Enter", "search")),
+                h(Action::SearchNextField, "next field"),
+                h(Action::SearchCancel, "back"),
+            ],
+            Focus::Results if s.rows.is_empty() => vec![
+                h(Action::SearchEdit, "new search"),
+                h(Action::SearchProviders, "providers"),
+                h(Action::SearchHistory, "history"),
+                h(
+                    Action::SearchCancel,
+                    if s.running() { "cancel" } else { "back" },
+                ),
+            ],
+            Focus::Results => {
+                let marked = s.selected.len();
+                let download = if marked > 0 {
+                    format!("download {marked} marked")
+                } else {
+                    "download".to_owned()
+                };
+                vec![
+                    h(Action::SearchAddDirect, &download),
+                    h(Action::SearchAdd, "change options first"),
+                    h(Action::ToggleSelect, "mark"),
+                    h(Action::SearchEdit, "new search"),
+                    h(Action::Filter, "filter"),
+                    h(Action::SortNext, "sort"),
+                    h(
+                        Action::SearchCancel,
+                        if s.running() { "cancel" } else { "back" },
+                    ),
+                ]
+            }
+        }
     };
-    let own = |k: &str, v: &str| (k.to_owned(), v.to_owned());
-    if s.history_open {
-        return Some(vec![
-            own("Enter", "re-run"),
-            own("↑↓", "choose"),
-            (key(Action::SearchHistoryClear), "clear".into()),
-            (key(Action::SearchHistory), "close".into()),
-            (key(Action::SearchCancel), "close".into()),
-        ]);
-    }
-    match s.focus {
-        Focus::Query | Focus::Category => Some(vec![
-            own("Enter", "search"),
-            (key(Action::SearchNextField), "next field".into()),
-            (key_hint(state, Action::SearchProviders), "providers".into()),
-            (key(Action::SearchCancel), "cancel/back".into()),
-            (key(Action::Help), "help".into()),
-        ]),
-        Focus::Providers => Some(vec![
-            own("Space", "toggle"),
-            own("←→", "move"),
-            own("Enter", "search"),
-            (key(Action::SearchNextField), "next field".into()),
-            (key(Action::SearchCancel), "cancel/back".into()),
-        ]),
-        Focus::Results => None,
-    }
+    v.into_iter().flatten().collect()
 }

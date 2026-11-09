@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 
 
  Connected to daemon 0.1.0
- Space toggle  ←→ move  Enter search  Tab next field  Esc cancel/back
+ Space switch on/off  ←→ move  Enter search  Tab next field  : palette  ? help

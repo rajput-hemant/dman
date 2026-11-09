@@ -33,12 +33,12 @@ expression: "render(&mut s, 120, 40)"
 │  r                     Resume                                                                                        │
 │  P                     Pause all                                                                                     │
 │  R                     Resume all                                                                                    │
-│  d Del                 Remove (keep files)                                                                           │
-│  D                     Remove and delete files                                                                       │
-│  x                     Purge stopped downloads (keep files)                                                          │
+│  d Del                 Remove from the list (keep files)                                                             │
+│  D                     Remove and DELETE the files from disk (asks twice)                                            │
+│  x                     Clear finished/failed downloads from the list (keep files)                                    │
 │  n                     Rename (not while active; file under cursor in Detail)                                        │
 │  C                     Delete unselected partial files of a finished torrent                                         │
 │  w                     Show / hide the global speed graph                                                            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  Connected to daemon 0.1.0
- j down  k up  PgDn pgdn  Esc back
+ j down  k up  PgDn pgdn  Esc back  : palette  ? close help

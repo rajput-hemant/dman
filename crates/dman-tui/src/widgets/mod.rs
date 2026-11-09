@@ -20,6 +20,7 @@ pub mod input;
 pub mod palette;
 pub mod prompt;
 pub mod status;
+pub mod welcome;
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
@@ -114,6 +115,8 @@ pub enum Modal {
     Prompt(PromptState),
     /// Filter editing.
     Filter(FilterState),
+    /// First-run welcome.
+    Welcome(welcome::WelcomeState),
 }
 
 impl Modal {
@@ -124,6 +127,7 @@ impl Modal {
             Modal::Confirm(c) => c.handle_key(key),
             Modal::Prompt(p) => p.handle_key(key),
             Modal::Filter(f) => f.handle_key(key, state),
+            Modal::Welcome(w) => w.handle_key(key, state),
         }
     }
 
@@ -137,18 +141,20 @@ impl Modal {
                 f.input.insert_str(text);
                 f.apply(state);
             }
+            Modal::Welcome(_) => {}
         }
     }
 
     /// Footer hints as (keys, label).
-    pub fn hints(&self) -> Vec<(String, String)> {
+    pub fn hints(&self, keymap: &crate::keymap::Keymap) -> Vec<(String, String)> {
         match self {
+            Modal::Welcome(_) => welcome::WelcomeState::hints(keymap),
             Modal::Palette(_) => PaletteState::hints(),
             Modal::Confirm(c) => c.hints(),
             Modal::Prompt(_) => PromptState::hints(),
             Modal::Filter(_) => vec![
                 ("Enter".into(), "keep filter".into()),
-                ("Esc".into(), "cancel".into()),
+                ("Esc".into(), "undo".into()),
                 ("↑↓".into(), "move".into()),
             ],
         }
@@ -162,6 +168,7 @@ impl Modal {
             Modal::Prompt(p) => p.render(frame, area, &state.theme),
             // Drawn inline by the info bar.
             Modal::Filter(_) => {}
+            Modal::Welcome(w) => w.render(frame, area, &state.theme, &state.keymap),
         }
     }
 }

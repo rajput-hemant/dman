@@ -93,7 +93,9 @@ fn conn_label(state: &State) -> (String, Style) {
 
 fn counts(state: &State) -> [usize; 3] {
     let mut c = [0; 3];
-    for j in state.jobs.values() {
+    let shown =
+        |j: &&dman_proto::Job| state.list.show_removed || j.state != dman_proto::JobState::Removed;
+    for j in state.jobs.values().filter(shown) {
         match Section::of(j.state) {
             Section::Active => c[0] += 1,
             Section::Waiting => c[1] += 1,
@@ -101,6 +103,25 @@ fn counts(state: &State) -> [usize; 3] {
         }
     }
     c
+}
+
+/// Global (down, up) speeds for the header. The daemon's figures can lag
+/// behind the job states (the last sample of a finished download), so with no
+/// transferring job the speed shown is 0.
+pub fn shown_speeds(state: &State) -> (u64, u64) {
+    use dman_proto::JobState;
+    let any = |f: fn(JobState) -> bool| state.jobs.values().any(|j| f(j.state));
+    let down = if any(|s| s == JobState::Active) {
+        state.stats.download_speed
+    } else {
+        0
+    };
+    let up = if any(|s| matches!(s, JobState::Active | JobState::Seeding)) {
+        state.stats.upload_speed
+    } else {
+        0
+    };
+    (down, up)
 }
 
 /// Draw the one-line header.
@@ -117,9 +138,9 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
             0,
             vec![
                 Span::raw("  ▼ "),
-                Span::styled(speed(state.stats.download_speed), t.ok),
+                Span::styled(speed(shown_speeds(state).0), t.ok),
                 Span::raw(" ▲ "),
-                Span::styled(speed(state.stats.upload_speed), t.ok),
+                Span::styled(speed(shown_speeds(state).1), t.ok),
             ],
         ),
         (

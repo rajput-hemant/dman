@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 
 
  Connected to daemon 0.1.0
- p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit
+ p pause 1  r resume 1  d remove 1  D delete files  : palette  ? help

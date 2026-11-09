@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 
 
  Minimum seeders: 5
- Enter add  e edit query  Space select  s sort  / filter  h history  p providers  Esc cancel  ? help
+ Enter download 1 marked  e change options first  Space mark  i new search  / filter  s sort  : palette  ? help

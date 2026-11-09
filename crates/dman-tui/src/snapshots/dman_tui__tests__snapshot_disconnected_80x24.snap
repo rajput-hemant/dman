@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 
 
  Pause is disabled: disconnected from the daemon
- p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit
+ Enter details  p pause  d remove  D delete files  a add  : palette  ? help

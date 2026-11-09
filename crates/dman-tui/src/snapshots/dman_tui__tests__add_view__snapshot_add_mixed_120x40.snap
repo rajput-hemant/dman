@@ -9,8 +9,10 @@ expression: "render(&mut s, 120, 40)"
 │https://example.org/files/big-dataset-2026.tar.zst                                                               https│
 │ftp://mirror.example.net/pub/a.iso  ftp://mirror2.example.net/pub/a.iso                                      2 sources│
 │/home/me/Downloads/ubuntu-24.04.torrent                                                        torrent file · 44.9 KiB│
-│/home/me/Downloads/gone.metalink                                                             metalink file · not found│
-│file:///tmp/x.iso                                                                    unsupported: scheme not supported│
+│/home/me/Downloads/gone.metalink                                                             metalink file · checking…│
+│file:///tmp/x.isofast                                                                unsupported: scheme not supported│
+│                                                                                                                      │
+│                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -18,27 +20,25 @@ expression: "render(&mut s, 120, 40)"
 │                                                                                                                      │
 │                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Options (empty = profile default) ───────────────────────────────────────────────────────────────────────────────────┐
-│  Mirror        [ ] all URI lines are mirrors of one download                                                         │
-│  Directory     /data/dl                                                                                              │
-│  Output name   from the source (single source only)                                                                  │
-│  Start paused  [ ] add without starting                                                                              │
-│▸ Down limit    fast                                                                                                  │
-│                ✗ `fast` is not a size (e.g. 500KiB, 2MiB, 0)                                                         │
-│  Up limit      inherit (e.g. 2MiB; 0 = unlimited)                                                                    │
-│  Conn/server   inherit (1-16)                                                                                        │
-│  Split         inherit                                                                                               │
-│  Seed ratio    inherit (e.g. 1.5)                                                                                    │
-│  Seed minutes  inherit                                                                                               │
-│  Sequential    [ ] download pieces in order                                                                          │
-│  Select files  all (e.g. 1,3-5)                                                                                      │
-│  User agent    inherit                                                                                               │
-│  Referer       inherit                                                                                               │
-│  Headers       Name: value, one per line                                                                             │
-│  Proxy         inherit                                                                                               │
-│  Checksum      e.g. sha-256=<hex>                                                                                    │
-│  Engine opts   key=value, one per line                                                                               │
-│                                                                                                                      │
+ ✗ Can't add `file:///tmp/x.isofast` (unsupported: scheme not supported) — fix or remove that line
+┌ Options · empty fields use your defaults ────────────────────────────────────────────────────────────────────────────┐
+│  Download folder        your default folder (Ctrl-f browses the daemon's folders)                                    │
+│  Start paused           [ ] add now, start later (r in the list)                                                     │
+│  Download limit         no extra limit (e.g. 2MiB; 0 = unlimited)                                                    │
+│  ▸ Advanced options — 16 more, F2 shows them: mirrors, file name, upload limit, connections per server, …            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+
+
+
  Connected to daemon 0.1.0
- Ctrl-s preview  Tab next field  Ctrl-o files  Ctrl-v clipboard  Ctrl-t mirror  Ctrl-g video  Ctrl-f folder  Esc back
+ Enter review & add  Ctrl-j new line  Tab options  Esc back  Ctrl-v paste  Ctrl-o files  Ctrl-p palette  F1 help

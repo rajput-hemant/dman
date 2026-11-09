@@ -18,12 +18,12 @@ expression: "render(&mut s, 120, 40)"
 
 
 
-                              ┌ Remove 1 download? ──────────────────────────────────────┐
+                              ┌ Remove 1 download from the list? ────────────────────────┐
                               │  • ubuntu-24.04.1-desktop-amd64.iso                      │
                               │                                                          │
-                              │Files on disk are kept.                                   │
+                              │Files on disk are kept (D removes and deletes them).      │
                               │                                                          │
-                              │y yes   n no                                              │
+                              │y / Enter yes     n / Esc no                              │
                               └──────────────────────────────────────────────────────────┘
 
 
@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 
 
  Connected to daemon 0.1.0
- y confirm  n/Esc cancel
+ y/Enter yes  n/Esc no, cancel

@@ -5,24 +5,24 @@ expression: "render(&mut s, 80, 24)"
  dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
  sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5  ⧗ 1           250.0 GiB free
 ┌ Sources · 1 item ────────────────────────────────────────────────────────────┐
-│h┌ Preview ─────────────────────────────────────────────────────────────────┐o│
-│ │Add 1 download to the profile's directory                                 │ │
+│h┌ Review — nothing is added until you press Enter ─────────────────────────┐o│
+│ │Add 1 download to your default folder                                     │ │
 │ │                                                                          │ │
 │ │1. [video] watch  size unknown                                            │ │
 │ │     https://www.youtube.com/watch?v=abc123                               │ │
 │ │     options: daemon defaults                                             │ │
-└─│     ⠋ probing the video… 0s (Esc to cancel)                              │─┘
-┌ │                                                                          │─┐
+│ │     ⠋ probing the video… 0s (Esc to cancel)                              │ │
+│ │                                                                          │ │
 │ │Esc cancel fetch                                                          │ │
 │ │                                                                          │ │
+└─│                                                                          │─┘
+  │                                                                          │
+┌ │                                                                          │─┐
+│ │                                                                          │…│
 │ │                                                                          │ │
 │ │                                                                          │ │
-│ │                                                                          │ │
-│ │                                                                          │ │
-│ │                                                                          │ │
-│ │                                                                          │ │
-│ │                                                                          │ │
-│ └──────────────────────────────────────────────────────────────────────────┘ │
+│ │                                                                          │…│
+│ └──────────────────────────────────────────────────────────────────────────┘…│
 └──────────────────────────────────────────────────────────────────────────────┘
  Connected to daemon 0.1.0
- Esc cancel fetch
+ Esc cancel fetch  Ctrl-p palette  F1 help

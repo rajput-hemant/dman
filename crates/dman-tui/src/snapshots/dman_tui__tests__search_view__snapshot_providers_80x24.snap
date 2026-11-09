@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
  Testing 1337x in the background…
- Space toggle  t test  K queue up  J queue down  i import  e export  D remove
+ Space toggle  t test  K queue up  J queue down  i import  : palette  ? help

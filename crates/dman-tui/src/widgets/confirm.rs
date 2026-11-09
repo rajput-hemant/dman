@@ -22,7 +22,7 @@ pub const DELETE_WORD: &str = "DELETE";
 /// How the user confirms.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfirmMode {
-    /// Press `y` to confirm, `n` or Esc to cancel.
+    /// Press `y` or Enter to confirm, `n` or Esc to cancel.
     YesNo,
     /// Type `word` and press Enter; Esc cancels.
     Typed {
@@ -117,7 +117,7 @@ impl ConfirmState {
     pub fn handle_key(&mut self, key: KeyEvent) -> ModalOutcome {
         match &mut self.mode {
             ConfirmMode::YesNo => match key.code {
-                KeyCode::Char('y' | 'Y') => self.confirmed(),
+                KeyCode::Char('y' | 'Y') | KeyCode::Enter => self.confirmed(),
                 KeyCode::Char('n' | 'N' | 'q') | KeyCode::Esc => ModalOutcome::Close,
                 _ => ModalOutcome::Stay,
             },
@@ -155,8 +155,8 @@ impl ConfirmState {
     pub fn hints(&self) -> Vec<(String, String)> {
         match self.mode {
             ConfirmMode::YesNo => vec![
-                ("y".into(), "confirm".into()),
-                ("n/Esc".into(), "cancel".into()),
+                ("y/Enter".into(), "yes".into()),
+                ("n/Esc".into(), "no, cancel".into()),
             ],
             ConfirmMode::Typed { word, .. } => vec![
                 (format!("type {word} + Enter"), "confirm".into()),
@@ -172,8 +172,12 @@ impl ConfirmState {
         match &self.mode {
             ConfirmMode::YesNo => lines.push(Line::from(vec![
                 Span::styled("y", theme.key),
-                Span::raw(" yes   "),
+                Span::raw(" / "),
+                Span::styled("Enter", theme.key),
+                Span::raw(" yes     "),
                 Span::styled("n", theme.key),
+                Span::raw(" / "),
+                Span::styled("Esc", theme.key),
                 Span::raw(" no"),
             ])),
             ConfirmMode::Typed { word, input } => {
@@ -222,6 +226,13 @@ mod tests {
         assert_eq!(c.handle_key(k('x')), ModalOutcome::Stay);
         assert_eq!(c.handle_key(k('y')), ModalOutcome::Api(call));
         assert_eq!(c.handle_key(k('n')), ModalOutcome::Close);
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(
+            c.handle_key(enter),
+            ModalOutcome::Api(ApiCall::Purge(vec![JobId(1)]))
+        );
+        let esc = KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(c.handle_key(esc), ModalOutcome::Close);
     }
 
     #[test]

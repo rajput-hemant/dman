@@ -24,6 +24,8 @@ pub enum Field {
     Connections,
     /// Split count.
     Split,
+    /// Seed (share) the torrent after it finished.
+    Seed,
     /// Seed ratio.
     SeedRatio,
     /// Seed time in minutes.
@@ -104,7 +106,7 @@ impl Field {
     ];
 
     /// Every field including the video section.
-    pub const FULL: [Field; 31] = [
+    pub const FULL: [Field; 32] = [
         Field::Mirror,
         Field::Dir,
         Field::Out,
@@ -113,6 +115,7 @@ impl Field {
         Field::UpLimit,
         Field::Connections,
         Field::Split,
+        Field::Seed,
         Field::SeedRatio,
         Field::SeedTime,
         Field::Sequential,
@@ -159,7 +162,7 @@ impl Field {
     }
 
     /// Every core field in form order.
-    pub const ALL: [Field; 18] = [
+    pub const ALL: [Field; 19] = [
         Field::Mirror,
         Field::Dir,
         Field::Out,
@@ -168,6 +171,7 @@ impl Field {
         Field::UpLimit,
         Field::Connections,
         Field::Split,
+        Field::Seed,
         Field::SeedRatio,
         Field::SeedTime,
         Field::Sequential,
@@ -188,71 +192,72 @@ impl Field {
     /// Form label.
     pub const fn label(self) -> &'static str {
         match self {
-            Field::Mirror => "Mirror",
-            Field::Dir => "Directory",
-            Field::Out => "Output name",
+            Field::Mirror => "Mirrors",
+            Field::Dir => "Download folder",
+            Field::Out => "File name",
             Field::Paused => "Start paused",
-            Field::DownLimit => "Down limit",
-            Field::UpLimit => "Up limit",
-            Field::Connections => "Conn/server",
-            Field::Split => "Split",
-            Field::SeedRatio => "Seed ratio",
-            Field::SeedTime => "Seed minutes",
-            Field::Sequential => "Sequential",
-            Field::SelectFiles => "Select files",
+            Field::DownLimit => "Download limit",
+            Field::UpLimit => "Upload limit",
+            Field::Connections => "Connections per server",
+            Field::Split => "Parallel parts",
+            Field::Seed => "Seed after download",
+            Field::SeedRatio => "Seed until ratio",
+            Field::SeedTime => "Seed for (minutes)",
+            Field::Sequential => "Download in order",
+            Field::SelectFiles => "Only these files",
             Field::UserAgent => "User agent",
             Field::Referer => "Referer",
-            Field::Headers => "Headers",
+            Field::Headers => "Extra HTTP headers",
             Field::Proxy => "Proxy",
             Field::Checksum => "Checksum",
-            Field::Engine => "Engine opts",
-            Field::VQuality => "Quality",
-            Field::VContainer => "Container",
+            Field::Engine => "Advanced aria2 options",
+            Field::VQuality => "Video quality",
+            Field::VContainer => "Video format",
             Field::VSubs => "Subtitles",
-            Field::VSubsFiles => "Subs as files",
+            Field::VSubsFiles => "Subtitles as files",
             Field::VSubsAuto => "Auto captions",
-            Field::VThumb => "Thumbnail",
-            Field::VMeta => "Metadata",
-            Field::VSponsor => "SponsorBlock",
-            Field::VPlaylist => "Playlist",
-            Field::VItems => "Items",
-            Field::VTemplate => "Out template",
-            Field::VCookies => "Cookies from",
-            Field::VSeparate => "Sep. streams",
+            Field::VThumb => "Embed thumbnail",
+            Field::VMeta => "Embed metadata",
+            Field::VSponsor => "Cut SponsorBlock",
+            Field::VPlaylist => "Whole playlist",
+            Field::VItems => "Playlist items",
+            Field::VTemplate => "File name template",
+            Field::VCookies => "Cookies from browser",
+            Field::VSeparate => "Separate streams",
         }
     }
 
     /// What an empty field means, shown dimmed.
     pub const fn hint(self) -> &'static str {
         match self {
-            Field::Mirror => "all URI lines are mirrors of one download",
-            Field::Dir => "profile default (Ctrl-f browses the daemon)",
-            Field::Out => "from the source (single source only)",
-            Field::Paused => "add without starting",
-            Field::DownLimit | Field::UpLimit => "inherit (e.g. 2MiB; 0 = unlimited)",
-            Field::Connections => "inherit (1-16)",
-            Field::Split => "inherit",
-            Field::SeedRatio => "inherit (e.g. 1.5)",
-            Field::SeedTime => "inherit",
-            Field::Sequential => "download pieces in order",
-            Field::SelectFiles => "all (e.g. 1,3-5)",
-            Field::UserAgent | Field::Referer | Field::Proxy => "inherit",
-            Field::Headers => "Name: value, one per line",
-            Field::Checksum => "e.g. sha-256=<hex>",
-            Field::Engine => "key=value, one per line",
-            Field::VQuality => {
-                "daemon default (best 2160p 1440p 1080p 720p 480p audio:m4a|mp3|opus)"
-            }
-            Field::VContainer => "daemon default (auto mp4 mkv webm)",
+            Field::Mirror => "the links are copies of one file: fetch from all of them (Ctrl-t)",
+            Field::Dir => "your default folder (Ctrl-f browses the daemon's folders)",
+            Field::Out => "name from the link (one link only)",
+            Field::Paused => "add now, start later (r in the list)",
+            Field::DownLimit => "no extra limit (e.g. 2MiB; 0 = unlimited)",
+            Field::UpLimit => "default (e.g. 500KiB; 0 = unlimited)",
+            Field::Connections => "default (1-16 connections to each server)",
+            Field::Split => "default (how many parts of a file load at once)",
+            Field::Seed => "keep sharing the torrent once it finished (unticked = default)",
+            Field::SeedRatio => "default (e.g. 1.5 = share 1.5× what you downloaded)",
+            Field::SeedTime => "default (how long to keep sharing a torrent)",
+            Field::Sequential => "fetch pieces in order (lets you start watching early)",
+            Field::SelectFiles => "all files (e.g. 1,3-5; see the review for numbers)",
+            Field::UserAgent | Field::Referer | Field::Proxy => "default",
+            Field::Headers => "Name: value, one per line (Ctrl-j new line)",
+            Field::Checksum => "verify the file, e.g. sha-256=<hex>",
+            Field::Engine => "key=value per line, passed to aria2 as is",
+            Field::VQuality => "default (best 2160p 1440p 1080p 720p 480p audio:m4a|mp3|opus)",
+            Field::VContainer => "default (auto mp4 mkv webm)",
             Field::VSubs => "none (e.g. en,de or en.*)",
             Field::VSubsFiles => "write subtitle files next to the video instead of embedding",
             Field::VSubsAuto => "also fetch automatic captions",
             Field::VThumb => "embed the thumbnail",
-            Field::VMeta => "embed metadata",
+            Field::VMeta => "embed title, artist and other metadata",
             Field::VSponsor => "none (e.g. sponsor,selfpromo; needs ffmpeg)",
             Field::VPlaylist => "download the whole playlist",
             Field::VItems => "all (e.g. 1-3,7)",
-            Field::VTemplate => "daemon default (yt-dlp template, relative)",
+            Field::VTemplate => "default (yt-dlp template, relative)",
             Field::VCookies => "none (firefox, chrome, …)",
             Field::VSeparate => "keep video and audio as two files if ffmpeg is missing",
         }
@@ -264,6 +269,7 @@ impl Field {
             self,
             Field::Mirror
                 | Field::Paused
+                | Field::Seed
                 | Field::Sequential
                 | Field::VSubsFiles
                 | Field::VSubsAuto
@@ -457,6 +463,9 @@ impl OptionsForm {
                     .map(|v| o.seed_time = Some(v))
                     .map_err(|_| format!("`{t}` is not a number of minutes")),
             );
+        }
+        if self.checked(Field::Seed) {
+            o.seed = Some(true);
         }
         if self.checked(Field::Sequential) {
             o.sequential = Some(true);
@@ -708,6 +717,7 @@ mod tests {
             (Field::Engine, "max-tries = 3\nretry-wait=5"),
         ]);
         f.toggle(Field::Paused);
+        f.toggle(Field::Seed);
         f.toggle(Field::Sequential);
         f.toggle(Field::Mirror);
         let p = f.parse();
@@ -722,6 +732,7 @@ mod tests {
         assert_eq!(o.seed_time, Some(90));
         assert_eq!(o.select_files, Some(vec![1, 2, 3, 5]));
         assert_eq!(o.sequential, Some(true));
+        assert_eq!(o.seed, Some(true));
         assert_eq!(o.headers, ["Cookie: a=b", "X-Y: z"]);
         assert_eq!(o.engine_options["max-tries"], "3");
         assert_eq!(

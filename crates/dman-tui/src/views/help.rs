@@ -41,8 +41,8 @@ fn popups() -> Vec<(&'static str, Vec<(String, String)>)> {
         (
             "Confirmation",
             own(&[
-                ("y", "confirm"),
-                ("n / Esc", "cancel (the default answer is no)"),
+                ("y / Enter", "yes, do it"),
+                ("n / Esc", "no, cancel"),
                 (
                     "DELETE + Enter",
                     "second confirmation before files are deleted",
@@ -68,7 +68,23 @@ fn popups() -> Vec<(&'static str, Vec<(String, String)>)> {
         ),
         ("File browser (Add: Ctrl-o)", FileBrowser::hints()),
         ("Directory picker (Add: Ctrl-f)", DirPicker::hints()),
-        ("Preview (Add: Ctrl-s)", Preview::key_help()),
+        (
+            "Add form",
+            own(&[
+                ("Enter", "review what will be added (then Enter again adds)"),
+                ("Ctrl-j / Alt-Enter", "new line in the links box"),
+                ("Tab / Shift-Tab", "next / previous option"),
+                ("Space", "tick a checkbox; show / hide advanced options"),
+            ]),
+        ),
+        ("Review before adding (Add: Enter)", Preview::key_help()),
+        (
+            "First-run welcome",
+            own(&[
+                ("a / f / ?", "add, search or help right away"),
+                ("Enter / Esc", "close"),
+            ]),
+        ),
     ]
 }
 

@@ -119,10 +119,7 @@ pub fn on_paste(state: &mut State, text: &str) -> Vec<Cmd> {
         View::Add(_) => return add::on_paste(state, text),
         View::Downloads => {
             // Pasting links into the list opens the add view with them.
-            let mut a = add::AddState::with_text(text);
-            let cmds = a.check_cmds();
-            state.views.push(View::Add(Box::new(a)));
-            return cmds;
+            return add::push(state, add::AddState::with_text(text));
         }
         View::Search => return search::on_paste(state, text),
         View::Detail(_) | View::Help(_) | View::Providers => state.dirty = false,

@@ -697,7 +697,7 @@ impl Preview {
             return h;
         }
         if self.blocker().is_none() {
-            h.push(("Enter".to_owned(), "add".to_owned()));
+            h.push(("Enter".to_owned(), self.confirm_label().to_owned()));
         }
         if let ProbeFetch::Done(ui) = &self.probe {
             h.extend(ui.hints());
@@ -710,16 +710,25 @@ impl Preview {
         } else if self.fetchable_uri().is_some() {
             h.push(("f".into(), "fetch file list".into()));
         }
-        h.push(("Esc".into(), "back to form".into()));
+        h.push(("Esc".into(), "change options".into()));
         h.push(("↑↓".into(), "scroll".into()));
         h
+    }
+
+    /// What Enter does: add and start, or add paused.
+    pub fn confirm_label(&self) -> &'static str {
+        if self.params.paused {
+            "add (paused)"
+        } else {
+            "add & start"
+        }
     }
 
     /// Keys of the preview for the help screen.
     pub fn key_help() -> Vec<(String, String)> {
         [
-            ("Enter / y", "add"),
-            ("Esc / n / q", "back to the form"),
+            ("Enter / y", "add and start (or add paused)"),
+            ("Esc / n / q", "back to the form to change something"),
             ("↑ ↓ PgUp PgDn", "scroll"),
             (
                 "f",
@@ -750,7 +759,7 @@ impl Preview {
             Span::styled(
                 o.dir
                     .clone()
-                    .unwrap_or_else(|| "the profile's directory".into()),
+                    .unwrap_or_else(|| "your default folder".into()),
                 theme.accent,
             ),
             Span::raw(if self.params.paused { " (paused)" } else { "" }),
@@ -910,7 +919,10 @@ impl Preview {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(theme.border)
-            .title(Span::styled(" Preview ", theme.accent));
+            .title(Span::styled(
+                " Review — nothing is added until you press Enter ",
+                theme.accent,
+            ));
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
         let (mut lines, cursor_line) = self.lines(theme, usize::from(inner.width));
@@ -931,8 +943,8 @@ impl Preview {
             Line::styled(format!("Cannot add: {b}"), theme.error)
         } else if let ProbeFetch::Done(_) = self.probe {
             Line::from(vec![
-                Span::styled("Enter", theme.key),
-                Span::raw(" add   "),
+                Span::styled("Enter", theme.action),
+                Span::raw(format!(" {}   ", self.confirm_label())),
                 Span::styled("Space", theme.key),
                 Span::raw(" choose   "),
                 Span::styled("Tab", theme.key),
@@ -942,8 +954,8 @@ impl Preview {
             ])
         } else if let Fetch::Done(_) = self.fetch {
             Line::from(vec![
-                Span::styled("Enter", theme.key),
-                Span::raw(" add   "),
+                Span::styled("Enter", theme.action),
+                Span::raw(format!(" {}   ", self.confirm_label())),
                 Span::styled("Space", theme.key),
                 Span::raw(" toggle   "),
                 Span::styled("a", theme.key),
@@ -953,8 +965,8 @@ impl Preview {
             ])
         } else {
             Line::from(vec![
-                Span::styled("Enter", theme.key),
-                Span::raw(" add   "),
+                Span::styled("Enter", theme.action),
+                Span::raw(format!(" {}   ", self.confirm_label())),
                 Span::styled("Esc", theme.key),
                 Span::raw(" back"),
             ])

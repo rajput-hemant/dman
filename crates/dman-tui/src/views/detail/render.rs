@@ -19,12 +19,27 @@ fn field(t: &Theme, name: &str, value: String) -> Line<'static> {
     ])
 }
 
-fn header_lines(t: &Theme, j: &Job, d: &DetailState, width: usize) -> Vec<Line<'static>> {
+fn header_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line<'static>> {
+    let t = &state.theme;
     let room = width.saturating_sub(11);
+    let now = super::summary(state, j, d.detail.as_ref());
+    let now_style = match j.state {
+        dman_proto::JobState::Error => t.error,
+        dman_proto::JobState::Paused => t.warn,
+        dman_proto::JobState::Complete | dman_proto::JobState::Seeding => t.ok,
+        _ => t.text,
+    };
     let mut v = vec![
         Line::from(vec![
             Span::styled(format!("{:>9}  ", "Name"), t.dim),
-            Span::styled(format::truncate(&j.name, room), t.accent),
+            Span::styled(
+                format::truncate(j.name.trim_start_matches("[METADATA]"), room),
+                t.accent,
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled(format!("{:>9}  ", "Now"), t.dim),
+            Span::styled(format::truncate(&now, room), now_style),
         ]),
         field(
             t,
@@ -93,7 +108,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
         );
         return;
     };
-    let header = header_lines(t, job, d, usize::from(inner.width));
+    let header = header_lines(state, job, d, usize::from(inner.width));
     let h = u16::try_from(header.len()).unwrap_or(u16::MAX);
     let [head, tabs, body] = Layout::vertical([
         Constraint::Length(h),
@@ -115,7 +130,28 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
             .divider("│"),
         tabs,
     );
+    let waiting_meta = super::awaiting_metadata(job, d.detail.as_ref())
+        && matches!(d.tab, Tab::Files | Tab::Peers | Tab::Trackers | Tab::Pieces);
     match &d.detail {
+        _ if waiting_meta => {
+            let lines = vec![
+                Line::styled("Waiting for the torrent's metadata.", t.accent),
+                Line::default(),
+                Line::styled(
+                    "A magnet link only names the torrent; the list of files, its",
+                    t.dim,
+                ),
+                Line::styled(
+                    "size and pieces come from other peers. They appear here as soon",
+                    t.dim,
+                ),
+                Line::styled(
+                    "as they arrive (usually within a minute; longer with few peers).",
+                    t.dim,
+                ),
+            ];
+            frame.render_widget(Paragraph::new(lines), body);
+        }
         None => {
             let text = if d.error.is_some() {
                 "Detail is not available."

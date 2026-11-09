@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 
 
  Connected to daemon 0.1.0
- Enter keep filter  Esc cancel  ↑↓ move
+ Enter keep filter  Esc undo  ↑↓ move

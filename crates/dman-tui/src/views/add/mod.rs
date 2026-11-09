@@ -45,18 +45,21 @@ use crate::theme::Theme;
 use crate::views::View;
 use crate::widgets::confirm::ConfirmState;
 use crate::widgets::editor::Editor;
+use crate::widgets::footer::{Hint, hint, own};
+use dman_proto::{AddOutcome, AddParams, AddSource};
 
 /// Actions shown in the footer of the form.
 pub const FOOTER: &[Action] = &[
     Action::AddSubmit,
     Action::AddNextField,
-    Action::AddBrowseFiles,
     Action::AddPasteClipboard,
-    Action::AddToggleMirror,
-    Action::AddToggleVideo,
-    Action::AddPickDir,
+    Action::AddBrowseFiles,
+    Action::AddToggleAdvanced,
     Action::Back,
 ];
+
+/// The options shown before "Advanced options" is expanded.
+pub const COMMON: [Field; 3] = [Field::Dir, Field::Paused, Field::DownLimit];
 
 /// Which part of the form has the keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +68,8 @@ pub enum Focus {
     Sources,
     /// An options field.
     Field(Field),
+    /// The "Advanced options" row (Enter / Space shows or hides them).
+    Advanced,
 }
 
 /// A popup over the form.
@@ -97,6 +102,8 @@ pub struct AddState {
     pub submitting: Option<Vec<Vec<String>>>,
     /// The video engine and the per-URL "try as video" choices.
     pub video: VideoCtx,
+    /// The advanced options are shown (otherwise only [`COMMON`] ones).
+    pub advanced: bool,
 }
 
 impl Default for AddState {
@@ -110,6 +117,7 @@ impl Default for AddState {
             pending_plan: None,
             submitting: None,
             video: VideoCtx::default(),
+            advanced: false,
         }
     }
 }
@@ -142,13 +150,88 @@ impl AddState {
         self.all_tokens().iter().any(|t| t.kind.is_video())
     }
 
-    /// The fields shown: the video section only with a video source.
-    pub fn visible_fields(&self) -> Vec<Field> {
+    /// The options always shown: folder, start paused, download limit, and
+    /// the video quality when a line goes to the video engine.
+    pub fn common_fields(&self) -> Vec<Field> {
+        let mut v = COMMON.to_vec();
         if self.has_video() {
-            Field::FULL.to_vec()
-        } else {
-            Field::ALL.to_vec()
+            v.push(Field::VQuality);
         }
+        v
+    }
+
+    /// The options behind "Advanced options" (video section only with a video).
+    pub fn advanced_fields(&self) -> Vec<Field> {
+        let all: &[Field] = if self.has_video() {
+            &Field::FULL
+        } else {
+            &Field::ALL
+        };
+        let common = self.common_fields();
+        all.iter()
+            .copied()
+            .filter(|f| !common.contains(f))
+            .collect()
+    }
+
+    /// The fields shown: the common ones, then the advanced ones if expanded.
+    pub fn visible_fields(&self) -> Vec<Field> {
+        let mut v = self.common_fields();
+        if self.advanced {
+            v.extend(self.advanced_fields());
+        }
+        v
+    }
+
+    /// Advanced fields that hold a value (shown on the collapsed row).
+    pub fn advanced_set(&self) -> Vec<Field> {
+        self.advanced_fields()
+            .into_iter()
+            .filter(|f| {
+                self.form.checked(*f) || self.form.editor(*f).is_some_and(|e| !e.is_empty())
+            })
+            .collect()
+    }
+
+    /// Tab order: sources, common fields, the advanced row, advanced fields.
+    fn focus_order(&self) -> Vec<Focus> {
+        let mut v = vec![Focus::Sources];
+        v.extend(self.common_fields().into_iter().map(Focus::Field));
+        v.push(Focus::Advanced);
+        if self.advanced {
+            v.extend(self.advanced_fields().into_iter().map(Focus::Field));
+        }
+        v
+    }
+
+    /// Show or hide the advanced options.
+    pub fn set_advanced(&mut self, on: bool) {
+        self.advanced = on;
+        if let Focus::Field(f) = self.focus
+            && !self.visible_fields().contains(&f)
+        {
+            self.focus = Focus::Advanced;
+        }
+    }
+
+    /// What Enter would add: `Ok(count)` or why nothing can be added yet.
+    pub fn readiness(&self) -> Result<usize, String> {
+        let tokens = self.all_tokens();
+        if tokens.is_empty() {
+            return Err(String::new());
+        }
+        if let Some(t) = tokens.iter().find(|t| !t.kind.is_supported()) {
+            return Err(format!(
+                "Can't add `{}` ({}) — fix or remove that line",
+                truncate(&t.text, 30),
+                t.kind.label()
+            ));
+        }
+        if let Some((f, msg)) = self.errors().first() {
+            return Err(format!("Fix {}: {msg}", f.label()));
+        }
+        let parsed = self.form.parse();
+        Ok(preview::plan(&tokens, parsed.mirror).len())
     }
 
     /// A hint about the video engine (never blocks anything), when the
@@ -268,22 +351,19 @@ impl AddState {
         match self.focus {
             Focus::Sources => Some(&mut self.sources),
             Focus::Field(f) => self.form.editor_mut(f),
+            Focus::Advanced => None,
         }
     }
 
     fn step_focus(&mut self, forward: bool) {
-        let fields = self.visible_fields();
-        let last = fields.len() - 1;
-        self.focus = match self.focus {
-            Focus::Sources if forward => Focus::Field(fields[0]),
-            Focus::Sources => Focus::Field(fields[last]),
-            Focus::Field(f) => match fields.iter().position(|x| *x == f) {
-                Some(i) if forward && i == last => Focus::Sources,
-                Some(0) if !forward => Focus::Sources,
-                Some(i) => Focus::Field(fields[if forward { i + 1 } else { i - 1 }]),
-                None => Focus::Sources,
-            },
-        };
+        let order = self.focus_order();
+        let n = order.len();
+        let i = order.iter().position(|f| *f == self.focus).unwrap_or(0);
+        self.focus = order[if forward {
+            (i + 1) % n
+        } else {
+            (i + n - 1) % n
+        }];
     }
 
     /// Footer hints while a popup is open.
@@ -324,28 +404,89 @@ fn add_mut(state: &mut State) -> Option<&mut AddState> {
     }
 }
 
+/// Open the add view with `a`, remembering whether the advanced options were
+/// shown last time. Returns the path checks the sources need.
+pub fn push(state: &mut State, mut a: AddState) -> Vec<Cmd> {
+    a.advanced = state.add_advanced;
+    let cmds = a.check_cmds();
+    state.views.push(View::Add(Box::new(a)));
+    cmds
+}
+
+/// Keys that start a new line in a multi-line box (plain Enter adds).
+fn is_newline_key(key: &KeyEvent) -> bool {
+    let m = key.modifiers;
+    match key.code {
+        KeyCode::Enter => m.intersects(KeyModifiers::ALT | KeyModifiers::SHIFT),
+        KeyCode::Char('j') => m.contains(KeyModifiers::CONTROL),
+        _ => false,
+    }
+}
+
 /// Raw keys (text entry and popups).
 pub fn handle_raw_key(state: &mut State, key: KeyEvent) -> Option<Vec<Cmd>> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
     let a = add_mut(state)?;
     if a.overlay.is_some() {
-        // Quit and the palette keep working over a popup.
-        if ctrl && matches!(key.code, KeyCode::Char('c' | 'p')) {
+        // Quit, the palette and help keep working over a popup.
+        if (ctrl && matches!(key.code, KeyCode::Char('c' | 'p'))) || key.code == KeyCode::F(1) {
             return None;
         }
         return Some(overlay_key(state, key));
     }
+    if is_newline_key(&key) {
+        let multi = match a.focus {
+            Focus::Sources => true,
+            Focus::Field(f) => f.is_multiline(),
+            Focus::Advanced => false,
+        };
+        if !multi {
+            return Some(Vec::new());
+        }
+        let focus = a.focus;
+        if let Some(e) = a.focused_editor() {
+            e.newline();
+        }
+        return Some(if focus == Focus::Sources {
+            a.check_cmds()
+        } else {
+            Vec::new()
+        });
+    }
     match key.code {
         KeyCode::Esc | KeyCode::Tab | KeyCode::BackTab | KeyCode::F(_) => return None,
-        KeyCode::Enter if ctrl || alt => return None,
+        // Enter (with or without Ctrl) reviews what will be added.
+        KeyCode::Enter if a.focus != Focus::Advanced => return Some(apply_submit(state)),
         _ => {}
+    }
+    if a.focus == Focus::Advanced {
+        return match key.code {
+            KeyCode::Char(' ') | KeyCode::Enter if !ctrl && !alt => {
+                let on = !a.advanced;
+                a.set_advanced(on);
+                state.add_advanced = on;
+                Some(Vec::new())
+            }
+            KeyCode::Right | KeyCode::Left => {
+                let on = key.code == KeyCode::Right;
+                a.set_advanced(on);
+                state.add_advanced = on;
+                Some(Vec::new())
+            }
+            KeyCode::Up | KeyCode::Down => {
+                a.step_focus(key.code == KeyCode::Down);
+                Some(Vec::new())
+            }
+            KeyCode::Char(_) if !ctrl && !alt => Some(Vec::new()),
+            _ => None,
+        };
     }
     if let Focus::Field(f) = a.focus
         && f.is_check()
     {
         return match key.code {
-            KeyCode::Char(' ') | KeyCode::Enter if !ctrl && !alt => {
+            KeyCode::Char(' ') if !ctrl && !alt => {
                 a.form.toggle(f);
                 Some(Vec::new())
             }
@@ -360,12 +501,6 @@ pub fn handle_raw_key(state: &mut State, key: KeyEvent) -> Option<Vec<Cmd>> {
             KeyCode::Char(_) if !ctrl && !alt => Some(Vec::new()),
             _ => None,
         };
-    }
-    if key.code == KeyCode::Enter
-        && let Focus::Field(f) = a.focus
-        && !f.is_multiline()
-    {
-        return Some(apply_submit(state));
     }
     // Up/Down leave a field at its first/last line.
     if let Focus::Field(f) = a.focus
@@ -491,6 +626,20 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::AddToggleMirror => {
             if let Some(a) = add_mut(state) {
                 a.form.toggle(Field::Mirror);
+                let on = a.form.checked(Field::Mirror);
+                state.status.info(if on {
+                    "Mirrors on: all links are treated as copies of one file"
+                } else {
+                    "Mirrors off: every link is its own download"
+                });
+            }
+            Vec::new()
+        }
+        Action::AddToggleAdvanced => {
+            if let Some(a) = add_mut(state) {
+                let on = !a.advanced;
+                a.set_advanced(on);
+                state.add_advanced = on;
             }
             Vec::new()
         }
@@ -548,18 +697,23 @@ fn prepare(a: &mut AddState) -> Result<Vec<Cmd>, String> {
     }
     let errors = a.errors();
     if let Some((f, msg)) = errors.first() {
+        if !a.visible_fields().contains(f) {
+            a.advanced = true;
+        }
         a.focus = Focus::Field(*f);
-        return Err(format!("{}: {msg}", f.label()));
+        return Err(format!("{}: {msg} — fix it, then press Enter", f.label()));
     }
     let tokens = a.all_tokens();
     if tokens.is_empty() {
         a.focus = Focus::Sources;
-        return Err("Nothing to add: enter a URL, magnet link or .torrent path".into());
+        return Err(
+            "Nothing to add yet: paste a link (Ctrl-v), a magnet or a .torrent path first".into(),
+        );
     }
     if let Some(t) = tokens.iter().find(|t| !t.kind.is_supported()) {
         a.focus = Focus::Sources;
         return Err(format!(
-            "Cannot add `{}`: {}",
+            "Cannot add `{}`: {} — fix or remove that line",
             truncate(&t.text, 40),
             t.kind.label()
         ));
@@ -609,8 +763,8 @@ fn overlay_fetch_idle(overlay: &mut Overlay) {
 /// The confirmation shown when Esc would throw away a filled-in form.
 pub fn discard_confirm() -> ConfirmState {
     ConfirmState::discard(
-        "Discard this form? y/N",
-        vec!["What you entered in the add form is lost.".into()],
+        "Leave without adding?",
+        vec!["The links and options you entered are not added and will be lost.".into()],
     )
 }
 
@@ -800,16 +954,36 @@ pub fn on_fs_listing(state: &mut State, result: &Result<ApiReply, String>) {
     }
 }
 
-/// The daemon answered `jobs.add`: leave the view on full success, otherwise
-/// drop the sources that were added and keep the rest for another try.
-pub fn on_add_result(state: &mut State, result: &Result<ApiReply, String>) {
-    let Some(a) = add_mut(state) else { return };
-    let origins = a.submitting.take();
+/// The daemon answered `jobs.add` (from the add view or straight from the
+/// search results). On full success the add view closes, the first new job
+/// gets the cursor of the downloads list and the status line says what
+/// happens next; otherwise the sources that were added are dropped from the
+/// form and the rest stay for another try.
+pub fn on_add_result(state: &mut State, params: &AddParams, result: &Result<ApiReply, String>) {
     let Ok(ApiReply::Added(outcomes)) = result else {
+        if let Some(a) = add_mut(state) {
+            a.submitting = None;
+        }
         return;
     };
-    let ok = |o: &dman_proto::AddOutcome| matches!(o, dman_proto::AddOutcome::Added { .. });
-    if outcomes.iter().all(ok) {
+    let ok = |o: &AddOutcome| matches!(o, AddOutcome::Added { .. });
+    if let Some(id) = outcomes.iter().find_map(|o| match o {
+        AddOutcome::Added { id, .. } => Some(*id),
+        AddOutcome::Failed { .. } => None,
+    }) {
+        state.list.focus_when_listed(id);
+        state.refresh_list();
+    }
+    let all_ok = outcomes.iter().all(ok);
+    if all_ok && let Some(mut text) = added_message(state, params, outcomes) {
+        if matches!(state.view(), View::Search) {
+            text.push_str(" (Esc shows your downloads)");
+        }
+        state.status.info(text);
+    }
+    let Some(a) = add_mut(state) else { return };
+    let origins = a.submitting.take();
+    if all_ok {
         state.views.pop();
         return;
     }
@@ -822,6 +996,60 @@ pub fn on_add_result(state: &mut State, result: &Result<ApiReply, String>) {
             .collect();
         a.remove_sources(&done);
     }
+}
+
+/// A name for what `source` will download, before the daemon knows better.
+fn source_name(source: &AddSource) -> String {
+    match source {
+        AddSource::Uris { uris } => uris
+            .first()
+            .map(|u| preview::uri_name(u))
+            .unwrap_or_default(),
+        AddSource::Torrent { name, .. } | AddSource::Metalink { name, .. } => name
+            .trim_end_matches(".torrent")
+            .trim_end_matches(".metalink")
+            .trim_end_matches(".meta4")
+            .to_owned(),
+        AddSource::Video { url, .. } => preview::uri_name(url),
+    }
+}
+
+fn is_magnet(source: &AddSource) -> bool {
+    matches!(source, AddSource::Uris { uris }
+        if uris.first().is_some_and(|u| u.get(..7).is_some_and(|p| p.eq_ignore_ascii_case("magnet:"))))
+}
+
+/// "Added 'Name' — downloading" (or paused / fetching metadata) after a
+/// fully successful add.
+pub fn added_message(state: &State, params: &AddParams, outcomes: &[AddOutcome]) -> Option<String> {
+    let resume = state
+        .keymap
+        .keys(crate::keymap::Context::Downloads, Action::Resume)
+        .first()
+        .map_or_else(|| "resume".to_owned(), |k| crate::keymap::key_label(*k));
+    let next = if params.paused {
+        format!("paused, press {resume} to start")
+    } else if params.sources.iter().all(is_magnet) {
+        "fetching torrent metadata…".to_owned()
+    } else {
+        "downloading".to_owned()
+    };
+    let what = match (params.sources.as_slice(), outcomes) {
+        ([source], [AddOutcome::Added { id, extra_ids }]) if extra_ids.is_empty() => {
+            let known = state
+                .jobs
+                .get(id)
+                .map(|j| j.name.clone())
+                .filter(|n| !n.is_empty() && !n.starts_with("[METADATA]"));
+            let name = known.unwrap_or_else(|| source_name(source));
+            format!("'{}'", truncate(&name, 50))
+        }
+        _ => {
+            let n: usize = outcomes.iter().map(|o| o.ids().len()).sum();
+            plural(n, "download")
+        }
+    };
+    Some(format!("Added {what} — {next}"))
 }
 
 // ------------------------------------------------------------------ drawing
@@ -919,42 +1147,154 @@ fn render_sources(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState
     }
     if a.sources.is_empty() {
         lines.push(Line::styled(
-            "Paste or type URLs, magnet links or .torrent/.metalink paths, one per line.",
+            "Paste or type links: http(s), ftp, magnet, or a .torrent/.metalink path.",
             theme.dim,
         ));
         lines.push(Line::styled(
-            "Ctrl-o browses local files, Ctrl-v reads the clipboard, Ctrl-s previews.",
+            "One per line (Ctrl-j starts a new line). Ctrl-v pastes the clipboard,",
+            theme.dim,
+        ));
+        lines.push(Line::styled(
+            "Ctrl-o picks local files. Then press Enter.",
             theme.dim,
         ));
     }
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-const LABEL_W: usize = 13;
+const LABEL_W: usize = 22;
 
-fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(
-            if matches!(a.focus, Focus::Field(_)) && a.overlay.is_none() {
-                theme.accent
-            } else {
-                theme.border
-            },
+/// Footer hints of the add view (or of its open popup).
+pub fn footer_hints(state: &State, a: &AddState) -> Vec<Hint> {
+    if let Some(h) = a.overlay_hints() {
+        return h;
+    }
+    let h = |act: Action, label: &str| hint(state, act, label);
+    let mut v = vec![h(Action::AddSubmit, "review & add")];
+    match a.focus {
+        Focus::Sources => v.push(Some(own("Ctrl-j", "new line"))),
+        Focus::Field(f) if f.is_check() => v.push(Some(own("Space", "tick / untick"))),
+        Focus::Field(f) if f.is_multiline() => v.push(Some(own("Ctrl-j", "new line"))),
+        Focus::Field(Field::Dir) => v.push(h(Action::AddPickDir, "browse folders")),
+        Focus::Advanced => v.push(Some(own("Space", if a.advanced { "hide" } else { "show" }))),
+        Focus::Field(_) => {}
+    }
+    v.push(h(
+        Action::AddNextField,
+        if a.focus == Focus::Sources {
+            "options"
+        } else {
+            "next"
+        },
+    ));
+    v.push(h(Action::Back, "back"));
+    v.push(h(Action::AddPasteClipboard, "paste"));
+    v.push(h(Action::AddBrowseFiles, "files"));
+    v.push(h(
+        Action::AddToggleAdvanced,
+        if a.advanced {
+            "fewer options"
+        } else {
+            "more options"
+        },
+    ));
+    v.into_iter().flatten().collect()
+}
+
+/// The call to action under the sources: what Enter does right now.
+fn action_line(state: &State, a: &AddState, width: usize) -> Line<'static> {
+    let t = &state.theme;
+    if a.submitting.is_some() {
+        return Line::styled(" Adding… waiting for the daemon", t.dim);
+    }
+    match a.readiness() {
+        Ok(n) => {
+            let paused = a.form.checked(Field::Paused);
+            let what = format!(
+                " ⏎ Enter  Add {}{} ",
+                plural(n, "download"),
+                if paused { " (paused)" } else { "" }
+            );
+            let rest = " you get a summary, then Enter again starts it";
+            let room = width.saturating_sub(what.chars().count() + 1);
+            Line::from(vec![
+                Span::raw(" "),
+                Span::styled(what, t.action),
+                Span::styled(truncate(rest, room), t.dim),
+            ])
+        }
+        Err(e) if e.is_empty() => Line::from(vec![
+            Span::styled(" ⏎ Enter", t.key),
+            Span::styled(
+                truncate(
+                    "  nothing to add yet — paste a link (Ctrl-v) or type one",
+                    width.saturating_sub(9),
+                ),
+                t.dim,
+            ),
+        ]),
+        Err(e) => Line::styled(truncate(&format!(" ✗ {e}"), width), t.error),
+    }
+}
+
+/// The "Advanced options" row.
+fn advanced_line(a: &AddState, theme: &Theme, width: usize) -> Line<'static> {
+    let focused = a.focus == Focus::Advanced && a.overlay.is_none();
+    let marker = if focused { "▸ " } else { "  " };
+    let style = if focused { theme.accent } else { theme.text };
+    let (arrow, what) = if a.advanced {
+        ("▾", "Advanced options".to_owned())
+    } else {
+        ("▸", "Advanced options".to_owned())
+    };
+    let set = a.advanced_set();
+    let extra = if a.advanced {
+        " (F2 hides them)".to_owned()
+    } else if set.is_empty() {
+        let names: Vec<&str> = a
+            .advanced_fields()
+            .iter()
+            .take(4)
+            .map(|f| f.label())
+            .collect();
+        format!(
+            " — {} more, F2 shows them: {}, …",
+            a.advanced_fields().len(),
+            names.join(", ").to_lowercase()
         )
-        .title(Span::styled(
-            " Options (empty = profile default) ",
-            theme.accent,
-        ));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    let width = usize::from(inner.width);
+    } else {
+        let names: Vec<&str> = set.iter().map(|f| f.label()).collect();
+        format!(" — {} set: {} (F2 shows them)", set.len(), names.join(", "))
+    };
+    let used = 2 + 2 + what.chars().count();
+    Line::from(vec![
+        Span::styled(marker, theme.accent),
+        Span::styled(format!("{arrow} {what}"), style),
+        Span::styled(truncate(&extra, width.saturating_sub(used)), theme.dim),
+    ])
+}
+
+/// Lines of the options box, and the line of the focused field.
+fn option_lines(a: &AddState, theme: &Theme, width: usize) -> (Vec<Line<'static>>, usize) {
     let value_w = width.saturating_sub(2 + LABEL_W + 1).max(1);
     let errors = a.errors();
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut focus_line = 0;
-    for f in a.visible_fields() {
-        if f == Field::VIDEO[0] {
+    let common = a.common_fields();
+    let mut fields: Vec<Option<Field>> = common.iter().copied().map(Some).collect();
+    fields.push(None);
+    if a.advanced {
+        fields.extend(a.advanced_fields().into_iter().map(Some));
+    }
+    for entry in fields {
+        let Some(f) = entry else {
+            if a.focus == Focus::Advanced {
+                focus_line = lines.len();
+            }
+            lines.push(advanced_line(a, theme, width));
+            continue;
+        };
+        if f == Field::VIDEO[1] {
             lines.push(Line::styled(
                 "── Video (yt-dlp) ──".to_owned(),
                 theme.accent,
@@ -976,7 +1316,10 @@ fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState
                 head,
                 label,
                 Span::raw(mark),
-                Span::styled(format!(" {}", f.hint()), theme.dim),
+                Span::styled(
+                    truncate(&format!(" {}", f.hint()), value_w.saturating_sub(3)),
+                    theme.dim,
+                ),
             ]));
         } else if let Some(e) = a.form.editor(f) {
             if f.is_multiline() && focused {
@@ -1038,6 +1381,21 @@ fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState
             ));
         }
     }
+    (lines, focus_line)
+}
+
+fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState) {
+    let focused = matches!(a.focus, Focus::Field(_) | Focus::Advanced) && a.overlay.is_none();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(if focused { theme.accent } else { theme.border })
+        .title(Span::styled(
+            " Options · empty fields use your defaults ",
+            theme.accent,
+        ));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let (lines, focus_line) = option_lines(a, theme, usize::from(inner.width));
     let h = usize::from(inner.height);
     let offset = (focus_line + 1).saturating_sub(h);
     let offset = u16::try_from(offset).unwrap_or(u16::MAX);
@@ -1047,15 +1405,48 @@ fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState
 /// Draw the add view.
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, a: &AddState) {
     let t = &state.theme;
-    let src_h = (area.height * 2 / 5).clamp(5, 14);
     let hint = a.engine_hint();
-    let [src, hint_area, opt] = Layout::vertical([
-        Constraint::Length(src_h),
-        Constraint::Length(u16::from(hint.is_some())),
-        Constraint::Fill(1),
-    ])
-    .areas(area);
+    let hint_h = u16::from(hint.is_some());
+    let opt_lines = option_lines(a, t, usize::from(area.width.saturating_sub(2)))
+        .0
+        .len();
+    let opt_h = u16::try_from(opt_lines + 2).unwrap_or(u16::MAX);
+    // Rows the sources box needs (the empty box shows three lines of help).
+    let src_need = if a.sources.is_empty() {
+        4
+    } else {
+        a.sources.lines().len()
+    };
+    let src_need = u16::try_from(src_need + 2).unwrap_or(u16::MAX);
+    let [src, action, hint_area, opt] = if a.advanced {
+        let src_h = src_need.clamp(5, (area.height * 2 / 5).max(5));
+        Layout::vertical([
+            Constraint::Length(src_h),
+            Constraint::Length(1),
+            Constraint::Length(hint_h),
+            Constraint::Fill(1),
+        ])
+        .areas(area)
+    } else {
+        // Collapsed: the options take what they need, the sources the rest.
+        let room = area.height.saturating_sub(1 + hint_h);
+        let opt_h = opt_h.min(room.saturating_sub(5));
+        let src_h = room.saturating_sub(opt_h).min(16);
+        let [src, action, hint_area, opt, _] = Layout::vertical([
+            Constraint::Length(src_h),
+            Constraint::Length(1),
+            Constraint::Length(hint_h),
+            Constraint::Length(opt_h),
+            Constraint::Fill(1),
+        ])
+        .areas(area);
+        [src, action, hint_area, opt]
+    };
     render_sources(frame, src, t, a);
+    frame.render_widget(
+        Paragraph::new(action_line(state, a, usize::from(area.width))),
+        action,
+    );
     if let Some((text, sev)) = hint {
         frame.render_widget(
             Paragraph::new(Line::styled(

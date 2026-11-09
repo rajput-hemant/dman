@@ -17,28 +17,28 @@ expression: "snap_form(120, 40, Field::VQuality)"
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+  ⏎ Enter  Add 3 downloads  you get a summary, then Enter again starts it
  ffmpeg missing (ffmpeg not found in PATH): no merging, conversion or embedding; separate streams need consent.
-┌ Options (empty = profile default) ───────────────────────────────────────────────────────────────────────────────────┐
-│  Directory     profile default (Ctrl-f browses the daemon)                                                           │
-│  Output name   from the source (single source only)                                                                  │
-│  Start paused  [ ] add without starting                                                                              │
-│  Down limit    inherit (e.g. 2MiB; 0 = unlimited)                                                                    │
-│  Up limit      inherit (e.g. 2MiB; 0 = unlimited)                                                                    │
-│  Conn/server   inherit (1-16)                                                                                        │
-│  Split         inherit                                                                                               │
-│  Seed ratio    inherit (e.g. 1.5)                                                                                    │
-│  Seed minutes  inherit                                                                                               │
-│  Sequential    [ ] download pieces in order                                                                          │
-│  Select files  all (e.g. 1,3-5)                                                                                      │
-│  User agent    inherit                                                                                               │
-│  Referer       inherit                                                                                               │
-│  Headers       Name: value, one per line                                                                             │
-│  Proxy         inherit                                                                                               │
-│  Checksum      e.g. sha-256=<hex>                                                                                    │
-│  Engine opts   key=value, one per line                                                                               │
-│── Video (yt-dlp) ──                                                                                                  │
-│▸ Quality       1080p                                                                                                 │
+┌ Options · empty fields use your defaults ────────────────────────────────────────────────────────────────────────────┐
+│  Download folder        your default folder (Ctrl-f browses the daemon's folders)                                    │
+│  Start paused           [ ] add now, start later (r in the list)                                                     │
+│  Download limit         no extra limit (e.g. 2MiB; 0 = unlimited)                                                    │
+│▸ Video quality          1080p                                                                                        │
+│  ▸ Advanced options — 1 set: Subtitles (F2 shows them)                                                               │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+
+
+
+
+
+
+
+
+
  Connected to daemon 0.1.0
- Ctrl-s preview  Tab next field  Ctrl-o files  Ctrl-v clipboard  Ctrl-t mirror  Ctrl-g video  Ctrl-f folder  Esc back
+ Enter review & add  Tab next  Esc back  Ctrl-v paste  Ctrl-o files  F2 more options  Ctrl-p palette  F1 help

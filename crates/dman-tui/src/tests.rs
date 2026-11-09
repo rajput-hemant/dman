@@ -186,7 +186,8 @@ fn remove_needs_confirmation() {
     let Some(Modal::Confirm(c)) = &s.modal else {
         panic!("no confirmation")
     };
-    assert_eq!(c.title, "Remove 1 download?");
+    assert_eq!(c.title, "Remove 1 download from the list?");
+    assert!(c.lines.iter().any(|l| l.contains("Files on disk are kept")));
     assert!(key(&mut s, 'n').is_empty());
     assert!(s.modal.is_none());
     key(&mut s, 'd');
@@ -205,6 +206,10 @@ fn remove_needs_confirmation() {
 fn delete_files_needs_two_distinct_confirmations() {
     let mut s = state();
     key(&mut s, 'D');
+    let Some(Modal::Confirm(c)) = &s.modal else {
+        panic!("no first confirmation")
+    };
+    assert_eq!(c.title, "Remove and DELETE files of 1 download?");
     assert!(
         key(&mut s, 'y').is_empty(),
         "first yes only opens the second dialog"
@@ -212,7 +217,7 @@ fn delete_files_needs_two_distinct_confirmations() {
     let Some(Modal::Confirm(c)) = &s.modal else {
         panic!("no second confirmation")
     };
-    assert_eq!(c.title, "Delete files from disk?");
+    assert_eq!(c.title, "Really delete the files?");
     // A second `y` or Enter is not enough.
     assert!(key(&mut s, 'y').is_empty());
     assert!(code(&mut s, KeyCode::Enter).is_empty());
@@ -848,7 +853,8 @@ mod add_view {
     fn type_lines(s: &mut State, lines: &[&str]) {
         for (i, l) in lines.iter().enumerate() {
             if i > 0 {
-                code(s, KeyCode::Enter);
+                // Ctrl-j starts a new line; plain Enter reviews the form.
+                press(s, KeyCode::Char('j'), KeyModifiers::CONTROL);
             }
             typed(s, l);
         }
@@ -958,7 +964,12 @@ mod add_view {
             },
         );
         assert!(matches!(s.view(), View::Downloads), "back to the list");
-        assert_eq!(status_text(&s), "Added 2 downloads");
+        assert_eq!(status_text(&s), "Added 2 downloads — downloading");
+        assert_eq!(
+            s.list.pending_focus,
+            Some(JobId(10)),
+            "selected once listed"
+        );
     }
 
     #[test]
@@ -997,24 +1008,21 @@ mod add_view {
 
     #[test]
     fn options_are_validated_and_sent() {
+        use crate::views::add::options::Field;
         let mut s = open();
         typed(&mut s, "http://a/f");
-        // Tab to the options form: Mirror, then Directory.
+        // Tab to the options form: the common options come first.
         code(&mut s, KeyCode::Tab);
-        assert_eq!(
-            add(&s).focus,
-            Focus::Field(crate::views::add::options::Field::Mirror)
-        );
-        code(&mut s, KeyCode::Down);
+        assert_eq!(add(&s).focus, Focus::Field(Field::Dir));
         typed(&mut s, "/data/x");
-        code(&mut s, KeyCode::Down); // output name
-        code(&mut s, KeyCode::Down); // paused
+        code(&mut s, KeyCode::Down); // start paused
+        assert_eq!(add(&s).focus, Focus::Field(Field::Paused));
         key(&mut s, ' ');
-        code(&mut s, KeyCode::Down); // down limit
+        code(&mut s, KeyCode::Down); // download limit
         typed(&mut s, "fast");
         assert!(code(&mut s, KeyCode::Enter).is_empty());
         assert!(
-            status_text(&s).contains("Down limit"),
+            status_text(&s).contains("Download limit"),
             "{}",
             status_text(&s)
         );
@@ -1023,19 +1031,174 @@ mod add_view {
             code(&mut s, KeyCode::Backspace);
         }
         typed(&mut s, "2MiB");
-        // Enter in a single-line field previews.
+        // Enter in a field reviews, Enter in the review adds.
         code(&mut s, KeyCode::Enter);
         assert!(matches!(add(&s).overlay, Some(Overlay::Preview(_))));
         let params = add_call(&code(&mut s, KeyCode::Enter));
         assert!(params.paused);
         assert_eq!(params.options.dir.as_deref(), Some("/data/x"));
         assert_eq!(params.options.max_download_limit, Some(2 << 20));
-        // Shift-Tab goes back.
+        // Shift-Tab goes back to "Advanced options" (collapsed) ...
         let mut s = open();
         press(&mut s, KeyCode::BackTab, KeyModifiers::SHIFT);
+        assert_eq!(add(&s).focus, Focus::Advanced);
+        // ... and, once expanded, to the last advanced field.
+        key(&mut s, ' ');
+        assert!(add(&s).advanced);
+        for _ in 0..4 {
+            press(&mut s, KeyCode::BackTab, KeyModifiers::SHIFT);
+        }
+        assert_eq!(add(&s).focus, Focus::Sources);
+        press(&mut s, KeyCode::BackTab, KeyModifiers::SHIFT);
+        assert_eq!(add(&s).focus, Focus::Field(Field::Engine));
+    }
+
+    #[test]
+    fn enter_reviews_and_ctrl_j_or_alt_enter_start_a_new_line() {
+        let mut s = open();
+        typed(&mut s, "http://a/1");
+        press(&mut s, KeyCode::Char('j'), KeyModifiers::CONTROL);
+        typed(&mut s, "http://a/2");
+        press(&mut s, KeyCode::Enter, KeyModifiers::ALT);
+        typed(&mut s, "http://a/3");
+        assert_eq!(add(&s).sources.lines().len(), 3);
+        assert!(add(&s).overlay.is_none());
+        // The call to action counts what Enter would add.
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("⏎ Enter  Add 3 downloads"), "{text}");
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        let Some(Overlay::Preview(p)) = &add(&s).overlay else {
+            panic!("Enter did not open the review")
+        };
+        assert_eq!(p.items.len(), 3);
+        // Enter in the review adds and starts.
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        assert_eq!(params.sources.len(), 3);
+        assert!(!params.paused);
+        // Ctrl-s still works as an alias.
+        let mut s = open();
+        typed(&mut s, "http://a/1");
+        ctrl(&mut s, 's');
+        assert!(matches!(add(&s).overlay, Some(Overlay::Preview(_))));
+    }
+
+    #[test]
+    fn single_magnet_from_search_is_one_enter_from_the_review() {
+        // The reported problem: a magnet prefilled from a search result.
+        let mut s = state();
+        let mut a = crate::views::add::AddState::with_text("magnet:?xt=urn:btih:abc&dn=Movie");
+        a.focus = Focus::Sources;
+        views::add::push(&mut s, a);
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("⏎ Enter  Add 1 download"), "{text}");
+        assert!(text.contains("Enter review & add"), "footer: {text}");
+        code(&mut s, KeyCode::Enter);
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("add & start"), "{text}");
+        let cmds = code(&mut s, KeyCode::Enter);
+        let params = add_call(&cmds);
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::Add(Box::new(params)),
+                result: Ok(ApiReply::Added(vec![added(9)])),
+            },
+        );
+        assert!(matches!(s.view(), View::Downloads));
         assert_eq!(
-            add(&s).focus,
-            Focus::Field(crate::views::add::options::Field::Engine)
+            status_text(&s),
+            "Added 'Movie' — fetching torrent metadata…"
+        );
+    }
+
+    #[test]
+    fn paused_add_says_how_to_start() {
+        let mut s = open();
+        typed(&mut s, "http://a/file.iso");
+        code(&mut s, KeyCode::Tab);
+        code(&mut s, KeyCode::Down);
+        key(&mut s, ' ');
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("Add 1 download (paused)"), "{text}");
+        code(&mut s, KeyCode::Enter);
+        let params = add_call(&code(&mut s, KeyCode::Enter));
+        // The job is already listed when the answer comes: it gets the cursor.
+        update(
+            &mut s,
+            Msg::Event(Event::JobsUpdated {
+                jobs: vec![job(30, "file.iso", JobState::Paused)],
+            }),
+        );
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::Add(Box::new(params)),
+                result: Ok(ApiReply::Added(vec![added(30)])),
+            },
+        );
+        assert_eq!(
+            status_text(&s),
+            "Added 'file.iso' — paused, press r to start"
+        );
+        assert_eq!(s.list.cursor, Some(JobId(30)));
+    }
+
+    #[test]
+    fn action_line_explains_what_is_missing() {
+        let mut s = open();
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("nothing to add yet — paste a link"), "{text}");
+        typed(&mut s, "file:///x/y.iso");
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("✗ Can't add `file:///x/y.iso`"), "{text}");
+    }
+
+    #[test]
+    fn advanced_options_are_collapsed_and_remembered() {
+        use crate::views::add::options::Field;
+        let mut s = open();
+        assert!(!add(&s).advanced);
+        assert_eq!(
+            add(&s).visible_fields(),
+            vec![Field::Dir, Field::Paused, Field::DownLimit]
+        );
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("▸ Advanced options"), "{text}");
+        assert!(!text.contains("Connections per server"), "{text}");
+        code(&mut s, KeyCode::F(2));
+        assert!(add(&s).advanced);
+        let text = render(&mut s, 120, 40);
+        assert!(text.contains("Connections per server"), "{text}");
+        assert!(text.contains("Advanced aria2 options"), "{text}");
+        // Leaving and coming back keeps them expanded (memory only).
+        code(&mut s, KeyCode::Esc);
+        key(&mut s, 'a');
+        assert!(add(&s).advanced);
+        // Hide again; a value in a hidden field is summarised on the row.
+        code(&mut s, KeyCode::F(2));
+        assert!(!s.add_advanced);
+        if let Some(View::Add(a)) = s.views.last_mut() {
+            a.form.set_text(Field::UpLimit, "1MiB");
+        }
+        let text = render(&mut s, 120, 40);
+        assert!(text.contains("1 set: Upload limit"), "{text}");
+    }
+
+    #[test]
+    fn an_error_in_a_hidden_option_expands_the_options() {
+        use crate::views::add::options::Field;
+        let mut s = open();
+        typed(&mut s, "http://a/f");
+        if let Some(View::Add(a)) = s.views.last_mut() {
+            a.form.set_text(Field::Connections, "99");
+        }
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(add(&s).advanced);
+        assert_eq!(add(&s).focus, Focus::Field(Field::Connections));
+        assert!(
+            status_text(&s).starts_with("Connections per server:"),
+            "{}",
+            status_text(&s)
         );
     }
 
@@ -1219,7 +1382,7 @@ mod add_view {
         let Some(Modal::Confirm(c)) = &s.modal else {
             panic!("expected a confirmation, got {:?}", s.modal);
         };
-        assert!(c.title.contains("Discard this form?"), "{}", c.title);
+        assert!(c.title.contains("Leave without adding?"), "{}", c.title);
         assert!(matches!(s.view(), View::Add(_)));
         // `n` (and Esc) keep editing; the text is still there.
         key(&mut s, 'n');
@@ -1238,8 +1401,7 @@ mod add_view {
     #[test]
     fn a_touched_option_counts_as_a_filled_form() {
         let mut s = open();
-        code(&mut s, KeyCode::Tab);
-        code(&mut s, KeyCode::Down); // from the mirror checkbox to the directory
+        code(&mut s, KeyCode::Tab); // the download folder
         typed(&mut s, "/data");
         code(&mut s, KeyCode::Esc);
         assert!(matches!(s.modal, Some(Modal::Confirm(_))));
@@ -1459,8 +1621,9 @@ mod add_view {
     fn preselected_files_seed_the_checkboxes() {
         let mut s = open();
         typed(&mut s, MAGNET);
+        // Show the advanced options and walk to the select-files field.
+        code(&mut s, KeyCode::F(2));
         code(&mut s, KeyCode::Tab);
-        // Walk to the select-files field.
         while add(&s).focus != Focus::Field(crate::views::add::options::Field::SelectFiles) {
             code(&mut s, KeyCode::Tab);
         }
@@ -2358,7 +2521,9 @@ fn help_lists_popup_keys() {
         "Prompt (rename",
         "File browser",
         "Directory picker",
-        "Preview",
+        "Review before adding",
+        "Add form",
+        "First-run welcome",
         "fetch the file list",
         "use this dir",
         "Rename",
@@ -2786,8 +2951,8 @@ mod search_view {
         let Some(Modal::Confirm(c)) = &s.modal else {
             panic!("no first-run prompt")
         };
-        assert!(c.title.contains("No search provider is enabled"));
-        assert!(c.lines.iter().any(|l| l.contains("off by default")));
+        assert!(c.title.contains("Choose search providers first?"));
+        assert!(c.lines.iter().any(|l| l.contains("all off until")));
         // Cancel keeps the search view and is not repeated.
         key(&mut s, 'n');
         assert!(s.modal.is_none());
@@ -2883,7 +3048,10 @@ mod search_view {
         let mut s = st();
         open_search(&mut s, providers());
         assert!(code(&mut s, KeyCode::Enter).is_empty());
-        assert_eq!(status_text(&s), "Type a query first");
+        assert_eq!(
+            status_text(&s),
+            "Type what to search for first, then press Enter"
+        );
         typed(&mut s, "x");
         code(&mut s, KeyCode::Tab);
         code(&mut s, KeyCode::Tab);
@@ -2891,7 +3059,11 @@ mod search_view {
         code(&mut s, KeyCode::Right);
         key(&mut s, ' ');
         assert!(code(&mut s, KeyCode::Enter).is_empty());
-        assert_eq!(status_text(&s), "Select at least one provider");
+        assert!(
+            status_text(&s).contains("every provider is switched off"),
+            "{}",
+            status_text(&s)
+        );
         assert!(s.search.run.is_none());
     }
 
@@ -2899,7 +3071,7 @@ mod search_view {
     fn offline_search_is_refused_and_keeps_the_old_results() {
         let mut s = searched();
         disconnect(&mut s);
-        key(&mut s, 'e');
+        key(&mut s, 'i');
         typed(&mut s, "more");
         let cmds = code(&mut s, KeyCode::Enter);
         assert!(cmds.is_empty());
@@ -3183,7 +3355,7 @@ mod search_view {
         press(&mut s, KeyCode::Char('l'), KeyModifiers::CONTROL);
         assert!(s.search.filters.is_empty());
         assert_eq!(rows(&s).len(), 4);
-        submit_prompt(&mut s, 'o', "nyaa");
+        submit_prompt(&mut s, 'O', "nyaa");
         assert_eq!(rows(&s), vec!["Ubuntu 24.04 Server", "Kubuntu 24.04"]);
         submit_prompt(&mut s, '/', "kbn");
         assert_eq!(rows(&s), vec!["Kubuntu 24.04"], "fuzzy title match");
@@ -3207,14 +3379,18 @@ mod search_view {
     #[test]
     fn filtered_out_results_cannot_be_added_by_accident() {
         let mut s = searched();
-        submit_prompt(&mut s, 'o', "zzz");
+        submit_prompt(&mut s, 'O', "zzz");
         assert!(s.search.rows.is_empty());
         // Nothing under the cursor: no add.
         let text = render(&mut s, 80, 24);
         assert!(text.contains("hidden by the filters"), "{text}");
         assert!(code(&mut s, KeyCode::Enter).is_empty());
         assert!(matches!(s.view(), View::Search));
-        assert_eq!(status_text(&s), "No result under the cursor");
+        assert!(
+            status_text(&s).contains("the filters hide every result"),
+            "{}",
+            status_text(&s)
+        );
     }
 
     #[test]
@@ -3238,13 +3414,93 @@ mod search_view {
     // -------------------------------------------------------------- adding
 
     #[test]
-    fn enter_opens_the_add_view_with_the_magnet() {
+    fn e_opens_the_add_view_with_the_magnet() {
         let mut s = searched();
-        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(key(&mut s, 'e').is_empty());
         assert!(matches!(s.view(), View::Add(_)));
         assert_eq!(add_text(&s).trim(), "magnet:?xt=urn:btih:aaaa");
+        assert!(
+            status_text(&s).contains("then press Enter"),
+            "{}",
+            status_text(&s)
+        );
         // Leaving the (clean?) add view returns to the search with results kept.
         assert!(s.search.run.is_some());
+        // `o` does the same.
+        code(&mut s, KeyCode::Esc);
+        key(&mut s, 'y');
+        assert!(matches!(s.view(), View::Search));
+        key(&mut s, 'o');
+        assert!(matches!(s.view(), View::Add(_)));
+    }
+
+    #[test]
+    fn enter_downloads_the_result_with_defaults() {
+        let mut s = searched();
+        let cmds = code(&mut s, KeyCode::Enter);
+        let [Cmd::Api(ApiCall::Add(p))] = cmds.as_slice() else {
+            panic!("no jobs.add: {cmds:?}")
+        };
+        assert_eq!(
+            p.sources,
+            vec![AddSource::Uris {
+                uris: vec!["magnet:?xt=urn:btih:aaaa".into()]
+            }]
+        );
+        assert_eq!(p.options, dman_proto::JobOptions::default());
+        assert!(matches!(s.view(), View::Search), "stays for more results");
+        let call = cmds[0].clone();
+        reply(
+            &mut s,
+            &call,
+            Ok(ApiReply::Added(vec![dman_proto::AddOutcome::Added {
+                id: JobId(42),
+                extra_ids: vec![],
+            }])),
+        );
+        let text = status_text(&s);
+        assert!(
+            text.starts_with("Added 'btih:aaaa' — fetching torrent metadata…"),
+            "{text}"
+        );
+        assert!(text.contains("Esc shows your downloads"), "{text}");
+        // The new job gets the list cursor as soon as it is listed.
+        update(
+            &mut s,
+            Msg::Event(Event::JobsUpdated {
+                jobs: vec![job(42, "Ubuntu", JobState::Active)],
+            }),
+        );
+        assert_eq!(s.list.cursor, Some(JobId(42)));
+    }
+
+    #[test]
+    fn enter_downloads_all_marked_results() {
+        let mut s = searched();
+        key(&mut s, ' '); // Desktop (magnet), cursor moves on
+        code(&mut s, KeyCode::Down); // skip the detail-only result
+        key(&mut s, ' '); // live-server (torrent url)
+        let text = render(&mut s, 120, 40);
+        assert!(text.contains("Enter download 2 marked"), "{text}");
+        let cmds = code(&mut s, KeyCode::Enter);
+        let [Cmd::Api(ApiCall::Add(p))] = cmds.as_slice() else {
+            panic!("no jobs.add: {cmds:?}")
+        };
+        assert_eq!(p.sources.len(), 2);
+        assert!(s.search.selected.is_empty(), "marks are consumed");
+    }
+
+    #[test]
+    fn search_without_enabled_providers_says_how_to_fix_it() {
+        let mut s = st();
+        open_search(&mut s, all_off());
+        key(&mut s, 'n'); // dismiss the first-run prompt
+        typed(&mut s, "ubuntu");
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert_eq!(
+            status_text(&s),
+            "Search: no providers enabled — press F2 to choose providers"
+        );
     }
 
     #[test]
@@ -3305,7 +3561,7 @@ mod search_view {
     fn magnet_less_result_is_resolved_first() {
         let mut s = searched();
         code(&mut s, KeyCode::Down); // Ubuntu 24.04 Server: detail page only
-        let cmds = code(&mut s, KeyCode::Enter);
+        let cmds = key(&mut s, 'e');
         let expected = SearchResolveParams {
             detail_url: Some("https://nyaa.example/view/2".into()),
             provider: Some("nyaa".into()),
@@ -3318,7 +3574,7 @@ mod search_view {
         let text = render(&mut s, 80, 24);
         assert!(text.contains("resolving 1"), "{text}");
         // A second add while resolving is refused.
-        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(key(&mut s, 'e').is_empty());
         assert!(status_text(&s).contains("Still resolving"));
         reply(
             &mut s,
@@ -3336,7 +3592,7 @@ mod search_view {
     fn resolve_failure_is_reported_and_the_view_stays() {
         let mut s = searched();
         code(&mut s, KeyCode::Down);
-        let cmds = code(&mut s, KeyCode::Enter);
+        let cmds = key(&mut s, 'e');
         reply(&mut s, &cmds[0], Err("page has no magnet link".into()));
         assert!(matches!(s.view(), View::Search));
         assert!(
@@ -4038,7 +4294,7 @@ mod video_view {
     fn lines(s: &mut State, lines: &[&str]) {
         for (i, l) in lines.iter().enumerate() {
             if i > 0 {
-                code(s, KeyCode::Enter);
+                press(s, KeyCode::Char('j'), KeyModifiers::CONTROL);
             }
             typed(s, l);
         }
@@ -4246,10 +4502,18 @@ mod video_view {
         let mut s2 = open(Some(engine(true, true, None)));
         lines(&mut s2, &[YT]);
         assert!(add(&s2).visible_fields().contains(&Field::VQuality));
-        // Tab walks into the video section and wraps back to the sources.
-        for _ in 0..Field::FULL.len() {
+        // Collapsed: folder, paused, limit, video quality, "Advanced options".
+        for _ in 0..4 {
             code(&mut s2, KeyCode::Tab);
         }
+        assert_eq!(add(&s2).focus, Focus::Field(Field::VQuality));
+        code(&mut s2, KeyCode::Tab);
+        assert_eq!(add(&s2).focus, Focus::Advanced);
+        code(&mut s2, KeyCode::Tab);
+        assert_eq!(add(&s2).focus, Focus::Sources);
+        // Expanded, Tab walks into the whole video section and wraps back.
+        code(&mut s2, KeyCode::F(2));
+        press(&mut s2, KeyCode::BackTab, KeyModifiers::SHIFT);
         assert_eq!(add(&s2).focus, Focus::Field(Field::VSeparate));
         code(&mut s2, KeyCode::Tab);
         assert_eq!(add(&s2).focus, Focus::Sources);
@@ -4318,7 +4582,11 @@ mod video_view {
         set(&mut s, Field::VQuality, "8k");
         set(&mut s, Field::VContainer, "avi");
         assert!(ctrl(&mut s, 's').is_empty());
-        assert!(status_text(&s).contains("Quality"), "{}", status_text(&s));
+        assert!(
+            status_text(&s).contains("Video quality"),
+            "{}",
+            status_text(&s)
+        );
         assert_eq!(add(&s).focus, Focus::Field(Field::VQuality));
         // The same values are ignored when no source is a video.
         let mut s = open(Some(engine(true, true, None)));
@@ -4652,5 +4920,420 @@ mod video_view {
         key(&mut s, 'j');
         key(&mut s, ' ');
         insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+}
+
+// ------------------------------------------------------------- usability
+
+mod usability {
+    use super::*;
+    use crate::fixtures::job;
+    use crate::widgets::footer;
+
+    fn empty_state(welcome: bool, marker: Option<std::path::PathBuf>) -> (State, Vec<Cmd>) {
+        let mut s = State::new(StateOptions {
+            theme: Theme::default_theme(),
+            welcome,
+            welcome_marker: marker,
+            ..StateOptions::default()
+        });
+        update(
+            &mut s,
+            Msg::Conn(ConnState::Connected {
+                daemon_version: "0.1.0".into(),
+            }),
+        );
+        let cmds = update(
+            &mut s,
+            Msg::Event(Event::Snapshot {
+                jobs: vec![],
+                stats: dman_proto::GlobalStats::default(),
+                limits: sample_limits(),
+            }),
+        );
+        (s, cmds)
+    }
+
+    fn footer_text(s: &State) -> String {
+        footer::hints(s)
+            .iter()
+            .map(|(k, v)| format!("{k} {v}"))
+            .collect::<Vec<_>>()
+            .join("  ")
+    }
+
+    fn select_job(s: &mut State, id: u64) {
+        s.list.cursor = Some(JobId(id));
+    }
+
+    // ------------------------------------------------------- empty states
+
+    #[test]
+    fn empty_list_says_what_to_do() {
+        let (mut s, _) = empty_state(false, None);
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("No downloads yet"), "{text}");
+        assert!(text.contains("a  add a link or torrent"), "{text}");
+        assert!(text.contains("f  search torrents"), "{text}");
+        assert!(text.contains("?  all keys"), "{text}");
+        let f = footer_text(&s);
+        assert!(
+            f.starts_with("a add a link or torrent  f search torrents"),
+            "{f}"
+        );
+        assert!(f.ends_with(": palette  ? help"), "{f}");
+    }
+
+    #[test]
+    fn filter_without_matches_says_esc_clears_and_esc_does() {
+        let mut s = state();
+        key(&mut s, '/');
+        typed(&mut s, "zzzz");
+        code(&mut s, KeyCode::Enter);
+        let text = render(&mut s, 80, 24);
+        assert!(
+            text.contains("No downloads match 'zzzz' — Esc clears"),
+            "{text}"
+        );
+        code(&mut s, KeyCode::Esc);
+        assert!(s.list.filter.is_empty());
+        assert_eq!(s.list.order.len(), 7);
+    }
+
+    #[test]
+    fn snapshot_empty_downloads_80x24() {
+        let (mut s, _) = empty_state(false, None);
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    // ------------------------------------------------------------ welcome
+
+    #[test]
+    fn welcome_shows_once_on_an_empty_first_run_and_is_remembered() {
+        let marker = std::path::PathBuf::from("/state/welcome-shown");
+        let (mut s, cmds) = empty_state(true, Some(marker.clone()));
+        assert!(matches!(s.modal, Some(Modal::Welcome(_))));
+        assert_eq!(cmds, vec![Cmd::MarkWelcomeShown(marker)]);
+        let f = footer_text(&s);
+        assert!(f.contains("a add a link"), "{f}");
+        // A later snapshot (reconnect) does not show it again.
+        code(&mut s, KeyCode::Esc);
+        assert!(s.modal.is_none());
+        update(
+            &mut s,
+            Msg::Event(Event::Snapshot {
+                jobs: vec![],
+                stats: dman_proto::GlobalStats::default(),
+                limits: sample_limits(),
+            }),
+        );
+        assert!(s.modal.is_none());
+    }
+
+    #[test]
+    fn welcome_keys_act_right_away() {
+        let (mut s, _) = empty_state(true, None);
+        key(&mut s, 'a');
+        assert!(s.modal.is_none());
+        assert!(matches!(s.view(), View::Add(_)));
+        let (mut s, _) = empty_state(true, None);
+        key(&mut s, '?');
+        assert!(matches!(s.view(), View::Help(_)));
+        let (mut s, _) = empty_state(true, None);
+        code(&mut s, KeyCode::Enter);
+        assert!(s.modal.is_none());
+        assert!(matches!(s.view(), View::Downloads));
+    }
+
+    #[test]
+    fn no_welcome_with_jobs_or_when_already_shown() {
+        // Existing jobs: not a first run; the marker is written anyway.
+        let mut s = State::new(StateOptions {
+            welcome: true,
+            welcome_marker: Some("/m".into()),
+            ..StateOptions::default()
+        });
+        let cmds = update(
+            &mut s,
+            Msg::Event(Event::Snapshot {
+                jobs: sample_jobs(),
+                stats: sample_stats(),
+                limits: sample_limits(),
+            }),
+        );
+        assert!(s.modal.is_none());
+        assert_eq!(cmds, vec![Cmd::MarkWelcomeShown("/m".into())]);
+        let (s, cmds) = empty_state(false, None);
+        assert!(s.modal.is_none() && cmds.is_empty());
+    }
+
+    #[test]
+    fn welcome_marker_file_suppresses_the_welcome() {
+        let d = tempfile::tempdir().unwrap();
+        let opts = crate::TuiOptions {
+            state_dir: Some(d.path().to_path_buf()),
+            ..crate::TuiOptions::default()
+        };
+        assert!(opts.initial_state().welcome_pending);
+        std::fs::write(d.path().join(crate::WELCOME_MARKER), b"").unwrap();
+        assert!(!opts.initial_state().welcome_pending);
+        assert!(crate::TuiOptions::default().initial_state().welcome_pending);
+    }
+
+    #[test]
+    fn snapshot_welcome_80x24() {
+        let (mut s, _) = empty_state(true, None);
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_welcome_120x40() {
+        let (mut s, _) = empty_state(true, None);
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+
+    // ------------------------------------------------------------- footer
+
+    #[test]
+    fn footer_follows_the_job_under_the_cursor() {
+        let mut s = state();
+        select_job(&mut s, 1); // active
+        let f = footer_text(&s);
+        assert!(
+            f.starts_with("Enter details  p pause  d remove  D delete files"),
+            "{f}"
+        );
+        select_job(&mut s, 5); // paused: resume first
+        let f = footer_text(&s);
+        assert!(f.starts_with("r resume  Enter details"), "{f}");
+        assert!(
+            f.find("r resume") < f.find("p pause").or(Some(usize::MAX)),
+            "{f}"
+        );
+        select_job(&mut s, 6); // complete
+        let f = footer_text(&s);
+        assert!(
+            f.starts_with("Enter details  d remove  D delete files"),
+            "{f}"
+        );
+        select_job(&mut s, 3); // seeding
+        assert!(footer_text(&s).contains("p stop seeding"));
+        select_job(&mut s, 7); // failed
+        assert!(footer_text(&s).starts_with("r retry"));
+        // Marked jobs: actions on all of them.
+        key(&mut s, ' ');
+        assert!(footer_text(&s).starts_with("p pause 1  r resume 1  d remove 1"));
+    }
+
+    #[test]
+    fn footer_always_ends_with_palette_and_help_even_when_narrow() {
+        let mut s = state();
+        for w in [40u16, 60, 80, 120] {
+            let text = render(&mut s, w, 24);
+            let last = text.lines().nth(23).unwrap_or_default();
+            assert!(last.ends_with("? help"), "{w}: {last}");
+            assert!(last.contains(": palette"), "{w}: {last}");
+        }
+        // Text-entry views name keys that still work there.
+        key(&mut s, 'a');
+        let f = footer_text(&s);
+        assert!(f.ends_with("Ctrl-p palette  F1 help"), "{f}");
+        assert!(f.starts_with("Enter review & add  Ctrl-j new line"), "{f}");
+        // Every view mentions the palette.
+        code(&mut s, KeyCode::Esc);
+        key(&mut s, 'f');
+        assert!(footer_text(&s).contains("palette"));
+        code(&mut s, KeyCode::Esc);
+        code(&mut s, KeyCode::Enter);
+        assert!(matches!(s.view(), View::Detail(_)));
+        let f = footer_text(&s);
+        assert!(f.starts_with("Esc back  p pause"), "{f}");
+        assert!(f.ends_with(": palette  ? help"), "{f}");
+    }
+
+    // ------------------------------------------------------- q / Esc / y
+
+    #[test]
+    fn q_goes_back_inside_views_and_quits_only_from_the_list() {
+        let mut s = state();
+        code(&mut s, KeyCode::Enter); // detail
+        assert!(key(&mut s, 'q').is_empty());
+        assert!(matches!(s.view(), View::Downloads));
+        key(&mut s, '?');
+        assert!(key(&mut s, 'q').is_empty());
+        assert!(matches!(s.view(), View::Downloads));
+        assert_eq!(key(&mut s, 'q'), vec![Cmd::Quit]);
+    }
+
+    #[test]
+    fn confirmations_accept_enter_and_cancel_with_esc() {
+        let mut s = state();
+        key(&mut s, 'd');
+        code(&mut s, KeyCode::Esc);
+        assert!(s.modal.is_none());
+        key(&mut s, 'd');
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert!(matches!(
+            cmds.as_slice(),
+            [Cmd::Api(ApiCall::Remove { .. })]
+        ));
+    }
+
+    // ------------------------------------------------------------- detail
+
+    #[test]
+    fn detail_says_what_is_happening() {
+        let s = state();
+        let summary = |id: u64| {
+            let j = &s.jobs[&JobId(id)];
+            views::detail::summary(&s, j, None)
+        };
+        assert!(
+            summary(1).starts_with("Downloading · 42 peers · 12.0 MiB/s · ETA"),
+            "{}",
+            summary(1)
+        );
+        assert_eq!(
+            summary(3),
+            "Seeding (sharing with others) — press p to stop"
+        );
+        assert_eq!(summary(5), "Paused — press r to resume");
+        assert!(summary(7).starts_with("Failed — press r to retry"));
+        assert!(summary(4).starts_with("Queued — starts next"));
+    }
+
+    fn magnet_state() -> State {
+        let mut s = state();
+        let mut m = job(20, "[METADATA]Some Movie", JobState::Active);
+        m.kind = dman_proto::SourceKind::Magnet;
+        update(&mut s, Msg::Event(Event::JobsUpdated { jobs: vec![m] }));
+        s.list.cursor = Some(JobId(20));
+        code(&mut s, KeyCode::Enter);
+        s
+    }
+
+    #[test]
+    fn magnet_without_metadata_says_so_instead_of_empty_tabs() {
+        let mut s = magnet_state();
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("Fetching torrent metadata…"), "{text}");
+        assert!(
+            text.contains("Waiting for the torrent's metadata."),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn snapshot_detail_magnet_metadata_80x24() {
+        let mut s = magnet_state();
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    // ------------------------------------------------- remove and history
+
+    #[test]
+    fn removed_jobs_are_hidden_until_h() {
+        let mut s = state();
+        let gone = job(8, "f.bin", JobState::Removed);
+        update(&mut s, Msg::Event(Event::JobsUpdated { jobs: vec![gone] }));
+        assert!(!s.list.order.contains(&JobId(8)));
+        assert_eq!(s.list.hidden_removed, 1);
+        let text = render(&mut s, 80, 24);
+        assert!(
+            text.contains("Removed (1) hidden — H shows, x clears"),
+            "{text}"
+        );
+        key(&mut s, 'H');
+        assert!(s.list.order.contains(&JobId(8)));
+        key(&mut s, 'H');
+        assert!(!s.list.order.contains(&JobId(8)));
+        // Purge (x) still offers to clear it.
+        key(&mut s, 'x');
+        let Some(Modal::Confirm(c)) = &s.modal else {
+            panic!("no purge confirmation")
+        };
+        assert!(c.lines.iter().any(|l| l.contains("f.bin")), "{:?}", c.lines);
+    }
+
+    fn remove_result(s: &mut State, ids: Vec<u64>, delete_files: bool) {
+        let ids: Vec<JobId> = ids.into_iter().map(JobId).collect();
+        update(
+            s,
+            Msg::ActionResult {
+                call: ApiCall::Remove {
+                    ids: ids.clone(),
+                    delete_files,
+                },
+                result: Ok(ApiReply::Batch(BatchResult {
+                    ok: ids,
+                    failed: vec![],
+                })),
+            },
+        );
+    }
+
+    #[test]
+    fn remove_says_what_happened_to_the_files() {
+        let mut s = state();
+        remove_result(&mut s, vec![6], false);
+        assert_eq!(status_text(&s), "Removed 'report-q3.pdf' (files kept)");
+        remove_result(&mut s, vec![6], true);
+        assert_eq!(
+            status_text(&s),
+            "Removed 'report-q3.pdf' and deleted its files"
+        );
+        remove_result(&mut s, vec![6, 7], true);
+        assert_eq!(
+            status_text(&s),
+            "Removed 2 downloads and deleted their files"
+        );
+        // The job turns "removed" and leaves the list.
+        let mut gone = s.jobs[&JobId(6)].clone();
+        gone.state = JobState::Removed;
+        update(&mut s, Msg::Event(Event::JobsUpdated { jobs: vec![gone] }));
+        assert!(!s.list.order.contains(&JobId(6)));
+    }
+
+    #[test]
+    fn delete_files_flow_is_explicit_from_the_first_dialog() {
+        let mut s = state();
+        select_job(&mut s, 6);
+        key(&mut s, 'D');
+        let Some(Modal::Confirm(c)) = &s.modal else {
+            panic!("no confirmation")
+        };
+        assert_eq!(c.title, "Remove and DELETE files of 1 download?");
+        assert!(c.lines[0].contains("deletes the files from disk"));
+        code(&mut s, KeyCode::Esc);
+        assert!(s.modal.is_none());
+    }
+
+    #[test]
+    fn header_speed_is_zero_without_transfers() {
+        let mut s = state();
+        assert!(
+            render(&mut s, 120, 40)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .contains("15.0 MiB/s")
+        );
+        let jobs: Vec<_> = s
+            .jobs
+            .values()
+            .cloned()
+            .map(|mut j| {
+                j.state = JobState::Complete;
+                j
+            })
+            .collect();
+        update(&mut s, Msg::Event(Event::JobsUpdated { jobs }));
+        let head = render(&mut s, 120, 40);
+        let head = head.lines().next().unwrap_or("");
+        assert!(!head.contains("15.0 MiB/s"), "{head}");
+        assert_eq!(
+            views::detail::summary(&s, &s.jobs[&JobId(1)], None),
+            "Finished — the files are in the folder below"
+        );
     }
 }

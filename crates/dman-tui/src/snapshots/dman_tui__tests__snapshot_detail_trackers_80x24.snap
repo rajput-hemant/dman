@@ -6,6 +6,7 @@ expression: "detail_snapshot('3', 1, 80, 24)"
  sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
 ┌ Download #1 ─────────────────────────────────────────────────────────────────┐
 │     Name  ubuntu-24.04.1-desktop-amd64.iso                                   │
+│      Now  Downloading · 42 peers · 12.0 MiB/s · ETA 2m51s                    │
 │   Status  active  ██████████░░░░░░  66%  4.0 GiB / 6.0 GiB                   │
 │    Speed  ▼ 12.0 MiB/s  ▲ 800.0 KiB/s  ETA 2m51s  peers 42/118  ratio 0.25   │
 │      Dir  /home/me/Downloads                                                 │
@@ -22,7 +23,6 @@ expression: "detail_snapshot('3', 1, 80, 24)"
 │                                                                              │
 │                                                                              │
 │                                                                              │
-│                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
  Connected to daemon 0.1.0
- Esc back  Tab next tab  Space toggle file  Enter edit  p pause  ? help
+ Esc back  p pause  Tab next tab  d remove  D delete files  : palette  ? help

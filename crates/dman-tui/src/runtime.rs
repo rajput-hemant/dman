@@ -241,6 +241,24 @@ fn spawn_cmd(cmd: Cmd, client: &ReconnectingClient, tx: &mpsc::Sender<Msg>) {
                 .await;
                 return;
             }
+            Cmd::MarkWelcomeShown(path) => {
+                let _ = blocking(move || {
+                    if let Some(dir) = path.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    // Never overwrites anything: the file is only created.
+                    if let Err(e) = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create_new(true)
+                        .open(&path)
+                        && e.kind() != std::io::ErrorKind::AlreadyExists
+                    {
+                        tracing::debug!("cannot record the welcome as shown: {e}");
+                    }
+                })
+                .await;
+                return;
+            }
             Cmd::Quit => return,
         };
         let _ = tx.send(msg).await;

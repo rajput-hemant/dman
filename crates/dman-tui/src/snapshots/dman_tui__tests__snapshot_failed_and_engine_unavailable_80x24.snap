@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 
 
  Cannot connect: incompatible API version (daemon 2, client 1)
- p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit
+ Enter details  p pause  d remove  D delete files  a add  : palette  ? help

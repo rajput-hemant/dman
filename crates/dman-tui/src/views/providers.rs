@@ -259,7 +259,7 @@ fn confirm_remove(state: &mut State) -> Vec<Cmd> {
     }
     let name = p.name.clone();
     state.modal = Some(Modal::Confirm(ConfirmState::yes_no(
-        format!("Remove provider {name}? y/N"),
+        format!("Remove provider {name}?"),
         vec![
             "The custom provider is deleted from the configuration.".into(),
             "Export it first (e) if you want to keep the definition.".into(),

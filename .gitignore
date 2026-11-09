@@ -1,0 +1,19 @@
+# Build output
+/target/
+**/*.rs.bk
+
+# Local planning material — never pushed
+/.plan/
+/spikes/
+*.plan.md
+/notes/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Local runtime data and secrets
+secrets.toml
+*.session

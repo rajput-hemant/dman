@@ -1,0 +1,106 @@
+# dman — progress tracker
+
+**Overall: 0 %** · Current milestone: **M0 — spikes** · Last updated: 2026-11-09
+
+Resume rule: start at the first unchecked item in "Next up". Tick items here and
+commit this file together with the code it describes.
+
+## Current state
+
+- Local repository only (no remote yet). Toolchain: Rust 1.97 stable, musl target.
+- Engines available in the dev container: aria2c 1.37.0, yt-dlp 2026.10.26, ffmpeg.
+- Nothing implemented yet.
+
+## Milestones and weights (sum = 100 %)
+
+| Milestone | Weight | Status |
+| --- | --- | --- |
+| M0 Spikes (de-risk aria2/yt-dlp behaviour, size baseline) | 5 | in progress |
+| M1 Foundation (workspace, proto, config, aria2 client, daemon lifecycle, API, basic CLI) | 15 | — |
+| M2 TUI core (loop, keymap, palette, downloads view, add view, confirmations) | 12 | — |
+| M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | — |
+| M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | — |
+| M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | — |
+| M6 Video engine (yt-dlp adapter, probe UI, options, fallbacks) | 10 | — |
+| M7 Web UI (htmx views, live updates, upload, auth, responsive) | 12 | — |
+| M8 Remote and release (TLS, reconnect, completions, installers, update, docs, review) | 11 | — |
+
+## Next up
+
+### M0 — spikes (5 %)
+- [ ] aria2 behaviour spike: changeOption `out`/`index-out`/`bt-tracker` on paused items; magnet metadata-only → re-add with `select-file`; `bt-detach-seed-only`; session restore of paused items; upload counters after restart
+- [ ] yt-dlp spike: `--progress-template` JSON lines, kill + `--continue` resume, format choice without ffmpeg
+- [ ] Size baseline: ratatui + axum + reqwest(rustls/ring) + scraper + redb on musl, stripped
+
+### M1 — foundation (15 %)
+- [ ] Workspace skeleton, lints, release profile, CI script (fmt, clippy, test, size report), cargo-deny config
+- [ ] `dman-proto`: Job model, states, options, events, JSON-RPC envelope, error codes
+- [ ] `dman-config`: profiles, TOML load/validate, secrets.toml (0600), paths (`~/.config/dman`)
+- [ ] `dman-aria2`: typed JSON-RPC/WebSocket client, notifications, multicall, option mapping, capability detection
+- [ ] `dman-aria2` supervisor: spawn/attach, port probe, generated aria2 config, restart with backoff, clean shutdown
+- [ ] `dman-daemon` skeleton: job manager (GID↔JobId), tick poller + deltas, event bus, API server (JSON-RPC over WS + POST), token auth
+- [ ] `dman-client` + CLI: `daemon start|stop|restart|status|run|gen-config`, `add`, `list`, `get`, `pause`, `resume`, `remove`, `purge`, `--json`, exit codes
+
+### M2 … M8
+Detailed task lists are written when the previous milestone finishes (see the milestone
+table above and decisions below for scope).
+
+## Confirmed decisions (do not re-ask)
+
+| ID | Decision |
+| --- | --- |
+| D1 | dman daemon owns aria2c + yt-dlp + all state; TUI, web, CLI are API clients |
+| D2 | TUI: ratatui + crossterm only (no GPUI in v1) |
+| D3 | Web UI runs inside daemon; `dman serve` = daemon foreground with web on, or enable web on running daemon |
+| D4 | API: JSON-RPC 2.0 over WebSocket + HTTP POST (one-shot) + SSE (browser) |
+| D4b | Local transport: TCP localhost + token |
+| D5 | dman owns the queue: add to aria2 paused, dman unpauses (priority, schedule, disk) |
+| D6 | Own thin aria2 client on tokio-tungstenite |
+| D7 | Web: server-rendered HTML (maud/askama) + htmx w/ SSE extension, embedded via rust-embed |
+| D8 | Store: redb |
+| D9 | Video pause: kill yt-dlp, resume with `--continue` |
+| D10 | Video detect: known-domain heuristic + "try as video" background probe |
+| D11 | Schedules: day-of-week + time windows (no cron) |
+| D12 | dman persists uploaded bytes, computes ratio / seed-ratio stop itself |
+| D13 | Tracker status shown as "unknown"; no scraping; per-tracker summary dropped |
+| D14 | Blocklist = tracker exclusion (`bt-exclude-tracker`) |
+| D15 | clap + clap_complete |
+| D16 | Config dir `~/.config/dman` on Linux and macOS (etcetera, XDG strategy) |
+| D17 | Clipboard: arboard read, OSC 52 copy |
+| D18 | rustls + ring |
+| D19 | quick-xml for Torznab/RSS/Atom |
+| D20 | notify-rust; when remote, client shows notifications; daemon host optional |
+| D21 | Secrets in `secrets.toml` (0600), referenced by name |
+| D22 | Install: cargo-dist + Homebrew; `dman update` self-replaces only for dman-installer installs; Homebrew → `brew upgrade dman`; other/unknown → print command, refuse (exit 6) |
+| D23 | Binary as small as possible without dropping features; size tracked in CI |
+| D24 | Built-in TLS (user cert) + SSH/reverse-proxy docs |
+| D25 | Built-in providers as declarative data where possible |
+| D26 | All providers off by default; first-run prompt |
+| D27 | Update check opt-in, off by default; `dman update --check` always |
+| D28 | Remove-unselected-files: opt-in + confirmation |
+| Q1 | Detached-only seeding = `bt-detach-seed-only` |
+| Q2 | Tracker-list source refreshed on a timer, applied to new torrents |
+| Q3 | Free-space threshold absolute or percent; drop mid-download → pause volume, notify, auto-resume |
+| Q4 | Disconnected TUI: greyed data, actions disabled |
+| Q5 | Settings writes via toml_edit, preserving comments |
+| Q6 | File browser: local FS for uploads, daemon FS for directories |
+| Q7 | aria2c ≥ 1.36; yt-dlp ≤ 12 months old; MSRV = stable at start (1.97) |
+| Q8 | License undecided/proprietary; deps permissive only (cargo-deny) |
+| Q9 | CLI output: table + `--json` |
+
+## Key dependencies (versions checked 2026-11-09)
+
+tokio 1.54 · serde/serde_json 1.0 · toml 1.2 / toml_edit · clap 4.6 · thiserror 2 · anyhow 1 ·
+tracing 0.1 · secrecy 0.10 · etcetera 0.11 · jiff 0.2 · fs4 1.1 · nix 0.31 · tokio-util 0.7 ·
+governor 0.10 · backon 1.6 · bytesize 2.7 · tokio-tungstenite 0.30 · bendy 0.6 · sha1 0.11 · url 2.5 ·
+ratatui 0.30 · crossterm 0.29 · tui-input 0.15 · nucleo-matcher 0.3 · crokey 1.5 · arboard 3.7 ·
+axum 0.8 · tower-http 0.7 · rust-embed 8 · maud 0.27 · subtle 2.6 · reqwest 0.13 · rustls 0.23 (ring) ·
+scraper 0.29 · quick-xml 0.42 · redb 4.5 · notify-rust 4.19 · insta · assert_cmd · wiremock · proptest
+
+## Spike findings
+
+(filled in by M0)
+
+## Session log
+
+- 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 started.

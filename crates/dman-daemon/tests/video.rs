@@ -318,6 +318,9 @@ async fn assert_no_process(what: &str, root: &Path) {
 /// arguments are appended to `args.log` next to the script.
 const FAKE_YTDLP: &str = r#"#!/bin/bash
 if [ "$1" = "--version" ]; then echo 2026.10.26; exit 0; fi
+for a in "$@"; do
+  if [ "$a" = "-J" ]; then cat "$(dirname "$0")/probe.json"; exit 0; fi
+done
 echo "$*" >> "$(dirname "$0")/args.log"
 out=""; marker=""; url=""
 while [ $# -gt 0 ]; do
@@ -360,6 +363,21 @@ fn fake_ytdlp(root: &Path) -> PathBuf {
     std::fs::create_dir_all(&bin).unwrap();
     let p = bin.join("yt-dlp");
     std::fs::write(&p, FAKE_YTDLP).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    p
+}
+
+/// A fake `ffmpeg` that only answers `-version` (enough for merging to count as available).
+fn fake_ffmpeg(root: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt as _;
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let p = bin.join("ffmpeg");
+    std::fs::write(
+        &p,
+        "#!/bin/sh\necho 'ffmpeg version 7.0 Copyright (c) test'\n",
+    )
+    .unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
     p
 }
@@ -900,6 +918,194 @@ async fn video_job_survives_daemon_restart() {
     assert_eq!(fake_args(root.path()).len(), 2);
     d.stop(&c).await;
     assert_no_process("yt-dlp", root.path()).await;
+}
+
+/// A YouTube-like `yt-dlp -J` answer for the fake.
+const FAKE_PROBE: &str = r#"{"id":"abc","title":"Demo","duration":100.0,"formats":[
+ {"format_id":"139","ext":"m4a","vcodec":"none","acodec":"mp4a.40.5","tbr":49.6,"filesize":600000},
+ {"format_id":"140","ext":"m4a","vcodec":"none","acodec":"mp4a.40.2","tbr":129.5,"filesize":1600000},
+ {"format_id":"251","ext":"webm","vcodec":"none","acodec":"opus","tbr":135.0,"filesize":1700000},
+ {"format_id":"18","ext":"mp4","vcodec":"avc1.42001E","acodec":"mp4a.40.2","height":360,"fps":30,"filesize":6000000},
+ {"format_id":"136","ext":"mp4","vcodec":"avc1.4d401f","acodec":"none","height":720,"fps":30,"filesize":18000000},
+ {"format_id":"137","ext":"mp4","vcodec":"avc1.640028","acodec":"none","height":1080,"fps":30,"filesize":50000000},
+ {"format_id":"313","ext":"webm","vcodec":"vp9","acodec":"none","height":2160,"fps":30,"filesize":180000000}]}"#;
+
+/// The args of the (single) yt-dlp run for `.../name`.
+fn args_for(root: &Path, name: &str) -> String {
+    fake_args(root)
+        .into_iter()
+        .find(|l| l.ends_with(&format!("/{name}")))
+        .unwrap_or_else(|| panic!("no yt-dlp run for {name}: {:?}", fake_args(root)))
+}
+
+async fn add_and_finish(c: &Client, name: &str, opts: VideoOptions) {
+    let id = add_one(
+        c,
+        video(format!("https://e.example/v/{name}"), opts),
+        JobOptions::default(),
+    )
+    .await;
+    wait_jobs(c, 20, "complete", |j| state_of(j, id) == JobState::Complete).await;
+}
+
+/// `video.preferences.get/set`: saved to `[video]` with comments kept, applied
+/// without a restart (new jobs use them), validated, and still there after a
+/// restart. Adding without quality uses default quality + audio + container;
+/// an explicit `VID+AUD` format id reaches yt-dlp as given.
+#[tokio::test(flavor = "multi_thread")]
+async fn video_preferences_persist_apply_and_drive_defaults() {
+    let root = tempfile::tempdir().unwrap();
+    let ytdlp = fake_ytdlp(root.path());
+    std::fs::write(root.path().join("bin/probe.json"), FAKE_PROBE).unwrap();
+    let ffmpeg = fake_ffmpeg(root.path());
+    let cfg = config(
+        root.path(),
+        "/nonexistent/aria2c",
+        &ytdlp.display().to_string(),
+        Some(&ffmpeg.display().to_string()),
+    );
+    let paths = Paths::with_root(root.path());
+    let text = toml::to_string(&cfg)
+        .unwrap()
+        .replace("[video]\n", "[video]\n# keep me: video notes\n");
+    std::fs::write(paths.config_file(), format!("# top comment\n{text}")).unwrap();
+
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    let p = c.video_preferences().await.unwrap();
+    assert!(p.ask_quality);
+    assert_eq!(
+        (p.default_quality.as_str(), p.default_audio.as_str()),
+        ("best", "best")
+    );
+    assert_eq!(p.default_container, None);
+
+    // The probe reflects the defaults: ffmpeg present -> merged choices, the best
+    // one suggested with the best audio.
+    let probe = c
+        .video_probe(VideoProbeParams {
+            url: "https://e.example/v/probe".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(probe.needs_choice);
+    assert_eq!(probe.video_choices[0].id, "313+251");
+    assert_eq!(probe.suggested.video.as_deref(), Some("313+251"));
+    assert_eq!(probe.audio_choices.len(), 3);
+
+    add_and_finish(&c, "d1", VideoOptions::default()).await;
+    assert!(
+        args_for(root.path(), "d1").contains("-f bv*+ba/b "),
+        "{}",
+        args_for(root.path(), "d1")
+    );
+
+    // "Use as default" + "never ask again".
+    let new = c
+        .video_preferences_set(dman_proto::VideoPreferencesUpdate {
+            ask_quality: Some(false),
+            default_quality: Some("1080".into()),
+            default_audio: Some("M4A".into()),
+            default_container: Some("mkv".into()),
+        })
+        .await
+        .unwrap();
+    assert!(!new.ask_quality);
+    assert_eq!(new.default_quality, "1080p");
+    assert_eq!(new.default_audio, "m4a");
+    assert_eq!(new.default_container.as_deref(), Some("mkv"));
+    assert_eq!(c.video_preferences().await.unwrap(), new);
+
+    let file = std::fs::read_to_string(paths.config_file()).unwrap();
+    assert!(file.contains("# top comment") && file.contains("# keep me: video notes"));
+    let saved = Config::load(&paths).unwrap().video;
+    assert!(!saved.ask_quality);
+    assert_eq!(saved.default_quality, "1080p");
+    assert_eq!(saved.default_audio, "m4a");
+    assert_eq!(saved.default_container.as_deref(), Some("mkv"));
+
+    // Applied at once: no restart, no reload call.
+    add_and_finish(&c, "d2", VideoOptions::default()).await;
+    let a = args_for(root.path(), "d2");
+    assert!(
+        a.contains("-f bv*[height<=1080]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080] "),
+        "{a}"
+    );
+    assert!(a.contains("--merge-output-format mkv"), "{a}");
+    // The suggestion follows the new defaults too.
+    let probe = c
+        .video_probe(VideoProbeParams {
+            url: "https://e.example/v/probe".into(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(probe.suggested.video.as_deref(), Some("137+140"));
+
+    // An explicit combined format id wins over the defaults.
+    add_and_finish(
+        &c,
+        "d3",
+        VideoOptions {
+            format_id: Some("136+251".into()),
+            ..Default::default()
+        },
+    )
+    .await;
+    assert!(args_for(root.path(), "d3").contains("-f 136+251 "));
+
+    // Invalid values change nothing (memory and file).
+    let before = std::fs::read_to_string(paths.config_file()).unwrap();
+    for bad in [
+        dman_proto::VideoPreferencesUpdate {
+            default_quality: Some("999p".into()),
+            ..Default::default()
+        },
+        dman_proto::VideoPreferencesUpdate {
+            default_audio: Some("flac".into()),
+            ..Default::default()
+        },
+        dman_proto::VideoPreferencesUpdate {
+            ask_quality: Some(true),
+            default_container: Some("avi".into()),
+            ..Default::default()
+        },
+    ] {
+        let e = c.video_preferences_set(bad).await.unwrap_err();
+        assert!(
+            matches!(&e, ClientError::Rpc(e) if e.code == ErrorCode::InvalidInput),
+            "{e:?}"
+        );
+    }
+    assert_eq!(c.video_preferences().await.unwrap(), new);
+    assert_eq!(
+        std::fs::read_to_string(paths.config_file()).unwrap(),
+        before
+    );
+
+    // Settings turns asking back on and clears the container.
+    let back = c
+        .video_preferences_set(dman_proto::VideoPreferencesUpdate {
+            ask_quality: Some(true),
+            default_container: Some(String::new()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert!(back.ask_quality && back.default_container.is_none());
+    assert_eq!(back.default_quality, "1080p");
+    let file = std::fs::read_to_string(paths.config_file()).unwrap();
+    assert!(!file.contains("default_container") && file.contains("# keep me"));
+    d.stop(&c).await;
+    assert_no_process("yt-dlp", root.path()).await;
+
+    // Still there after a restart (the daemon starts from the saved file).
+    let cfg = Config::load(&paths).unwrap();
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    assert_eq!(c.video_preferences().await.unwrap(), back);
+    d.stop(&c).await;
 }
 
 // ----- tests with the real yt-dlp + ffmpeg --------------------------------------

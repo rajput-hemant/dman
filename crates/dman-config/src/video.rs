@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use dman_ytdlp::{Container, DownloadSpec, QualityPreset, SponsorBlock, SubOpts};
+use dman_ytdlp::{AudioPref, Container, DownloadSpec, QualityPreset, SponsorBlock, SubOpts};
 use serde::{Deserialize, Serialize};
 
 fn yes() -> bool {
@@ -10,6 +10,10 @@ fn yes() -> bool {
 }
 
 fn default_quality() -> String {
+    "best".into()
+}
+
+fn default_audio() -> String {
     "best".into()
 }
 
@@ -47,9 +51,18 @@ pub struct Video {
     /// ffmpeg executable; unset = `ffmpeg` on `PATH`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ffmpeg_path: Option<String>,
+    /// Show the quality picker before a video download starts (clients probe
+    /// the URL and let the user choose). `false` = "never ask again": videos
+    /// are added directly with the defaults below.
+    #[serde(default = "yes")]
+    pub ask_quality: bool,
     /// Quality preset: best, 2160p, 1440p, 1080p, 720p, 480p, audio:m4a|mp3|opus.
     #[serde(default = "default_quality")]
     pub default_quality: String,
+    /// Preferred audio track when video and audio are combined:
+    /// best, m4a, opus or mp3 (falls back to the best audio).
+    #[serde(default = "default_audio")]
+    pub default_audio: String,
     /// Container for merged video: mp4, mkv or webm; unset = yt-dlp's choice.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_container: Option<String>,
@@ -75,7 +88,9 @@ impl Default for Video {
         Self {
             ytdlp_path: None,
             ffmpeg_path: None,
+            ask_quality: true,
             default_quality: default_quality(),
+            default_audio: default_audio(),
             default_container: None,
             output_template: default_template(),
             sponsorblock_remove: Vec::new(),
@@ -96,6 +111,8 @@ impl Video {
         }
         QualityPreset::from_str(&self.default_quality)
             .map_err(|e| format!("video.default_quality: {e}"))?;
+        AudioPref::from_str(&self.default_audio)
+            .map_err(|e| format!("video.default_audio: {e}"))?;
         if let Some(c) = &self.default_container {
             Container::from_str(c).map_err(|e| format!("video.default_container: {e}"))?;
         }
@@ -141,6 +158,10 @@ mod tests {
                 ..Video::default()
             },
             Video {
+                default_audio: "flac".into(),
+                ..Video::default()
+            },
+            Video {
                 output_template: "../x.%(ext)s".into(),
                 ..Video::default()
             },
@@ -174,9 +195,22 @@ mod tests {
         let ok = Video {
             default_quality: "audio:mp3".into(),
             default_container: Some("mkv".into()),
+            default_audio: "opus".into(),
+            ask_quality: false,
             sponsorblock_remove: vec!["sponsor".into(), "intro".into()],
             ..Video::default()
         };
         ok.validate().unwrap();
+    }
+
+    #[test]
+    fn new_keys_default_and_parse() {
+        let v: Video = toml::from_str("").unwrap();
+        assert!(v.ask_quality);
+        assert_eq!(v.default_audio, "best");
+        let v: Video = toml::from_str("ask_quality = false\ndefault_audio = \"m4a\"").unwrap();
+        assert!(!v.ask_quality);
+        assert_eq!(v.default_audio, "m4a");
+        v.validate().unwrap();
     }
 }

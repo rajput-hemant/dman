@@ -35,6 +35,11 @@ pub const FS_LIST: &str = "fs.list";
 pub const ENGINE_STATUS: &str = "engine.status";
 /// `video.probe`: [`crate::VideoProbeParams`] -> [`crate::VideoProbe`].
 pub const VIDEO_PROBE: &str = "video.probe";
+/// `video.preferences.get`: no params -> [`crate::VideoPreferences`].
+pub const VIDEO_PREFERENCES_GET: &str = "video.preferences.get";
+/// `video.preferences.set`: [`crate::VideoPreferencesUpdate`] -> the new
+/// [`crate::VideoPreferences`]; applied at once and saved to `[video]` in config.toml.
+pub const VIDEO_PREFERENCES_SET: &str = "video.preferences.set";
 pub const ENGINE_RESTART: &str = "engine.restart";
 pub const DAEMON_SHUTDOWN: &str = "daemon.shutdown";
 /// `web.status`: no params -> [`WebStatus`].

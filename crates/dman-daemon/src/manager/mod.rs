@@ -84,6 +84,8 @@ pub enum Request {
     Cleanup(dman_proto::method::CleanupParams),
     /// `config.reload`: apply the live-reloadable settings.
     ApplySettings(Box<Settings>),
+    /// `video.preferences.set`: new `[video]` defaults for jobs added from now on.
+    SetVideoConfig(Box<dman_config::Video>),
     /// `stats.get`
     Stats,
     /// `stats.history`
@@ -636,6 +638,10 @@ impl Manager {
                     self.emit_changes();
                 }
                 to_value(r?)
+            }
+            Request::SetVideoConfig(v) => {
+                self.video_cfg = *v;
+                Ok(Value::Null)
             }
             Request::ApplySettings(s) => {
                 self.apply_settings(*s).await;

@@ -11,6 +11,7 @@
 //! Command lines are never logged (they may contain cookies settings or proxy credentials).
 
 mod args;
+mod choices;
 mod detect;
 mod error;
 mod format;
@@ -22,9 +23,13 @@ mod tools;
 pub use args::{
     DEFAULT_TEMPLATE, DownloadSpec, SponsorBlock, SubOpts, build_args, validate_extra_args,
 };
+pub use choices::{Choice, ChoiceDefaults, ChoiceKind, Choices, Suggested, build_choices};
 pub use detect::is_probably_video_url;
 pub use error::{Error, Result};
-pub use format::{AudioCodec, Container, Plan, PlanKind, QualityPreset, fallback_plan, selector};
+pub use format::{
+    AudioCodec, AudioPref, Container, Plan, PlanKind, QualityPreset, fallback_plan, parse_quality,
+    quality_string, selector, selector_with_audio,
+};
 pub use probe::{
     Entry, Format, ProbeOptions, ProbeResult, StreamKind, VideoInfo, parse_probe_json, probe,
 };

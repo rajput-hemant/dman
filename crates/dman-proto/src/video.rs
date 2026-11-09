@@ -1,4 +1,51 @@
-//! Video downloads through the yt-dlp engine: per-job options and `video.probe`.
+//! Video downloads through the yt-dlp engine: per-job options, `video.probe`
+//! and the quality-picker preferences.
+//!
+//! # Quality picker flow (every client implements it the same way)
+//!
+//! ```text
+//! prefs = video.preferences.get
+//! if !engine.status(yt-dlp).available      -> no video (as before)
+//! if !prefs.ask_quality                    -> jobs.add Video { VideoOptions::default() }
+//!                                             (no probe; the daemon applies the saved defaults)
+//! else:
+//!     probe = video.probe { url }
+//!     if probe.playlist                    -> playlist/item picker; quality from `probe.plans`
+//!                                             (presets) or the defaults
+//!     elif !probe.needs_choice             -> jobs.add Video { VideoOptions::default() }
+//!     else                                 -> show the picker (below)
+//! ```
+//!
+//! The picker preselects `probe.suggested` and lists `video_choices` (best
+//! first) and `audio_choices`. Entries with `available == false` are shown
+//! greyed with `unavailable_reason` (ffmpeg missing) and cannot be chosen.
+//! It offers a "use as default" checkbox and a "never ask again" checkbox.
+//!
+//! What the choice becomes in `VideoOptions`:
+//! * a video choice: `format_id = choice.id` (`VID+AUD` or a single id);
+//! * a different audio track for a video-only choice:
+//!   `format_id = "{video.stream_id}+{audio.id}"`;
+//! * an audio-only download of the original stream: `format_id = audio.id`;
+//!   converted to a codec (needs ffmpeg): `audio_only = "mp3"|"m4a"|"opus"`;
+//! * a preset instead of exact formats: `quality = "1080p"`, `"best"`,
+//!   `"audio:mp3"`, optionally `"1080p+m4a"` (preset plus audio preference).
+//!
+//! `format_id` may hold anything yt-dlp's `-f` accepts, in particular
+//! `137+140` and `137+140/18`; a `+` needs ffmpeg (without it the add is
+//! refused unless `allow_separate_streams` is set).
+//!
+//! When "use as default" and/or "never ask again" are ticked the client calls
+//! `video.preferences.set` (before or after adding):
+//! * "use as default": `default_quality` (preset name matching the choice's
+//!   height, e.g. `1080p`, or `audio:m4a`) and `default_audio` (`m4a`, `opus`,
+//!   `mp3` from the audio codec, else `best`);
+//! * "never ask again": `ask_quality = false`.
+//!
+//! Settings screens read the preferences and use the same call to turn asking
+//! back on (`ask_quality = true`) or to change the defaults. With neither
+//! `quality`, `format_id` nor `audio_only` set, the daemon uses
+//! `default_quality` + `default_audio` (stored as `quality`, e.g. `1080p+m4a`)
+//! and `default_container`.
 
 use serde::{Deserialize, Serialize};
 
@@ -37,10 +84,13 @@ impl Default for VideoSubtitles {
 #[serde(default)]
 pub struct VideoOptions {
     /// Quality preset (`best`, `2160p`, `1440p`, `1080p`, `720p`, `480p`,
-    /// `audio:m4a|mp3|opus`) or a raw yt-dlp format selector.
+    /// `audio:m4a|mp3|opus`), a preset with an audio preference (`1080p+m4a`,
+    /// `best+opus`) or a raw yt-dlp format selector.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<String>,
-    /// Exact format id(s) from `video.probe` (e.g. `137+140`); wins over `quality`.
+    /// Exact format id(s) from `video.probe` (e.g. `137+140`, `137+140/18`;
+    /// any yt-dlp `-f` expression without spaces); wins over `quality`. A `+`
+    /// merges streams and needs ffmpeg.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format_id: Option<String>,
     /// Container for merged output: `mp4`, `mkv` or `webm` (needs ffmpeg).
@@ -200,6 +250,108 @@ pub struct VideoProbe {
     /// One plan per quality preset, honouring ffmpeg availability.
     #[serde(default)]
     pub plans: Vec<VideoPlan>,
+    /// Picker entries for the video, best first (empty for playlists).
+    #[serde(default)]
+    pub video_choices: Vec<QualityChoice>,
+    /// Picker entries for the audio track, best bitrate first.
+    #[serde(default)]
+    pub audio_choices: Vec<QualityChoice>,
+    /// Show the picker: more than one meaningfully different video quality
+    /// (height / frame-rate class) or more than one audio option. False for
+    /// single-format sources such as direct file URLs. True for playlists
+    /// (items are picked there; qualities come from `plans`).
+    #[serde(default)]
+    pub needs_choice: bool,
+    /// What the current defaults would pick.
+    #[serde(default)]
+    pub suggested: QualityChoiceRef,
+}
+
+/// What a quality choice downloads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityChoiceKind {
+    /// One pre-merged stream (or codecs unknown).
+    #[default]
+    Muxed,
+    /// A video stream, combined with the preferred audio stream when there is one.
+    VideoOnly,
+    AudioOnly,
+}
+
+/// One entry of the quality picker.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct QualityChoice {
+    /// yt-dlp format id, or `VID+AUD` for a combined choice: use as `VideoOptions::format_id`.
+    pub id: String,
+    /// The format id of the video (or audio) stream alone.
+    #[serde(default)]
+    pub stream_id: String,
+    /// "1080p60 · VP9 · ~1.2 GiB"
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fps: Option<f64>,
+    /// Codec family: H.264, VP9, AV1, AAC, Opus, ...
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub codec: Option<String>,
+    /// Bytes (video plus audio for a combined choice).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_estimate: Option<u64>,
+    pub kind: QualityChoiceKind,
+    /// ffmpeg must merge video and audio.
+    #[serde(default)]
+    pub requires_ffmpeg: bool,
+    /// False when it needs ffmpeg and ffmpeg is missing; see `unavailable_reason`.
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unavailable_reason: Option<String>,
+}
+
+/// The choices the current defaults would pick (ids of `video_choices` and
+/// `audio_choices`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QualityChoiceRef {
+    /// `video_choices[].id`; unset for audio-only defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<String>,
+    /// `audio_choices[].id`: the audio track of a combined video choice or of
+    /// an audio-only default; unset for a pre-merged video choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<String>,
+}
+
+/// `video.preferences.get` result and `video.preferences.set` result: the
+/// `[video]` defaults of the quality picker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoPreferences {
+    /// Show the picker before downloading (false = "never ask again").
+    pub ask_quality: bool,
+    /// Preset: `best`, `2160p`, `1440p`, `1080p`, `720p`, `480p`, `audio:m4a|mp3|opus`.
+    pub default_quality: String,
+    /// Preferred audio track when combining: `best`, `m4a`, `opus`, `mp3`.
+    pub default_audio: String,
+    /// `mp4`, `mkv` or `webm`; unset = yt-dlp's choice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_container: Option<String>,
+}
+
+/// `video.preferences.set` parameters: only the given fields change. They are
+/// applied immediately and written to `[video]` in `config.toml` (comments
+/// preserved).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VideoPreferencesUpdate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ask_quality: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_quality: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_audio: Option<String>,
+    /// An empty string clears the container default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_container: Option<String>,
 }
 
 #[cfg(test)]
@@ -225,5 +377,14 @@ mod tests {
         assert_eq!(serde_json::from_value::<VideoOptions>(v).unwrap(), o);
         let s: VideoSubtitles = serde_json::from_str(r#"{"langs":["de"]}"#).unwrap();
         assert!(s.embed && !s.auto);
+    }
+
+    #[test]
+    fn old_probe_json_still_parses() {
+        let p: VideoProbe = serde_json::from_str(r#"{"url":"https://e.com/v"}"#).unwrap();
+        assert!(p.video_choices.is_empty() && !p.needs_choice);
+        assert_eq!(p.suggested, QualityChoiceRef::default());
+        let u: VideoPreferencesUpdate = serde_json::from_str("{}").unwrap();
+        assert_eq!(u, VideoPreferencesUpdate::default());
     }
 }

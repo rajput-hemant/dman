@@ -92,6 +92,11 @@ pub(crate) fn diff(
 }
 
 impl Reloader {
+    /// `video.preferences.set` changed `[video]`: remember it as applied.
+    pub(crate) fn note_video(&self, video: &dman_config::Video) {
+        self.running.lock().unwrap_or_else(|e| e.into_inner()).video = video.clone();
+    }
+
     pub(crate) async fn reload(&self, state: &Arc<ServerState>) -> Result<ReloadResult, RpcError> {
         let new = Config::load(&self.paths).map_err(invalid)?;
         new.validate().map_err(invalid)?;
@@ -162,6 +167,9 @@ impl Reloader {
         }
         if applied.contains(&"search") {
             state.search.apply_reload(search);
+        }
+        if applied.contains(&"video") {
+            state.video.apply_config(&new.video);
         }
         if video_paths_changed {
             state.video.redetect().await;

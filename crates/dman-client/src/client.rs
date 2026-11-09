@@ -379,6 +379,20 @@ macro_rules! typed_api {
                 .await
         }
 
+        /// `video.preferences.get`: the quality-picker defaults (`[video]`).
+        pub async fn video_preferences(&self) -> Result<dman_proto::VideoPreferences, ClientError> {
+            self.call(method::VIDEO_PREFERENCES_GET, ()).await
+        }
+
+        /// `video.preferences.set`: changes the given fields, applies them at
+        /// once, saves them to `[video]` in config.toml and returns the result.
+        pub async fn video_preferences_set(
+            &self,
+            update: dman_proto::VideoPreferencesUpdate,
+        ) -> Result<dman_proto::VideoPreferences, ClientError> {
+            self.call(method::VIDEO_PREFERENCES_SET, update).await
+        }
+
         /// `jobs.pause`
         pub async fn pause(&self, ids: &[JobId]) -> Result<method::BatchResult, ClientError> {
             self.call(method::JOBS_PAUSE, IdsParams { ids: ids.to_vec() })

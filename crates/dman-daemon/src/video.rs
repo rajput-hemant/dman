@@ -15,14 +15,17 @@ use std::time::Duration;
 use dman_config::Paths;
 use dman_proto::method::EngineStatus;
 use dman_proto::video::{
-    PlaylistEntry, VideoFormat, VideoPlan, VideoPlanKind, VideoProbe, VideoProbeParams,
+    PlaylistEntry, QualityChoice, QualityChoiceKind, QualityChoiceRef, VideoFormat, VideoPlan,
+    VideoPlanKind, VideoPreferences, VideoPreferencesUpdate, VideoProbe, VideoProbeParams,
     VideoStreamKind,
 };
 use dman_proto::{Engine, ErrorCode, RpcError, VideoOptions, VideoSubtitles};
 use dman_ytdlp::{
-    AudioCodec, Container, DownloadSpec, Plan, PlanKind, ProbeOptions, ProbeResult, QualityPreset,
-    SponsorBlock, StreamKind, SubOpts, Tools, VideoInfo,
+    AudioCodec, AudioPref, Choice, ChoiceDefaults, ChoiceKind, Container, DownloadSpec, Plan,
+    PlanKind, ProbeOptions, ProbeResult, QualityPreset, SponsorBlock, StreamKind, SubOpts, Tools,
+    VideoInfo,
 };
+use std::sync::Arc;
 use tokio::sync::watch;
 use url::Url;
 
@@ -88,6 +91,25 @@ impl VideoService {
         tools
     }
 
+    /// Replaces the remembered `[video]` section (`config.reload`).
+    pub(crate) fn apply_config(&self, cfg: &dman_config::Video) {
+        if let Ok(mut c) = self.config.lock() {
+            *c = cfg.clone();
+        }
+    }
+
+    fn config_now(&self) -> dman_config::Video {
+        self.config
+            .lock()
+            .map(|c| c.clone())
+            .unwrap_or_else(|e| e.into_inner().clone())
+    }
+
+    /// `video.preferences.get`.
+    pub fn preferences(&self) -> VideoPreferences {
+        preferences_of(&self.config_now())
+    }
+
     /// The engine status entry of yt-dlp.
     pub fn status(&self) -> EngineStatus {
         engine_status(&self.tools.borrow())
@@ -123,8 +145,86 @@ impl VideoService {
                 }
                 other => RpcError::new(ErrorCode::General, other.to_string()),
             })?;
-        Ok(probe_dto(url.as_str(), res, &tools))
+        Ok(probe_dto(url.as_str(), res, &tools, &self.config_now()))
     }
+}
+
+fn preferences_of(c: &dman_config::Video) -> VideoPreferences {
+    VideoPreferences {
+        ask_quality: c.ask_quality,
+        default_quality: c.default_quality.clone(),
+        default_audio: c.default_audio.clone(),
+        default_container: c.default_container.clone(),
+    }
+}
+
+fn general(e: impl std::fmt::Display) -> RpcError {
+    RpcError::new(ErrorCode::General, e.to_string())
+}
+
+/// `video.preferences.set`: validates, writes the given keys to `[video]` in
+/// `config.toml` (comments preserved) and applies them at once to the jobs
+/// added from now on. Nothing changes on any error.
+pub(crate) async fn set_preferences(
+    state: &Arc<crate::server::ServerState>,
+    u: VideoPreferencesUpdate,
+) -> Result<VideoPreferences, RpcError> {
+    let svc = &state.video;
+    let Some(paths) = svc.paths.as_ref() else {
+        return Err(general("the daemon has no config file to save to"));
+    };
+    let mut new = svc.config_now();
+    let mut keys: Vec<(&str, Result<bool, String>)> = Vec::new();
+    let mut clear_container = false;
+    if let Some(a) = u.ask_quality {
+        new.ask_quality = a;
+        keys.push(("ask_quality", Ok(a)));
+    }
+    if let Some(q) = nonempty(&u.default_quality) {
+        let preset = QualityPreset::from_str(q).map_err(|e| RpcError::invalid(e.to_string()))?;
+        new.default_quality = preset.name();
+        keys.push(("default_quality", Err(new.default_quality.clone())));
+    }
+    if let Some(a) = nonempty(&u.default_audio) {
+        let pref = AudioPref::from_str(a).map_err(|e| RpcError::invalid(e.to_string()))?;
+        new.default_audio = pref.as_str().to_owned();
+        keys.push(("default_audio", Err(new.default_audio.clone())));
+    }
+    if let Some(c) = &u.default_container {
+        if c.trim().is_empty() {
+            new.default_container = None;
+            clear_container = true;
+        } else {
+            let c = Container::from_str(c).map_err(|e| RpcError::invalid(e.to_string()))?;
+            new.default_container = Some(c.as_str().to_owned());
+            keys.push(("default_container", Err(c.as_str().to_owned())));
+        }
+    }
+    new.validate().map_err(RpcError::invalid)?;
+    if !keys.is_empty() || clear_container {
+        let mut doc = dman_config::ConfigDoc::open(paths).map_err(general)?;
+        for (k, v) in keys {
+            match v {
+                Ok(b) => doc.set(&["video", k], b),
+                Err(t) => doc.set(&["video", k], t),
+            }
+            .map_err(general)?;
+        }
+        if clear_container {
+            doc.remove(&["video", "default_container"])
+                .map_err(general)?;
+        }
+        doc.save().map_err(general)?;
+    }
+    state
+        .manager
+        .call(crate::manager::Request::SetVideoConfig(Box::new(
+            new.clone(),
+        )))
+        .await?;
+    svc.apply_config(&new);
+    state.reload.note_video(&new);
+    Ok(preferences_of(&new))
 }
 
 fn log_tools(t: &Tools) {
@@ -229,8 +329,53 @@ pub fn plans(info: &VideoInfo, tools: &Tools) -> Vec<VideoPlan> {
         .collect()
 }
 
+fn choice_dto(c: &Choice) -> QualityChoice {
+    QualityChoice {
+        id: c.id.clone(),
+        stream_id: c.stream_id.clone(),
+        label: c.label.clone(),
+        height: c.height,
+        fps: c.fps,
+        codec: c.codec.clone(),
+        size_estimate: c.size_estimate,
+        kind: match c.kind {
+            ChoiceKind::Muxed => QualityChoiceKind::Muxed,
+            ChoiceKind::VideoOnly => QualityChoiceKind::VideoOnly,
+            ChoiceKind::AudioOnly => QualityChoiceKind::AudioOnly,
+        },
+        requires_ffmpeg: c.requires_ffmpeg,
+        available: c.available,
+        unavailable_reason: c.unavailable_reason.clone(),
+    }
+}
+
+/// The preset and audio preference of the `[video]` defaults (invalid values,
+/// which validation rejects, fall back to best).
+fn default_choice_prefs(d: &dman_config::Video) -> ChoiceDefaults {
+    ChoiceDefaults {
+        preset: QualityPreset::from_str(&d.default_quality).unwrap_or(QualityPreset::Best),
+        audio: AudioPref::from_str(&d.default_audio).unwrap_or_default(),
+    }
+}
+
+fn apply_choices(out: &mut VideoProbe, v: &VideoInfo, tools: &Tools, d: &dman_config::Video) {
+    let c = dman_ytdlp::build_choices(v, tools, default_choice_prefs(d));
+    out.video_choices = c.video.iter().map(choice_dto).collect();
+    out.audio_choices = c.audio.iter().map(choice_dto).collect();
+    out.needs_choice = c.needs_choice;
+    out.suggested = QualityChoiceRef {
+        video: c.suggested.video,
+        audio: c.suggested.audio,
+    };
+}
+
 /// Converts a probe result into the API type.
-pub fn probe_dto(url: &str, res: ProbeResult, tools: &Tools) -> VideoProbe {
+pub fn probe_dto(
+    url: &str,
+    res: ProbeResult,
+    tools: &Tools,
+    defaults: &dman_config::Video,
+) -> VideoProbe {
     let mut out = VideoProbe {
         url: url.to_owned(),
         ffmpeg: tools.merge_supported(),
@@ -239,6 +384,7 @@ pub fn probe_dto(url: &str, res: ProbeResult, tools: &Tools) -> VideoProbe {
     match res {
         ProbeResult::Video(v) => {
             out.plans = plans(&v, tools);
+            apply_choices(&mut out, &v, tools, defaults);
             out.id = Some(v.id).filter(|s| !s.is_empty());
             out.title = Some(v.title).filter(|s| !s.is_empty());
             out.duration = v.duration;
@@ -276,6 +422,7 @@ pub fn probe_dto(url: &str, res: ProbeResult, tools: &Tools) -> VideoProbe {
             };
             out.plans = plans(&empty, tools);
             out.playlist = true;
+            out.needs_choice = true;
             out.id = id;
             out.title = title;
             out.entries = entries
@@ -296,7 +443,16 @@ pub fn probe_dto(url: &str, res: ProbeResult, tools: &Tools) -> VideoProbe {
 pub fn resolve_options(mut o: VideoOptions, d: &dman_config::Video) -> VideoOptions {
     let blank = |s: &Option<String>| s.as_deref().is_none_or(|s| s.trim().is_empty());
     if blank(&o.quality) && blank(&o.format_id) && blank(&o.audio_only) {
-        o.quality = Some(d.default_quality.clone());
+        // The saved defaults: preset plus audio preference, e.g. `1080p+m4a`.
+        o.quality = Some(
+            match (
+                QualityPreset::from_str(&d.default_quality),
+                AudioPref::from_str(&d.default_audio),
+            ) {
+                (Ok(p), Ok(a)) => dman_ytdlp::quality_string(p, a),
+                _ => d.default_quality.clone(),
+            },
+        );
     }
     if blank(&o.container) {
         o.container = d.default_container.clone();
@@ -356,15 +512,31 @@ pub fn build_spec(
         if id.chars().any(char::is_whitespace) {
             return Err("format_id must not contain spaces".into());
         }
+        if id.contains('+') && !merge && !o.allow_separate_streams {
+            return Err(format!(
+                "format {id} merges separate video and audio streams, which needs ffmpeg \
+                 (not found); install ffmpeg, pick a single-file format or allow separate files"
+            ));
+        }
         spec.selector = id.to_owned();
     } else if let Some(q) = nonempty(&o.quality) {
-        match QualityPreset::from_str(q) {
-            Ok(preset @ QualityPreset::AudioOnly { codec }) => {
+        match dman_ytdlp::parse_quality(q) {
+            Ok((preset @ QualityPreset::AudioOnly { codec }, _)) => {
                 spec.selector = dman_ytdlp::selector(preset, merge);
                 spec.audio_extract = merge.then_some(codec);
             }
-            Ok(preset) => {
-                spec.selector = dman_ytdlp::selector(preset, merge || o.allow_separate_streams);
+            Ok((preset, audio)) => {
+                spec.selector = dman_ytdlp::selector_with_audio(
+                    preset,
+                    merge || o.allow_separate_streams,
+                    audio,
+                );
+            }
+            Err(e)
+                if q.split_once('+')
+                    .is_some_and(|(p, _)| QualityPreset::from_str(p).is_ok()) =>
+            {
+                return Err(invalid(e));
             }
             Err(_) => {
                 // A raw yt-dlp selector.
@@ -508,6 +680,94 @@ mod tests {
     }
 
     #[test]
+    fn saved_defaults_become_quality_with_audio_preference() {
+        let d = dman_config::Video {
+            default_quality: "1080p".into(),
+            default_audio: "m4a".into(),
+            ..Default::default()
+        };
+        let o = resolve_options(VideoOptions::default(), &d);
+        assert_eq!(o.quality.as_deref(), Some("1080p+m4a"));
+        let dir = Path::new("/dl");
+        let s = build_spec("https://e.com/v", dir, &o, None, &tools(true)).unwrap();
+        assert_eq!(
+            s.selector,
+            "bv*[height<=1080]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]"
+        );
+        // Without ffmpeg the preference cannot apply: single-file formats only.
+        let s = build_spec("https://e.com/v", dir, &o, None, &tools(false)).unwrap();
+        assert_eq!(s.selector, "b[height<=1080]/b");
+        // Best audio keeps the plain preset; an explicit quality is left alone.
+        let d2 = dman_config::Video {
+            default_quality: "720p".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_options(VideoOptions::default(), &d2)
+                .quality
+                .as_deref(),
+            Some("720p")
+        );
+        let explicit = VideoOptions {
+            quality: Some("480p".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_options(explicit, &d).quality.as_deref(),
+            Some("480p")
+        );
+        // Audio presets take no preference.
+        let a = dman_config::Video {
+            default_quality: "audio:mp3".into(),
+            default_audio: "opus".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_options(VideoOptions::default(), &a)
+                .quality
+                .as_deref(),
+            Some("audio:mp3")
+        );
+        // A typo in the audio part is reported, not passed on as a selector.
+        let bad = VideoOptions {
+            quality: Some("1080p+flac".into()),
+            ..Default::default()
+        };
+        assert!(build_spec("https://e.com/v", dir, &bad, None, &tools(true)).is_err());
+    }
+
+    #[test]
+    fn combined_format_ids_need_ffmpeg_or_consent() {
+        let dir = Path::new("/dl");
+        let o = VideoOptions {
+            format_id: Some("137+140".into()),
+            ..Default::default()
+        };
+        let e = build_spec("https://e.com/v", dir, &o, None, &tools(false)).unwrap_err();
+        assert!(e.contains("ffmpeg"), "{e}");
+        let consent = VideoOptions {
+            allow_separate_streams: true,
+            ..o.clone()
+        };
+        assert!(build_spec("https://e.com/v", dir, &consent, None, &tools(false)).is_ok());
+        let single = VideoOptions {
+            format_id: Some("18".into()),
+            ..Default::default()
+        };
+        assert!(build_spec("https://e.com/v", dir, &single, None, &tools(false)).is_ok());
+        let fb = VideoOptions {
+            format_id: Some("137+140/18".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            build_spec("https://e.com/v", dir, &fb, None, &tools(true))
+                .unwrap()
+                .selector,
+            "137+140/18"
+        );
+    }
+
+    #[test]
     fn spec_validation_errors() {
         let dir = Path::new("/dl");
         let t = tools(true);
@@ -552,12 +812,21 @@ mod tests {
             br#"{"id":"x","title":"T","formats":[{"format_id":"18","ext":"mp4","vcodec":"avc1","acodec":"mp4a","height":360}]}"#,
         )
         .unwrap();
-        let p = probe_dto("https://e.com/v", info, &tools(false));
+        let p = probe_dto(
+            "https://e.com/v",
+            info,
+            &tools(false),
+            &dman_config::Video::default(),
+        );
         assert_eq!(p.title.as_deref(), Some("T"));
         assert_eq!(p.formats.len(), 1);
         assert_eq!(p.formats[0].kind, VideoStreamKind::Combined);
         assert_eq!(p.plans.len(), QualityPreset::ALL.len());
         assert_eq!(p.plans[0].preset, "best");
         assert!(!p.ffmpeg);
+        // A single-format source needs no picker.
+        assert!(!p.needs_choice);
+        assert_eq!(p.video_choices.len(), 1);
+        assert_eq!(p.suggested.video.as_deref(), Some("18"));
     }
 }

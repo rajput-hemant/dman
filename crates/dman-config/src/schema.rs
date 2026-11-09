@@ -398,8 +398,14 @@ attach_to_new = true
 [video]
 # ytdlp_path = "/usr/local/bin/yt-dlp"     # default: yt-dlp on PATH
 # ffmpeg_path = "/usr/bin/ffmpeg"          # default: ffmpeg on PATH
+# Show the quality picker before a video download starts. Set to false once
+# you have chosen your defaults ("never ask again"); `dman` then adds videos
+# directly with the defaults below.
+ask_quality = true
 # best, 2160p, 1440p, 1080p, 720p, 480p, audio:m4a, audio:mp3, audio:opus
 default_quality = "best"
+# Preferred audio track when video and audio are combined: best, m4a, opus, mp3.
+default_audio = "best"
 # default_container = "mkv"                # mp4, mkv or webm
 # Relative to the download directory; see yt-dlp's OUTPUT TEMPLATE.
 output_template = "%(title)s [%(id)s].%(ext)s"

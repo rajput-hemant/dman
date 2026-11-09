@@ -210,6 +210,40 @@ fn make_media() -> TempDir {
         ],
         d.path(),
     );
+    // Two video representations (360p and 180p) and one audio: a quality ladder.
+    std::fs::create_dir(d.path().join("ladder")).unwrap();
+    ffmpeg(
+        &[
+            "-i",
+            "test.mp4",
+            "-filter_complex",
+            "[0:v]split=2[a][b];[b]scale=320:180[bs]",
+            "-map",
+            "[a]",
+            "-map",
+            "[bs]",
+            "-map",
+            "0:a",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-c:a",
+            "aac",
+            "-f",
+            "dash",
+            "-seg_duration",
+            "2",
+            "-use_template",
+            "1",
+            "-use_timeline",
+            "1",
+            "-adaptation_sets",
+            "id=0,streams=v id=1,streams=a",
+            "ladder/manifest.mpd",
+        ],
+        d.path(),
+    );
     d
 }
 
@@ -248,6 +282,54 @@ async fn probe_direct_file() {
     assert_eq!(v.formats.len(), 1, "{v:?}");
     let missing = probe(&t, &srv.url("nope.mp4"), &ProbeOptions::default()).await;
     assert!(missing.is_err());
+}
+
+/// The quality picker's choices from real probes: a direct file needs no
+/// choice; a DASH ladder offers merged choices, and the chosen `VID+AUD` id
+/// downloads into one file.
+#[tokio::test]
+#[ignore = "needs yt-dlp and ffmpeg; set DMAN_TEST_YTDLP=1"]
+async fn probe_choices_for_direct_file_and_dash_ladder() {
+    gate!();
+    use dman_ytdlp::{AudioPref, ChoiceDefaults, ChoiceKind, build_choices};
+    let media = make_media();
+    let srv = Server::start(media.path().to_path_buf()).await;
+    let t = tools().await;
+    let d = ChoiceDefaults {
+        preset: QualityPreset::Best,
+        audio: AudioPref::Best,
+    };
+
+    let direct = build_choices(&probe_video(&t, &srv.url("test.mp4")).await, &t, d);
+    assert!(!direct.needs_choice, "{direct:?}");
+    assert_eq!(direct.video.len(), 1);
+    assert_eq!(direct.video[0].kind, ChoiceKind::Muxed);
+
+    let v = probe_video(&t, &srv.url("ladder/manifest.mpd")).await;
+    let c = build_choices(&v, &t, d);
+    assert!(c.needs_choice, "{c:?}");
+    assert!(c.video.len() >= 2, "{c:?}");
+    assert_eq!(c.audio.len(), 1);
+    assert!(c.video[0].height > c.video[1].height);
+    assert!(
+        c.video
+            .iter()
+            .all(|x| x.available && x.requires_ffmpeg && x.id.contains('+'))
+    );
+    assert_eq!(c.suggested.video.as_deref(), Some(c.video[0].id.as_str()));
+    // Without ffmpeg the merged choices are unavailable.
+    let c2 = build_choices(&v, &Tools::default(), d);
+    assert!(c2.video.iter().all(|x| !x.available));
+
+    let out = tempfile::tempdir().unwrap();
+    let mut spec = DownloadSpec::new(srv.url("ladder/manifest.mpd"), out.path());
+    spec.selector = c.video.last().unwrap().id.clone();
+    spec.container = Some(dman_ytdlp::Container::Mp4);
+    let run = spawn(&spec, &t, "choice").unwrap();
+    let Outcome::Finished { paths } = run.wait().await else {
+        panic!("not finished: {:?}", files_in(out.path()))
+    };
+    assert_eq!(paths.len(), 1, "{:?}", files_in(out.path()));
 }
 
 #[tokio::test]

@@ -373,6 +373,25 @@ mod tests {
     }
 
     #[test]
+    fn validate_accepts_combined_and_fallback_format_ids() {
+        for sel in [
+            "137+140",
+            "137+140/18",
+            "bv*[height<=1080]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]",
+        ] {
+            let mut sp = spec();
+            sp.selector = sel.into();
+            sp.validate().unwrap_or_else(|e| panic!("{sel}: {e}"));
+            let a = build_args(&sp, &Tools::default(), "j1");
+            let i = a.iter().position(|x| x == "-f").unwrap();
+            assert_eq!(a[i + 1], sel);
+        }
+        let mut sp = spec();
+        sp.selector = "-x".into();
+        assert!(sp.validate().is_err());
+    }
+
+    #[test]
     fn golden_full_with_ffmpeg() {
         let mut sp = spec();
         sp.selector = "bv*[height<=720]+ba/b[height<=720]".into();

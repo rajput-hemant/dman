@@ -166,6 +166,100 @@ pub fn selector(preset: QualityPreset, merge: bool) -> String {
     }
 }
 
+/// Which audio track to prefer when a video and an audio stream are combined
+/// (`[video] default_audio`). Only a preference: without a matching stream the
+/// best audio is used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AudioPref {
+    #[default]
+    Best,
+    M4a,
+    Opus,
+    Mp3,
+}
+
+impl AudioPref {
+    pub const ALL: [AudioPref; 4] = [Self::Best, Self::M4a, Self::Opus, Self::Mp3];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Best => "best",
+            Self::M4a => "m4a",
+            Self::Opus => "opus",
+            Self::Mp3 => "mp3",
+        }
+    }
+
+    /// The yt-dlp filter that narrows `ba` to this preference.
+    fn filter(self) -> &'static str {
+        match self {
+            Self::Best => "",
+            Self::M4a => "[ext=m4a]",
+            Self::Opus => "[acodec=opus]",
+            Self::Mp3 => "[acodec=mp3]",
+        }
+    }
+}
+
+impl FromStr for AudioPref {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Error> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "best" => Ok(Self::Best),
+            "m4a" => Ok(Self::M4a),
+            "opus" => Ok(Self::Opus),
+            "mp3" => Ok(Self::Mp3),
+            other => Err(Error::InvalidSpec(format!(
+                "unknown audio preference {other:?} (best, m4a, opus, mp3)"
+            ))),
+        }
+    }
+}
+
+/// Like [`selector`], preferring `audio` for the audio stream that is merged
+/// with the video. Unchanged without merging, for audio-only presets and for
+/// [`AudioPref::Best`]. The preferred track falls back to the best audio, then
+/// to a pre-merged format, so a missing codec never lowers the video quality:
+/// `bv*[height<=1080]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]`.
+pub fn selector_with_audio(preset: QualityPreset, merge: bool, audio: AudioPref) -> String {
+    if !merge || audio == AudioPref::Best || matches!(preset, QualityPreset::AudioOnly { .. }) {
+        return selector(preset, merge);
+    }
+    let cap = preset
+        .max_height()
+        .map(|h| format!("[height<={h}]"))
+        .unwrap_or_default();
+    let f = audio.filter();
+    format!("bv*{cap}+ba{f}/bv*{cap}+ba/b{cap}")
+}
+
+/// A stored quality string: a preset name, optionally `+m4a|opus|mp3` for the
+/// audio preference (`1080p+m4a`). `Err` means the string is not of that form
+/// (it may be a raw yt-dlp selector).
+pub fn parse_quality(s: &str) -> Result<(QualityPreset, AudioPref), Error> {
+    match s.split_once('+') {
+        Some((p, a)) => {
+            let preset = QualityPreset::from_str(p)?;
+            if matches!(preset, QualityPreset::AudioOnly { .. }) {
+                return Err(Error::InvalidSpec(
+                    "audio presets take no audio preference".into(),
+                ));
+            }
+            Ok((preset, AudioPref::from_str(a)?))
+        }
+        None => Ok((QualityPreset::from_str(s)?, AudioPref::Best)),
+    }
+}
+
+/// The inverse of [`parse_quality`].
+pub fn quality_string(preset: QualityPreset, audio: AudioPref) -> String {
+    match (preset, audio) {
+        (_, AudioPref::Best) | (QualityPreset::AudioOnly { .. }, _) => preset.name(),
+        (p, a) => format!("{}+{}", p.name(), a.as_str()),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PlanKind {
     /// Best video + best audio merged by ffmpeg.
@@ -401,6 +495,68 @@ mod tests {
         };
         assert_eq!(selector(a, true), "ba/b");
         assert_eq!(selector(a, false), "ba/b");
+    }
+
+    #[test]
+    fn selector_audio_preference() {
+        let p = QualityPreset::P1080;
+        assert_eq!(
+            selector_with_audio(p, true, AudioPref::M4a),
+            "bv*[height<=1080]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]"
+        );
+        assert_eq!(
+            selector_with_audio(QualityPreset::Best, true, AudioPref::Opus),
+            "bv*+ba[acodec=opus]/bv*+ba/b"
+        );
+        assert_eq!(
+            selector_with_audio(QualityPreset::Best, true, AudioPref::Mp3),
+            "bv*+ba[acodec=mp3]/bv*+ba/b"
+        );
+        // no ffmpeg, best, audio presets: the plain selectors
+        assert_eq!(
+            selector_with_audio(p, false, AudioPref::M4a),
+            "b[height<=1080]/b"
+        );
+        assert_eq!(
+            selector_with_audio(p, true, AudioPref::Best),
+            selector(p, true)
+        );
+        let a = QualityPreset::AudioOnly {
+            codec: AudioCodec::Mp3,
+        };
+        assert_eq!(selector_with_audio(a, true, AudioPref::Opus), "ba/b");
+    }
+
+    #[test]
+    fn quality_strings() {
+        assert_eq!(
+            parse_quality("720p+opus").unwrap(),
+            (QualityPreset::P720, AudioPref::Opus)
+        );
+        assert_eq!(
+            parse_quality("best").unwrap(),
+            (QualityPreset::Best, AudioPref::Best)
+        );
+        assert!(parse_quality("bv*+ba").is_err());
+        assert!(parse_quality("audio:mp3+m4a").is_err());
+        assert!(parse_quality("1080p+flac").is_err());
+        assert_eq!(
+            quality_string(QualityPreset::P1080, AudioPref::M4a),
+            "1080p+m4a"
+        );
+        assert_eq!(
+            quality_string(QualityPreset::P1080, AudioPref::Best),
+            "1080p"
+        );
+        for p in QualityPreset::ALL {
+            for a in AudioPref::ALL {
+                let (pp, aa) = parse_quality(&quality_string(p, a)).unwrap();
+                assert_eq!(pp, p);
+                if !matches!(p, QualityPreset::AudioOnly { .. }) {
+                    assert_eq!(aa, a);
+                }
+            }
+        }
     }
 
     #[test]

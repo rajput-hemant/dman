@@ -64,6 +64,22 @@ impl ConfigDoc {
         Ok(())
     }
 
+    /// Remove the key at `path`; `true` if it existed. Other keys, comments
+    /// and formatting are untouched.
+    pub fn remove(&mut self, path: &[&str]) -> Result<bool, ConfigError> {
+        let bad = || ConfigError::BadPath(path.join("."));
+        let (last, parents) = path.split_last().ok_or_else(bad)?;
+        let mut table: &mut Table = self.doc.as_table_mut();
+        for key in parents {
+            table = match table.get_mut(key) {
+                Some(Item::Table(t)) => t,
+                Some(_) => return Err(bad()),
+                None => return Ok(false),
+            };
+        }
+        Ok(table.remove(last).is_some())
+    }
+
     /// Create or replace the `[[search.provider]]` entry named `table["name"]`
     /// (case-insensitive) with exactly `table`. Other entries, comments and
     /// formatting are untouched.
@@ -200,6 +216,21 @@ fn to_edit_table(t: &toml::Table) -> Result<Table, ConfigError> {
 mod tests {
     use super::*;
     use crate::Config;
+
+    #[test]
+    fn remove_drops_only_that_key() {
+        let mut doc = ConfigDoc::parse(
+            "# top\n[video]\n# keep\ndefault_container = \"mkv\" # c\ndefault_quality = \"best\"\n",
+            "c.toml",
+        )
+        .unwrap();
+        assert!(doc.remove(&["video", "default_container"]).unwrap());
+        assert!(!doc.remove(&["video", "default_container"]).unwrap());
+        assert!(!doc.remove(&["nope", "x"]).unwrap());
+        let t = doc.to_string_lossy();
+        assert!(t.contains("# top") && t.contains("default_quality"));
+        assert!(!t.contains("default_container"));
+    }
 
     #[test]
     fn comments_survive_edit_and_save() {

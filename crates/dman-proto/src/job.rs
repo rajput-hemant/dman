@@ -357,6 +357,26 @@ pub struct GlobalStats {
     /// Cumulative bytes over the lifetime of this profile.
     pub total_downloaded: u64,
     pub total_uploaded: u64,
+    /// Schedule summary; absent when no `[[schedule]]` is configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedule: Option<ScheduleBrief>,
+}
+
+/// Short schedule state pushed with [`GlobalStats`] (see `schedule.get` for detail).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduleBrief {
+    /// Name of the window active now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<String>,
+    /// Downloads are held back by a pause window.
+    #[serde(default)]
+    pub paused: bool,
+    /// Unix seconds of the next change of the active window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_change: Option<i64>,
+    /// Window after the next change (`None` = outside all windows).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_window: Option<String>,
 }
 
 /// Global limits (bytes per second; 0 = unlimited).

@@ -97,8 +97,7 @@ pub fn sample_stats() -> GlobalStats {
         num_waiting: 2,
         num_stopped: 2,
         disk_free: Some(250 * GIB),
-        total_downloaded: 0,
-        total_uploaded: 0,
+        ..GlobalStats::default()
     }
 }
 

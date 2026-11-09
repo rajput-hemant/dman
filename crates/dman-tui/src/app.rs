@@ -16,6 +16,7 @@ use std::time::Duration;
 
 use crossterm::event::{KeyEvent, KeyEventKind, MouseEvent};
 use dman_client::ConnState;
+use dman_proto::method::Outcome as JobOutcome;
 use dman_proto::method::{EngineStatus, Event, Level};
 use dman_proto::{GlobalStats, Job, JobId, Limits};
 
@@ -89,6 +90,13 @@ pub enum Cmd {
     ReadFiles(Vec<String>),
     /// Read the clipboard; answered with [`Msg::Clipboard`].
     ReadClipboard,
+    /// Show a desktop notification (best effort; never answered).
+    Notify {
+        /// Summary line.
+        title: String,
+        /// Body text.
+        body: String,
+    },
     /// Leave the TUI.
     Quit,
 }
@@ -151,6 +159,8 @@ pub struct StateOptions {
     pub tick: Duration,
     /// Initial terminal size.
     pub size: (u16, u16),
+    /// Show desktop notifications for finished jobs (`[notify] desktop`).
+    pub desktop: bool,
 }
 
 impl Default for StateOptions {
@@ -162,6 +172,7 @@ impl Default for StateOptions {
             profile: "local".into(),
             tick: Duration::from_millis(250),
             size: (80, 24),
+            desktop: false,
         }
     }
 }
@@ -205,6 +216,12 @@ pub struct State {
     pub tick: Duration,
     /// The global speed graph of the downloads view (memory only).
     pub graph: GraphState,
+    /// Desktop notifications for finished jobs are enabled.
+    pub desktop: bool,
+    /// Time zone used to show schedule times (the client's local zone).
+    pub time_zone: jiff::tz::TimeZone,
+    /// Replaces the clock when set (tests).
+    pub now_override: Option<i64>,
     /// Needs a redraw.
     pub dirty: bool,
 }
@@ -231,8 +248,17 @@ impl State {
             size: opts.size,
             tick: opts.tick,
             graph: GraphState::default(),
+            desktop: opts.desktop,
+            time_zone: jiff::tz::TimeZone::system(),
+            now_override: None,
             dirty: true,
         }
+    }
+
+    /// Current unix time (or the test override).
+    pub fn now_secs(&self) -> i64 {
+        self.now_override
+            .unwrap_or_else(|| jiff::Timestamp::now().as_second())
     }
 
     /// Whether the daemon connection is up.
@@ -319,10 +345,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Cmd> {
             state.list.ensure_visible(height);
             Vec::new()
         }
-        Msg::Event(e) => {
-            apply_event(state, e);
-            Vec::new()
-        }
+        Msg::Event(e) => apply_event(state, e),
         Msg::Conn(c) => {
             on_conn(state, c);
             Vec::new()
@@ -518,7 +541,7 @@ pub fn apply_action(state: &mut State, action: Action) -> Vec<Cmd> {
     }
 }
 
-fn apply_event(state: &mut State, event: Event) {
+fn apply_event(state: &mut State, event: Event) -> Vec<Cmd> {
     match event {
         Event::Snapshot {
             jobs,
@@ -558,7 +581,34 @@ fn apply_event(state: &mut State, event: Event) {
             state.engines.retain(|e| e.engine != status.engine);
             state.engines.push(status);
         }
+        Event::JobFinished {
+            name,
+            path,
+            outcome,
+            ..
+        } => {
+            let (title, body, level) = match &outcome {
+                JobOutcome::Completed => ("Download complete", name.clone(), Level::Info),
+                JobOutcome::SeedCompleted => ("Seeding finished", name.clone(), Level::Info),
+                JobOutcome::Failed { error } => {
+                    ("Download failed", format!("{name}: {error}"), Level::Error)
+                }
+            };
+            state.status.set(level, format!("{title}: {body}"));
+            if state.desktop && state.connected() {
+                let body = if level == Level::Info && path != name {
+                    format!("{name}\n{path}")
+                } else {
+                    body
+                };
+                return vec![Cmd::Notify {
+                    title: title.to_owned(),
+                    body,
+                }];
+            }
+        }
     }
+    Vec::new()
 }
 
 fn on_conn(state: &mut State, conn: ConnState) {

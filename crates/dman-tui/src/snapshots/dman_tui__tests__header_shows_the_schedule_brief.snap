@@ -1,0 +1,14 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 120, 10)"
+---
+ dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped  ⏸ work until 17:00                  ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
+  Name                                     Status  Progress             Down          Up    ETA       Size   Peers Ratio
+  Active (3)
+  ubuntu-24.04.1-desktop-amd64.iso         active  █████░░░  66%  12.0 MiB/s 800.0 KiB/s  2m51s    6.0 GiB  42/118  0.25
+  big-dataset-2026.tar.zst                 active  ░░░░░░░░  10%   3.0 MiB/s           -  1h42m   20.0 GiB       8     -
+  debian-13.2.0-amd64-netinst.iso          seeding ████████ 100%           - 256.0 KiB/s      -  700.0 MiB    5/40  1.50
+  Waiting (2)
+ Connected to daemon 0.1.0
+ p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit  s sort  Space select  Enter detail

@@ -670,6 +670,100 @@ async fn lifecycle_with_real_aria2() {
     assert_no_aria2(root.path());
 }
 
+/// Completing an HTTP download fires `JobFinished` and the hook exactly once,
+/// with the documented environment; a daemon restart does not repeat it.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs aria2c; run with DMAN_TEST_ARIA2=1 and --include-ignored"]
+async fn hook_fires_once_on_completion_with_real_aria2() {
+    use std::os::unix::fs::PermissionsExt as _;
+    if !aria2_enabled() {
+        eprintln!("DMAN_TEST_ARIA2 != 1; skipping");
+        return;
+    }
+    const SIZE: usize = 64 * 1024;
+    let http = serve_files(HashMap::from([("h.bin".to_owned(), content(9, SIZE))])).await;
+    let root = tempfile::tempdir().unwrap();
+    let log = root.path().join("hook.log");
+    let script = root.path().join("hook.sh");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho \"$DMAN_EVENT|$DMAN_ID|$DMAN_NAME|$DMAN_PATH|$DMAN_STATUS|$DMAN_ENGINE|$DMAN_SIZE|$DMAN_ERROR\" >> '{}'\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut cfg = config(root.path(), "aria2c", DiskThreshold::Absolute(0));
+    cfg.notify.hook.push(dman_config::Hook {
+        on: vec![dman_config::NotifyEvent::Completed],
+        command: vec![script.display().to_string()],
+        timeout_secs: 20,
+    });
+    let dl = root.path().join("dl");
+
+    let d = Daemon::start(root.path(), cfg.clone()).await;
+    let c = d.client().await;
+    let mut events = c.subscribe().await.unwrap();
+    let _ = wait_event(&mut events, 5, |_| true).await;
+    let out = c
+        .add(AddParams {
+            sources: vec![AddSource::Uris {
+                uris: vec![format!("http://{http}/h.bin")],
+            }],
+            options: JobOptions::default(),
+            paused: false,
+        })
+        .await
+        .unwrap();
+    let id = added(&out)[0];
+    let ev = wait_event(&mut events, 30, |e| matches!(e, Event::JobFinished { .. })).await;
+    let Some(Event::JobFinished {
+        id: eid,
+        name,
+        path,
+        outcome,
+    }) = ev
+    else {
+        panic!("no JobFinished event");
+    };
+    assert_eq!(eid, id);
+    assert_eq!(name, "h.bin");
+    assert_eq!(path, dl.join("h.bin").display().to_string());
+    assert_eq!(outcome, dman_proto::method::Outcome::Completed);
+    for _ in 0..100 {
+        if log.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let text = std::fs::read_to_string(&log).expect("hook did not run");
+    assert_eq!(
+        text,
+        format!(
+            "completed|{}|h.bin|{}|complete|aria2|{SIZE}|\n",
+            id.0,
+            dl.join("h.bin").display()
+        )
+    );
+    // No second event for the same job.
+    let again = wait_event(&mut events, 2, |e| matches!(e, Event::JobFinished { .. })).await;
+    assert!(again.is_none(), "duplicate: {again:?}");
+    d.stop(&c).await;
+    assert_no_aria2(root.path());
+
+    // After a restart the finished job is not announced again.
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    let mut events = c.subscribe().await.unwrap();
+    let again = wait_event(&mut events, 3, |e| matches!(e, Event::JobFinished { .. })).await;
+    assert!(again.is_none(), "announced again after restart: {again:?}");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 1);
+    d.stop(&c).await;
+    assert_no_aria2(root.path());
+}
+
 /// Live (non-zombie) aria2c processes whose command line mentions `root`.
 fn aria2_pids(root: &Path) -> Vec<u32> {
     let needle = root.display().to_string();

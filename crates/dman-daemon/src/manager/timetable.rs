@@ -100,6 +100,20 @@ impl Timetable {
         }
     }
 
+    /// Compact form for `GlobalStats`; `None` without any configured window.
+    pub(crate) fn brief(&self) -> Option<dman_proto::ScheduleBrief> {
+        if self.windows.is_empty() {
+            return None;
+        }
+        let name = |i: Option<usize>| i.and_then(|i| self.windows.get(i)).map(|w| w.name.clone());
+        Some(dman_proto::ScheduleBrief {
+            active: name(self.active),
+            paused: self.paused(),
+            next_change: self.next.map(|t| t.at.as_second()),
+            next_window: self.next.and_then(|t| name(t.window)),
+        })
+    }
+
     /// `HH:MM` of the next change in the schedule's zone.
     fn next_clock(&self) -> Option<String> {
         let t = self.next?;

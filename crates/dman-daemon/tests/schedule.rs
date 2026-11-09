@@ -212,6 +212,11 @@ async fn windows_limits_overrides_and_persistence_without_engine() {
     assert_eq!(s.next_change, Some(ts(date(2027, 3, 24).at(18, 0, 0, 0))));
     assert_eq!(s.next_window, None);
     assert!(!s.paused && !s.override_active);
+    // The same facts ride along with the global stats.
+    let brief = c.stats().await.unwrap().schedule.expect("schedule brief");
+    assert_eq!(brief.active.as_deref(), Some("day"));
+    assert_eq!(brief.next_change, s.next_change);
+    assert!(!brief.paused);
 
     // Changing a field the window sets is a temporary override: the config is
     // untouched and a message says so.

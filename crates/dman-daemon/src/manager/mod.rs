@@ -9,6 +9,7 @@ mod add;
 mod control;
 mod detail;
 mod events;
+pub(crate) mod finish;
 mod fs;
 mod poll;
 mod remove;
@@ -158,6 +159,8 @@ pub(crate) struct Entry {
     pub(crate) counters: Option<Counters>,
     emitted: Option<Job>,
     pub(crate) dirty: bool,
+    /// Outcomes to announce with the next `JobFinished` events.
+    pub(crate) finished: Vec<dman_proto::method::Outcome>,
     /// Name/file list must (still) be fetched from aria2.
     pub(crate) need_details: bool,
     /// Held back by the disk guard (warning already sent).
@@ -176,6 +179,7 @@ impl Entry {
             counters: None,
             emitted: None,
             dirty: false,
+            finished: Vec::new(),
             need_details,
             disk_blocked: false,
             missing: 0,

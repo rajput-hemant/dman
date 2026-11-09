@@ -309,6 +309,38 @@ pub enum Event {
     Engine {
         status: EngineStatus,
     },
+    /// A job reached a notable end state; emitted once per transition.
+    JobFinished {
+        id: JobId,
+        name: String,
+        /// `dir/name`.
+        path: String,
+        outcome: Outcome,
+    },
+}
+
+/// What happened to a job in [`Event::JobFinished`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Outcome {
+    /// The download finished (seeding may follow).
+    Completed,
+    Failed {
+        error: String,
+    },
+    /// Seeding ended.
+    SeedCompleted,
+}
+
+impl Outcome {
+    /// Name used in hooks, webhooks and the `[notify] on` filter.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Failed { .. } => "failed",
+            Self::SeedCompleted => "seed_completed",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -331,6 +363,21 @@ mod tests {
         assert!(v.get("file_index").is_none());
         let p: PreviewMagnetParams = serde_json::from_str(r#"{"uri":"magnet:?xt=a"}"#).unwrap();
         assert_eq!((p.dir, p.timeout_secs), (None, None));
+    }
+
+    #[test]
+    fn job_finished_wire_format() {
+        let e = Event::JobFinished {
+            id: JobId(1),
+            name: "a".into(),
+            path: "/d/a".into(),
+            outcome: Outcome::Failed { error: "x".into() },
+        };
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["type"], "job_finished");
+        assert_eq!(v["outcome"]["kind"], "failed");
+        assert_eq!(serde_json::from_value::<Event>(v).unwrap(), e);
+        assert_eq!(Outcome::SeedCompleted.name(), "seed_completed");
     }
 
     #[test]

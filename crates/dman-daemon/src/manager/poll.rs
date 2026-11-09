@@ -41,6 +41,7 @@ impl Manager {
             self.schedule(&client).await;
         }
         self.emit_changes();
+        self.emit_finished();
         self.emit(Event::Stats {
             stats: self.stats(),
         });
@@ -345,6 +346,7 @@ pub(super) fn update_entry(e: &mut Entry, st: &Status, gid: &str, now: i64) -> (
         // A job dman removed stays Removed even if aria2 reports otherwise briefly.
         if !(rec.state == JobState::Removed && rec.desired == Desired::Stopped) {
             transition = true;
+            let prev = rec.state;
             rec.state = state;
             match state {
                 JobState::Complete => {
@@ -370,6 +372,9 @@ pub(super) fn update_entry(e: &mut Entry, st: &Status, gid: &str, now: i64) -> (
                 }
                 JobState::Active => rec.error = None,
                 JobState::Waiting | JobState::Paused => {}
+            }
+            if let Some(o) = super::finish::detect(rec, prev, state) {
+                e.finished.push(o);
             }
             if matches!(
                 state,

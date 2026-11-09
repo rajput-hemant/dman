@@ -8,6 +8,7 @@
 mod edit;
 mod error;
 mod fsutil;
+mod notify;
 mod paths;
 mod schedule;
 mod schema;
@@ -16,6 +17,7 @@ mod units;
 
 pub use edit::ConfigDoc;
 pub use error::ConfigError;
+pub use notify::{Hook, Notify, NotifyEvent, Webhook};
 pub use paths::{ENV_CONFIG_DIR, Paths};
 pub use schedule::{ClockTime, DaySpec, ScheduleAction, ScheduleWindow, Weekday, validate_windows};
 pub use schema::{

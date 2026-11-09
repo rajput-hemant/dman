@@ -21,6 +21,7 @@ pub mod disk;
 pub mod engine;
 pub mod history;
 pub mod manager;
+pub mod notify;
 pub mod ops;
 pub mod preview;
 pub mod queue;
@@ -164,6 +165,21 @@ pub async fn run_with_clock(
     previews.reset_dir();
     let preview = Arc::new(preview::Preview::new(previews.clone(), engine_rx.clone()));
     let (events, _) = broadcast::channel(EVENT_CAPACITY);
+    let notifier = {
+        let secret = match config
+            .notify
+            .webhook
+            .as_ref()
+            .and_then(|w| w.secret_ref.as_ref())
+        {
+            Some(r) => Some(secrets.get(r).with_context(|| {
+                format!("notify.webhook.secret_ref `{r}` is not defined in secrets.toml")
+            })?),
+            None => None,
+        };
+        notify::Notifier::new(config.notify.clone(), secret, events.clone())?
+    };
+    let notifier_rx = events.subscribe();
     let (manager, manager_task) = Manager::spawn(ManagerConfig {
         store,
         profile: profile.clone(),
@@ -180,6 +196,9 @@ pub async fn run_with_clock(
         engine: engine_rx,
         previews,
     });
+
+    let notifier_task =
+        (!notifier.is_idle()).then(|| tokio::spawn(notifier.run(notifier_rx, manager.clone())));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (request_tx, mut request_rx) = mpsc::channel::<()>(1);
@@ -225,6 +244,9 @@ pub async fn run_with_clock(
     let _ = shutdown_tx.send(true);
     manager.shutdown().await;
     let _ = manager_task.await;
+    if let Some(t) = notifier_task {
+        t.abort();
+    }
     engine.shutdown().await;
     let _ = engine_task.await;
     if !server_done

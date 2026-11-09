@@ -15,7 +15,7 @@ dman-store = { path = "../dman-store" }
 dman-torrent.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "time", "fs", "net"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "time", "fs", "net", "process"] }
 axum = { version = "0.8", default-features = false, features = ["ws", "tokio", "http1"] }
 subtle = "2.6"
 nix = { version = "0.31", default-features = false, features = ["fs"] }
@@ -26,12 +26,18 @@ secrecy.workspace = true
 tracing.workspace = true
 url.workspace = true
 base64 = "0.22"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+hmac = "0.13"
+sha2 = "0.11"
+notify-rust.workspace = true
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 
 [dev-dependencies]
 dman-client = { path = "../dman-client" }
 toml.workspace = true
 tempfile = "3"
+wiremock = "0.6"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }
 
 [lints]

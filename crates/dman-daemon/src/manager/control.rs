@@ -91,6 +91,7 @@ impl Manager {
                     unavailable(self.engine.reason.as_deref().unwrap_or("not running"))
                 })?;
                 let prev = (e.rec.desired, e.rec.state, e.rec.error.take());
+                super::finish::clear_failed(&mut e.rec);
                 e.rec.desired = Desired::Queued;
                 e.rec.state = JobState::Waiting;
                 if let Err(err) = self.readd(&client, id).await {

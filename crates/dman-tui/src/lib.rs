@@ -55,6 +55,8 @@ pub struct TuiOptions {
     pub keys: Option<toml::Table>,
     /// Profile name shown in the header.
     pub profile: String,
+    /// Show desktop notifications for finished jobs (`[notify] desktop`).
+    pub desktop: bool,
 }
 
 impl Default for TuiOptions {
@@ -65,6 +67,7 @@ impl Default for TuiOptions {
             refresh_ms: 250,
             keys: None,
             profile: "local".into(),
+            desktop: false,
         }
     }
 }
@@ -82,6 +85,7 @@ impl TuiOptions {
                 .and_then(toml::Value::as_table)
                 .cloned(),
             profile: profile.to_owned(),
+            desktop: config.notify.desktop,
         }
     }
 
@@ -96,6 +100,7 @@ impl TuiOptions {
             profile: self.profile.clone(),
             tick: Duration::from_millis(self.refresh_ms.clamp(50, 5000)),
             size: (80, 24),
+            desktop: self.desktop,
         });
         if !warnings.is_empty() {
             state.status.warn(warnings.join("; "));

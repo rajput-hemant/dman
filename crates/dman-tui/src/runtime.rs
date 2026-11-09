@@ -216,6 +216,21 @@ fn spawn_cmd(cmd: Cmd, client: &ReconnectingClient, tx: &mpsc::Sender<Msg>) {
                 .unwrap_or_default(),
             ),
             Cmd::ReadClipboard => Msg::Clipboard(blocking(read_clipboard).await.and_then(|r| r)),
+            Cmd::Notify { title, body } => {
+                // Best effort: a headless machine has no notification service.
+                let _ = blocking(move || {
+                    if let Err(e) = notify_rust::Notification::new()
+                        .appname("dman")
+                        .summary(&title)
+                        .body(&body)
+                        .show()
+                    {
+                        tracing::debug!("desktop notification not shown: {e}");
+                    }
+                })
+                .await;
+                return;
+            }
             Cmd::Quit => return,
         };
         let _ = tx.send(msg).await;

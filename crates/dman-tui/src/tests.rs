@@ -2273,3 +2273,127 @@ fn help_lists_popup_keys() {
         assert!(text.contains(needle), "help lacks `{needle}`:\n{text}");
     }
 }
+
+// ----- notifications and schedule brief ------------------------------------
+
+fn finished(outcome: dman_proto::method::Outcome) -> Msg {
+    Msg::Event(Event::JobFinished {
+        id: dman_proto::JobId(3),
+        name: "movie.mkv".into(),
+        path: "/dl/movie.mkv".into(),
+        outcome,
+    })
+}
+
+#[test]
+fn job_finished_sets_status_and_notifies_only_when_enabled() {
+    use dman_proto::method::Outcome;
+    let mut s = state();
+    assert!(!s.desktop);
+    let cmds = update(&mut s, finished(Outcome::Completed));
+    assert!(cmds.is_empty());
+    let last = s.status.last.clone().unwrap();
+    assert_eq!(last.level, dman_proto::method::Level::Info);
+    assert!(last.text.contains("Download complete") && last.text.contains("movie.mkv"));
+
+    s.desktop = true;
+    let cmds = update(
+        &mut s,
+        finished(Outcome::Failed {
+            error: "404".into(),
+        }),
+    );
+    assert_eq!(
+        cmds,
+        vec![Cmd::Notify {
+            title: "Download failed".into(),
+            body: "movie.mkv: 404".into()
+        }]
+    );
+    assert_eq!(
+        s.status.last.as_ref().unwrap().level,
+        dman_proto::method::Level::Error
+    );
+    let cmds = update(&mut s, finished(Outcome::SeedCompleted));
+    assert!(matches!(&cmds[..], [Cmd::Notify { title, .. }] if title == "Seeding finished"));
+
+    // Disconnected: the status line still shows it, no desktop popup.
+    update(
+        &mut s,
+        Msg::Conn(ConnState::Disconnected {
+            retry_in: std::time::Duration::from_secs(1),
+            last_error: "x".into(),
+        }),
+    );
+    assert!(update(&mut s, finished(Outcome::Completed)).is_empty());
+}
+
+#[test]
+fn tui_options_follow_notify_config() {
+    let mut c = dman_config::Config::default();
+    assert!(crate::TuiOptions::from_config(&c, "local").desktop);
+    c.notify.desktop = false;
+    assert!(
+        !crate::TuiOptions::from_config(&c, "local")
+            .initial_state()
+            .desktop
+    );
+}
+
+fn brief(
+    active: Option<&str>,
+    paused: bool,
+    next: Option<i64>,
+    nw: Option<&str>,
+) -> dman_proto::ScheduleBrief {
+    dman_proto::ScheduleBrief {
+        active: active.map(str::to_owned),
+        paused,
+        next_change: next,
+        next_window: nw.map(str::to_owned),
+    }
+}
+
+// 2030-01-07 (a Monday) 12:00 UTC.
+const NOW: i64 = 1_894_017_600;
+
+#[test]
+fn schedule_brief_texts() {
+    use crate::widgets::status::brief_text;
+    let utc = jiff::tz::TimeZone::UTC;
+    let at = |h: i64| NOW + h * 3600;
+    assert_eq!(
+        brief_text(&brief(Some("work"), true, Some(at(5)), None), &utc, NOW).as_deref(),
+        Some("⏸ work until 17:00")
+    );
+    assert_eq!(
+        brief_text(&brief(Some("night"), false, Some(at(19)), None), &utc, NOW).as_deref(),
+        Some("night until Tue 07:00")
+    );
+    assert_eq!(
+        brief_text(&brief(None, false, Some(at(10)), Some("night")), &utc, NOW).as_deref(),
+        Some("next night 22:00")
+    );
+    assert_eq!(brief_text(&brief(None, false, None, None), &utc, NOW), None);
+}
+
+#[test]
+fn header_shows_the_schedule_brief() {
+    let mut s = state();
+    s.time_zone = jiff::tz::TimeZone::UTC;
+    s.now_override = Some(NOW);
+    let mut stats = sample_stats();
+    stats.schedule = Some(brief(Some("work"), true, Some(NOW + 5 * 3600), None));
+    update(&mut s, Msg::Event(Event::Stats { stats }));
+    let text = render(&mut s, 120, 40);
+    assert!(
+        text.lines().next().unwrap().contains("⏸ work until 17:00"),
+        "{text}"
+    );
+    insta::assert_snapshot!(render(&mut s, 120, 10));
+    let narrow = render(&mut s, 80, 24);
+    assert!(
+        narrow.lines().next().unwrap().contains("work until 17:00"),
+        "{narrow}"
+    );
+}

@@ -34,6 +34,7 @@ secrecy = { version = "0.10", features = ["serde"] }
 etcetera = "0.11"
 bytesize = "2.7"
 url = "2.5"
+notify-rust = { version = "4.19", default-features = false, features = ["zbus", "serde"] }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

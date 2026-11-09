@@ -125,8 +125,12 @@ impl Manager {
         if let Err(err) = self.readd(client, id).await {
             let name = self.jobs.get(&id).map(|e| e.rec.name.clone());
             if let Some(e) = self.jobs.get_mut(&id) {
+                let prev = e.rec.state;
                 e.rec.state = JobState::Error;
                 e.rec.error = Some(format!("could not re-add to aria2: {err}"));
+                if let Some(o) = crate::manager::finish::detect(&mut e.rec, prev, JobState::Error) {
+                    e.finished.push(o);
+                }
                 e.aria2 = None;
                 e.dirty = true;
             }
@@ -219,6 +223,10 @@ impl Manager {
         if let Some(e) = self.jobs.get_mut(&id) {
             // aria2 resumes partial data: the first reading is a baseline only.
             e.counters = None;
+            if was_seeding {
+                // Already announced before the restart.
+                crate::manager::finish::mark_completed(&mut e.rec);
+            }
             e.aria2 = Some(DownloadStatus::Paused);
             e.missing = 0;
             e.rec.state = if e.rec.desired == Desired::Queued {

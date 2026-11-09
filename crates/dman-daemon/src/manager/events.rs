@@ -121,6 +121,7 @@ impl Manager {
             total_downloaded: self.totals.0.saturating_add(self.pending_transfer.0),
             total_uploaded: self.totals.1.saturating_add(self.pending_transfer.1),
             disk_free: disk::space(&self.default_dir).map(|s| s.free),
+            schedule: self.timetable.brief(),
             ..GlobalStats::default()
         };
         for e in self.jobs.values() {

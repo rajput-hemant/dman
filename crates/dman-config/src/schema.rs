@@ -201,6 +201,8 @@ pub struct Config {
     pub ui: Ui,
     /// Schedule windows (`[[schedule]]`); first match wins, see [`crate::schedule`].
     pub schedule: Vec<ScheduleWindow>,
+    /// Notifications, hooks and webhook.
+    pub notify: crate::Notify,
     /// Sections not yet understood by this version.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -215,6 +217,7 @@ impl Default for Config {
             aria2: Aria2::default(),
             ui: Ui::default(),
             schedule: Vec::new(),
+            notify: crate::Notify::default(),
             extra: toml::Table::new(),
         }
     }
@@ -283,6 +286,29 @@ refresh_ms = 250
 # start = "09:00"
 # end = "17:00"
 # action = "pause"
+
+[notify]
+# Desktop notifications shown by the TUI (on the machine where it runs).
+desktop = true
+# Also notify on the daemon host (needs a notification service there).
+desktop_on_daemon = false
+# Events that notify: completed, failed, seed_completed.
+on = ["completed", "failed", "seed_completed"]
+
+# POST a JSON body {event, id, name, path, status, size, engine, error, at}.
+# With secret_ref the body is signed: X-Dman-Signature: sha256=<HMAC-SHA256 hex>.
+# [notify.webhook]
+# url = "https://example.org/hook"
+# timeout_secs = 10
+# retries = 3
+# secret_ref = "webhook"
+
+# Hooks run without a shell: command is the argv. Environment: DMAN_EVENT,
+# DMAN_ID, DMAN_NAME, DMAN_PATH, DMAN_STATUS, DMAN_ENGINE, DMAN_SIZE, DMAN_ERROR.
+# [[notify.hook]]
+# on = ["completed"]
+# command = ["/home/me/bin/on-done", "--quiet"]
+# timeout_secs = 60
 "#;
 
 impl Config {
@@ -377,6 +403,9 @@ impl Config {
             return bad("limits.max_concurrent must be at least 1".into());
         }
         if let Err(m) = validate_windows(&self.schedule) {
+            return bad(m);
+        }
+        if let Err(m) = self.notify.validate() {
             return bad(m);
         }
         if self.aria2.rpc_port == 0 {
@@ -494,6 +523,43 @@ mod tests {
         assert!(parse(bad_time).is_err());
         let equal = "[[schedule]]\nname=\"a\"\nstart=\"01:00\"\nend=\"01:00\"\n";
         assert!(parse(equal).unwrap().validate().is_err());
+    }
+
+    #[test]
+    fn notify_section_parses_and_validates() {
+        let c = parse(
+            "[notify]\ndesktop = false\non = [\"failed\"]\n[notify.webhook]\nurl = \"https://x.test/h\"\nsecret_ref = \"wh\"\n[[notify.hook]]\ncommand = [\"/bin/true\", \"a\"]\n[[notify.hook]]\non = [\"completed\"]\ncommand = [\"x\"]\ntimeout_secs = 5\n",
+        )
+        .unwrap();
+        c.validate().unwrap();
+        assert!(c.extra.is_empty());
+        assert!(!c.notify.desktop && !c.notify.desktop_on_daemon);
+        assert!(c.notify.enabled(crate::NotifyEvent::Failed));
+        assert!(!c.notify.enabled(crate::NotifyEvent::Completed));
+        let w = c.notify.webhook.as_ref().unwrap();
+        assert_eq!((w.timeout_secs, w.retries), (10, 3));
+        assert_eq!(c.notify.hook[0].timeout_secs, 60);
+        assert_eq!(c.notify.hook[0].on.len(), 3);
+        let text = toml::to_string(&c).unwrap();
+        assert_eq!(parse(&text).unwrap(), c);
+    }
+
+    #[test]
+    fn notify_validation_failures() {
+        for bad in [
+            "[notify.webhook]\nurl = \"ftp://x/\"\n",
+            "[notify.webhook]\nurl = \"nonsense\"\n",
+            "[notify.webhook]\nurl = \"http://x/\"\ntimeout_secs = 0\n",
+            "[notify.webhook]\nurl = \"http://x/\"\nretries = 99\n",
+            "[[notify.hook]]\ncommand = []\n",
+            "[[notify.hook]]\ncommand = [\"\"]\n",
+            "[[notify.hook]]\ncommand = [\"a\"]\non = []\n",
+            "[[notify.hook]]\ncommand = [\"a\"]\ntimeout_secs = 0\n",
+        ] {
+            assert!(parse(bad).unwrap().validate().is_err(), "{bad}");
+        }
+        assert!(parse("[notify]\non = [\"bogus\"]\n").is_err());
+        assert!(parse("[notify]\nbogus = 1\n").is_err());
     }
 
     #[test]

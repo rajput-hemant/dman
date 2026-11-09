@@ -129,6 +129,19 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
             ))],
         ),
     ];
+    if let Some(text) = state
+        .stats
+        .schedule
+        .as_ref()
+        .and_then(|b| brief_text(b, &state.time_zone, state.now_secs()))
+    {
+        let style = if state.stats.schedule.as_ref().is_some_and(|b| b.paused) {
+            t.warn
+        } else {
+            t.dim
+        };
+        segments.push((2, vec![Span::styled(format!("  {text}"), style)]));
+    }
     let (conn, conn_style) = conn_label(state);
     let right = conn.chars().count() + 1;
     let width = usize::from(area.width);
@@ -139,7 +152,7 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
             .map(|s| s.content.chars().count())
             .sum()
     };
-    for prio in [3, 1] {
+    for prio in [3, 1, 2] {
         if len(&segments) + right < width {
             break;
         }
@@ -150,6 +163,41 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
     spans.push(Span::raw(" ".repeat(pad)));
     spans.push(Span::styled(conn, conn_style));
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// `HH:MM`, prefixed with the weekday when `at` is not today (in `tz`).
+fn clock_label(at: i64, tz: &jiff::tz::TimeZone, now: i64) -> Option<String> {
+    let z = |s| {
+        jiff::Timestamp::from_second(s)
+            .ok()
+            .map(|t| t.to_zoned(tz.clone()))
+    };
+    let (at, now) = (z(at)?, z(now)?);
+    let fmt = if at.date() == now.date() {
+        "%H:%M"
+    } else {
+        "%a %H:%M"
+    };
+    Some(at.strftime(fmt).to_string())
+}
+
+/// Header text for the schedule: `⏸ work until 17:00`, `night until 07:00`,
+/// or `next night 22:00` outside every window; `None` when nothing is known.
+pub fn brief_text(
+    b: &dman_proto::ScheduleBrief,
+    tz: &jiff::tz::TimeZone,
+    now: i64,
+) -> Option<String> {
+    let when = b.next_change.and_then(|t| clock_label(t, tz, now));
+    match (&b.active, &when) {
+        (Some(name), Some(w)) => {
+            let icon = if b.paused { "⏸ " } else { "" };
+            Some(format!("{icon}{name} until {w}"))
+        }
+        (Some(name), None) => Some(format!("{}{name}", if b.paused { "⏸ " } else { "" })),
+        (None, Some(w)) => b.next_window.as_ref().map(|n| format!("next {n} {w}")),
+        (None, None) => None,
+    }
 }
 
 fn len_spans(spans: &[Span<'_>]) -> usize {

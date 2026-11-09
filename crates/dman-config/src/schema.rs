@@ -207,6 +207,8 @@ pub struct Config {
     pub search: crate::Search,
     /// The optional yt-dlp video engine and video defaults.
     pub video: crate::Video,
+    /// The browser UI served by the daemon.
+    pub web: crate::Web,
     /// Sections not yet understood by this version.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -224,6 +226,7 @@ impl Default for Config {
             notify: crate::Notify::default(),
             search: crate::Search::default(),
             video: crate::Video::default(),
+            web: crate::Web::default(),
             extra: toml::Table::new(),
         }
     }
@@ -366,6 +369,22 @@ embed_thumbnail = false
 [video.subtitles]
 langs = []                                 # e.g. ["en", "de"]
 embed = true
+
+# The browser UI, served by the daemon on its own port (`dman serve` turns it on
+# for a running daemon). Off by default.
+[web]
+enabled = false
+# Loopback only by default. A non-loopback address exposes the UI to the network:
+# it then REFUSES to start without an access token in secrets.toml (see token_ref),
+# unless allow_unauthenticated = true is set explicitly.
+bind = "127.0.0.1"
+port = 6811
+# Mount point behind a reverse proxy, e.g. "/dman".
+base_path = "/"
+# Name of the entry in secrets.toml holding the access token (generated on first use).
+token_ref = "web"
+allow_unauthenticated = false
+title = "dman"
 "#;
 
 impl Config {
@@ -467,6 +486,7 @@ impl Config {
         }
         self.search.validate().map_err(ConfigError::Invalid)?;
         self.video.validate().map_err(ConfigError::Invalid)?;
+        self.web.validate().map_err(ConfigError::Invalid)?;
         if self.aria2.rpc_port == 0 {
             return bad("aria2.rpc_port must be non-zero".into());
         }
@@ -540,8 +560,8 @@ mod tests {
 
     #[test]
     fn unknown_top_level_tables_kept_but_nested_unknowns_rejected() {
-        let c = parse("[web]\nport = 8080\n").unwrap();
-        assert!(c.extra.contains_key("web"));
+        let c = parse("[future]\nport = 8080\n").unwrap();
+        assert!(c.extra.contains_key("future"));
         assert!(parse("[video]\nengine = \"yt-dlp\"\n").is_err());
         assert!(parse("[ui]\nbogus = 1\n").is_err());
     }

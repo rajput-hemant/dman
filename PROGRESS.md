@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 79 %** · Current milestone: **M7 — web UI** (M4 has a few leftovers) · Last updated: 2026-11-09
+**Overall: 84 %** · Current milestone: **M7 — web UI** (M4 has a few leftovers) · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -95,9 +95,11 @@ commit this file together with the code it describes.
 
 ### M7 — Web UI (12 %)
 - [x] `dman-web` crate: `Backend` trait + `router()`; htmx 2.0.4 + SSE ext (0BSD, 65 KB assets), pages for downloads/detail/add/search/settings, SSE live rows (≤ 2/s), token login + bearer, CSRF (Origin/Sec-Fetch-Site + per-session token), CSP without inline code, base_path, upload ≤ 10 MiB, double confirmation for delete-files
-- [ ] Daemon wiring: implement `Backend` over the dispatch, `[web]` config (enabled, bind, port, base_path, token_ref, exposed warning), mount on its own listener, `dman serve` (D3: foreground daemon with web on / enable on running daemon), `web.status` API
-- [ ] Use engine.status (yt-dlp availability) instead of the empty-URL video.probe hack for showing video options
-- [ ] Browser smoke test with Playwright (desktop + phone viewport): load, add a download, live progress, pause/resume, remove with delete confirmation, search
+- [x] Daemon wiring: implement `Backend` over the dispatch, `[web]` config (enabled, bind, port, base_path, token_ref, exposed warning), mount on its own listener, `dman serve` (D3: foreground daemon with web on / enable on running daemon), `web.status` API
+- [x] Use engine.status (yt-dlp availability) instead of the empty-URL video.probe hack for showing video options
+- [x] Browser smoke test with Playwright (49/49 checks, desktop + iPhone 13; fixed: per-add download limit, no-provider search message, logout styling)
+- [ ] Web UX: phone filter/sort controls too tall; refused delete-confirm should be inline; detail speed row via SSE instead of 3 s polling
+- [ ] Follow-ups found by the browser test: resume of an HTTP download from a server without Range support ends in aria2 "No URI available" → restart from zero automatically or explain; `dman ... | head` panics on SIGPIPE (println!) — handle broken pipe in the CLI; decide whether removed jobs should stay listed (currently state `removed` until purged) (desktop + phone viewport): load, add a download, live progress, pause/resume, remove with delete confirmation, search
 - [ ] Missing web features vs TUI: magnet file selection (preview_magnet), daemon folder picker (fs.list), multi-select
 
 ### M8 — Remote and release (11 %)

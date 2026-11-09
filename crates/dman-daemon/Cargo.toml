@@ -15,13 +15,14 @@ dman-store.workspace = true
 dman-torrent.workspace = true
 dman-search.workspace = true
 dman-ytdlp.workspace = true
+dman-web.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "time", "fs", "net", "process"] }
 axum = { version = "0.8", default-features = false, features = ["ws", "tokio", "http1"] }
 subtle = "2.6"
 nix = { version = "0.31", default-features = false, features = ["fs"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "alloc"] }
 serde.workspace = true
 serde_json.workspace = true
 secrecy.workspace = true

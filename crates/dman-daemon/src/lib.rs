@@ -12,6 +12,8 @@
 //! * [`search`]: search providers, background searches, search history and the
 //!   tracker list; independent of the manager so it can never block downloads.
 //! * [`server`]: axum WebSocket endpoint `GET /api/v1/ws` (JSON-RPC 2.0).
+//! * [`web`]: the browser UI on its own listener (`[web]`, `web.start`/`web.stop`),
+//!   served through the same dispatch as the WebSocket API.
 //! * `reconcile`: store ↔ aria2 matching on startup and after engine restarts.
 //! * [`tick`], [`queue`], [`disk`], [`ops`]: pure decision logic (status
 //!   mapping and deltas, scheduling, free space, safe file deletion).
@@ -34,6 +36,7 @@ pub mod search;
 pub mod server;
 pub mod tick;
 pub mod video;
+pub mod web;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -117,6 +120,10 @@ pub async fn run_with_clock(
     };
     for d in [paths.state_dir(), paths.data_dir()] {
         std::fs::create_dir_all(d).with_context(|| format!("cannot create {}", d.display()))?;
+    }
+    if config.web.enabled {
+        // Refuse early (before any engine starts) when the web UI cannot be served.
+        web::preflight(&config.web, &paths).map_err(|e| anyhow::anyhow!("{}", e.message))?;
     }
     let lock_file = lock(&paths, &name)?;
 
@@ -232,7 +239,15 @@ pub async fn run_with_clock(
         preview,
         search,
         video,
+        web: Arc::new(web::WebHost::new(paths.clone(), config.web.clone())),
     });
+    let mut web_error = None;
+    if config.web.enabled
+        && let Err(e) = state.web.start_configured(&state).await
+    {
+        web_error = Some(anyhow::anyhow!("cannot start the web UI: {}", e.message));
+    }
+    let web_host = state.web.clone();
     let mut graceful = shutdown_rx.clone();
     let mut server = tokio::spawn(async move {
         axum::serve(listener, server::router(state))
@@ -243,7 +258,7 @@ pub async fn run_with_clock(
     });
 
     let mut server_done = false;
-    loop {
+    while web_error.is_none() {
         tokio::select! {
             _ = sigint.recv() => { tracing::info!("SIGINT received"); break; }
             _ = sigterm.recv() => { tracing::info!("SIGTERM received"); break; }
@@ -263,6 +278,7 @@ pub async fn run_with_clock(
 
     tracing::info!("shutting down");
     let _ = shutdown_tx.send(true);
+    web_host.stop().await;
     manager.shutdown().await;
     let _ = manager_task.await;
     if let Some(t) = notifier_task {
@@ -284,7 +300,7 @@ pub async fn run_with_clock(
     let _ = lock_file.unlock();
     drop(lock_file);
     tracing::info!("daemon stopped");
-    Ok(())
+    web_error.map_or(Ok(()), Err)
 }
 
 /// Path of the aria2 conf file the daemon generates for `profile`.

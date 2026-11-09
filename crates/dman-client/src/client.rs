@@ -587,6 +587,25 @@ macro_rules! typed_api {
             self.call(dman_proto::search::TRACKERS_STATUS, ()).await
         }
 
+        /// `web.status`
+        pub async fn web_status(&self) -> Result<method::WebStatus, ClientError> {
+            self.call(method::WEB_STATUS, ()).await
+        }
+
+        /// `web.start`
+        pub async fn web_start(
+            &self,
+            params: method::WebStartParams,
+        ) -> Result<method::WebStatus, ClientError> {
+            self.call(method::WEB_START, params).await
+        }
+
+        /// `web.stop`
+        pub async fn web_stop(&self, persist: bool) -> Result<method::WebStatus, ClientError> {
+            self.call(method::WEB_STOP, method::WebStopParams { persist })
+                .await
+        }
+
         /// `daemon.shutdown`
         pub async fn shutdown(&self) -> Result<(), ClientError> {
             self.call::<_, Value>(method::DAEMON_SHUTDOWN, ())

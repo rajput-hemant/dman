@@ -11,6 +11,7 @@ nav{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center}
 nav a{text-decoration:none;padding:4px 2px;border-bottom:2px solid transparent}
 nav a.on{border-color:var(--acc);font-weight:600}
 .logout{margin:0 0 0 auto}
+.logout button[type=submit]{background:var(--card);border-color:var(--line);color:var(--fg)}
 .banner{background:var(--warn);color:#fff;padding:8px 12px;margin:10px 0;border-radius:6px}
 .stats{display:flex;flex-wrap:wrap;gap:4px 16px;padding:8px 0;color:var(--mute);font-size:.9rem;min-height:2.2em}
 .toast{min-height:1px}

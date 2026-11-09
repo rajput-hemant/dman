@@ -96,13 +96,18 @@ fn daemon_status_exits_3() {
 }
 
 #[test]
-fn placeholders_exit_2() {
+fn serve_stop_without_daemon_and_bad_bind() {
     let dir = config_dir();
     dman(&dir)
-        .arg("serve")
+        .args(["serve", "--stop"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not running"));
+    dman(&dir)
+        .args(["serve", "--bind", "not-an-ip"])
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("not available yet"));
+        .stderr(predicate::str::contains("web.bind"));
 }
 
 #[test]

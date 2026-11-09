@@ -15,12 +15,6 @@ pub fn completions(shell: Shell) -> Result<i32, CliError> {
     Ok(0)
 }
 
-pub fn unavailable(name: &str, milestone: &str) -> Result<i32, CliError> {
-    Err(CliError::invalid(format!(
-        "`{name}` is not available yet (milestone {milestone})"
-    )))
-}
-
 fn print_limits(ctx: &Ctx, l: &dman_proto::Limits) -> Result<i32, CliError> {
     if ctx.json {
         print_json(l)?;

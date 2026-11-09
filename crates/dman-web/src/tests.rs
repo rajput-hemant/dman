@@ -7,8 +7,8 @@ use axum::http::{Request, StatusCode, header};
 use dman_proto::method::{BatchResult, Event};
 use dman_proto::search::ProviderInfo;
 use dman_proto::{
-    AddOutcome, Engine, ErrorCode, FileInfo, GlobalStats, Job, JobDetail, JobId, JobState, Limits,
-    RpcError, SourceKind, TrackerInfo, TrackerStatus,
+    AddOutcome, Engine, FileInfo, GlobalStats, Job, JobDetail, JobId, JobState, Limits, RpcError,
+    SourceKind, TrackerInfo, TrackerStatus,
 };
 use futures_util::StreamExt;
 use futures_util::future::BoxFuture;
@@ -131,12 +131,10 @@ impl Backend for Fake {
                 }),
                 "providers.list" => ok(Vec::<ProviderInfo>::new()),
                 "search.history" => ok(Vec::<Value>::new()),
-                "engine.status" => ok(json!([{"engine":"yt_dlp","available":true}])),
-                "video.probe" if video => Err(RpcError::invalid("invalid url")),
-                "video.probe" => Err(RpcError::new(
-                    ErrorCode::General,
-                    "method `video.probe` not found",
-                )),
+                "engine.status" => ok(json!([
+                    {"engine":"aria2","available":true},
+                    {"engine":"yt_dlp","available":video}
+                ])),
                 "jobs.add" => ok(vec![AddOutcome::Added {
                     id: JobId(99),
                     extra_ids: vec![],
@@ -685,7 +683,7 @@ async fn oversized_upload_is_refused() {
 }
 
 #[tokio::test]
-async fn video_options_hide_when_method_missing() {
+async fn video_options_follow_engine_status() {
     let app = app_with(&Fake::new(false), None, "/");
     let r = send(&app, get("/add")).await;
     assert_eq!(r.status, StatusCode::OK);
@@ -900,4 +898,49 @@ fn embedded_asset_sizes() {
     assert_eq!(total, crate::embedded_asset_bytes());
     assert!(list.iter().any(|(n, _)| n == "htmx.min.js"));
     assert!(total < 150_000, "assets grew to {total} bytes");
+}
+
+#[tokio::test]
+async fn add_accepts_a_download_limit() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    assert!(
+        send(&app, get("/add"))
+            .await
+            .body
+            .contains("name=\"download_limit\"")
+    );
+    let r = send(
+        &app,
+        post_form(
+            "/add",
+            &t,
+            "uris=https%3A%2F%2Fe.org%2Fa&download_limit=500K",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(
+        fake.calls("jobs.add")[0]["options"],
+        json!({"max_download_limit": 512_000})
+    );
+    let r = send(
+        &app,
+        post_form(
+            "/add",
+            &t,
+            "uris=https%3A%2F%2Fe.org%2Fa&download_limit=fast",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    assert_eq!(fake.calls("jobs.add").len(), 1);
+}
+
+#[tokio::test]
+async fn search_page_explains_when_no_provider_is_enabled() {
+    let app = app_with(&Fake::new(false), None, "/");
+    let r = send(&app, get("/search")).await;
+    assert!(r.body.contains("No search providers are enabled"));
 }

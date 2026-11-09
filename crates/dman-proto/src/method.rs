@@ -33,6 +33,12 @@ pub const ENGINE_STATUS: &str = "engine.status";
 pub const VIDEO_PROBE: &str = "video.probe";
 pub const ENGINE_RESTART: &str = "engine.restart";
 pub const DAEMON_SHUTDOWN: &str = "daemon.shutdown";
+/// `web.status`: no params -> [`WebStatus`].
+pub const WEB_STATUS: &str = "web.status";
+/// `web.start`: [`WebStartParams`] -> [`WebStatus`].
+pub const WEB_START: &str = "web.start";
+/// `web.stop`: [`WebStopParams`] -> [`WebStatus`].
+pub const WEB_STOP: &str = "web.stop";
 
 /// Name of the notification carrying [`Event`]s.
 pub const EVENT: &str = "event";
@@ -407,4 +413,39 @@ mod tests {
         let v = serde_json::to_value(&e).unwrap();
         assert_eq!(v["type"], "jobs_removed");
     }
+}
+
+/// State of the browser UI (`web.status`, and the result of `web.start`/`web.stop`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WebStatus {
+    pub enabled: bool,
+    /// `http://bind:port{base_path}` while running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// Reachable beyond loopback.
+    pub exposed: bool,
+    /// An access token is required.
+    pub auth: bool,
+}
+
+/// `web.start`: overrides of the configured `[web]` values.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct WebStartParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_path: Option<String>,
+    /// Also write `[web]` (enabled, bind, port, base_path) to config.toml.
+    #[serde(default)]
+    pub persist: bool,
+}
+
+/// `web.stop`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct WebStopParams {
+    /// Also write `web.enabled = false` to config.toml.
+    #[serde(default)]
+    pub persist: bool,
 }

@@ -1,0 +1,158 @@
+//! The `[web]` section: the browser UI served by the daemon.
+
+use std::net::IpAddr;
+
+use serde::{Deserialize, Serialize};
+
+/// Browser UI settings. Off by default.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Web {
+    /// Start the web UI together with the daemon.
+    pub enabled: bool,
+    /// Address to bind (an IP address). Anything but loopback exposes the UI.
+    pub bind: String,
+    /// TCP port, separate from the API port.
+    pub port: u16,
+    /// Mount point behind a reverse proxy, e.g. `"/"` or `"/dman"`.
+    pub base_path: String,
+    /// Name of the secrets.toml entry holding the access token.
+    pub token_ref: String,
+    /// Allow serving a non-loopback address without any access token.
+    pub allow_unauthenticated: bool,
+    /// Shown in the header and tab title.
+    pub title: String,
+}
+
+impl Default for Web {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            bind: "127.0.0.1".into(),
+            port: 6811,
+            base_path: "/".into(),
+            token_ref: "web".into(),
+            allow_unauthenticated: false,
+            title: "dman".into(),
+        }
+    }
+}
+
+impl Web {
+    /// The parsed bind address.
+    pub fn bind_ip(&self) -> Option<IpAddr> {
+        parse_bind(&self.bind)
+    }
+
+    /// Whether the bind address is loopback (an unparsable one counts as exposed).
+    pub fn is_loopback(&self) -> bool {
+        self.bind_ip().is_some_and(|ip| ip.is_loopback())
+    }
+
+    /// `http://bind:port{base_path}` (IPv6 in brackets; base path without a trailing slash,
+    /// `/` for the root).
+    pub fn url(&self) -> String {
+        let host = match self.bind_ip() {
+            Some(IpAddr::V6(v6)) => format!("[{v6}]"),
+            Some(v4) => v4.to_string(),
+            None => self.bind.clone(),
+        };
+        let t = self.base_path.trim_matches('/');
+        let base = if t.is_empty() {
+            "/".to_owned()
+        } else {
+            format!("/{t}")
+        };
+        format!("http://{host}:{}{base}", self.port)
+    }
+
+    /// Check the values.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.bind_ip().is_none() {
+            return Err(format!(
+                "web.bind `{}` is not a valid IP address (e.g. 127.0.0.1, 0.0.0.0, ::1)",
+                self.bind
+            ));
+        }
+        if self.port == 0 {
+            return Err("web.port must be non-zero".into());
+        }
+        validate_base_path(&self.base_path)?;
+        if self.token_ref.trim().is_empty() {
+            return Err("web.token_ref must not be empty".into());
+        }
+        Ok(())
+    }
+}
+
+/// Parses an IP address, accepting IPv6 in brackets.
+pub fn parse_bind(s: &str) -> Option<IpAddr> {
+    let t = s.trim();
+    let t = t
+        .strip_prefix('[')
+        .and_then(|r| r.strip_suffix(']'))
+        .unwrap_or(t);
+    t.parse().ok()
+}
+
+/// A base path starts with `/` and has no whitespace, `?`, `#` or `..`.
+pub fn validate_base_path(p: &str) -> Result<(), String> {
+    let bad = |m: &str| Err(format!("web.base_path `{p}` {m}"));
+    if !p.starts_with('/') {
+        return bad("must start with `/`");
+    }
+    if p.chars().any(|c| c.is_whitespace() || c.is_control())
+        || p.contains(['?', '#', '\\'])
+        || p.split('/').any(|s| s == "..")
+    {
+        return bad("contains forbidden characters");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_valid_and_loopback() {
+        let w = Web::default();
+        w.validate().unwrap();
+        assert!(!w.enabled && w.is_loopback());
+        assert_eq!(
+            (w.port, w.base_path.as_str(), w.token_ref.as_str()),
+            (6811, "/", "web")
+        );
+    }
+
+    #[test]
+    fn validation() {
+        let mut w = Web {
+            bind: "0.0.0.0".into(),
+            ..Web::default()
+        };
+        w.validate().unwrap();
+        assert!(!w.is_loopback());
+        assert_eq!(w.url(), "http://0.0.0.0:6811/");
+        w.base_path = "/dman/".into();
+        assert_eq!(w.url(), "http://0.0.0.0:6811/dman");
+        w.base_path = "/".into();
+        w.bind = "[::1]".into();
+        assert!(w.is_loopback());
+        assert_eq!(w.url(), "http://[::1]:6811/");
+        w.bind = "localhost".into();
+        assert!(w.validate().is_err());
+        let mut w = Web {
+            port: 0,
+            ..Web::default()
+        };
+        assert!(w.validate().is_err());
+        for p in ["dman", "/a b", "/a?x", "/../x", ""] {
+            w.port = 1;
+            w.base_path = p.into();
+            assert!(w.validate().is_err(), "{p}");
+        }
+        w.base_path = "/dman".into();
+        w.validate().unwrap();
+    }
+}

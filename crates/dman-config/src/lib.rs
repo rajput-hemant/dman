@@ -16,6 +16,7 @@ mod search;
 mod secrets;
 mod units;
 mod video;
+mod web;
 
 pub use edit::ConfigDoc;
 pub use error::ConfigError;
@@ -30,6 +31,7 @@ pub use search::{Search, TrackerList};
 pub use secrets::Secrets;
 pub use units::{ByteLimit, DiskThreshold, format_bytes, parse_bytes};
 pub use video::{Video, VideoSubtitles};
+pub use web::{Web, parse_bind, validate_base_path};
 
 #[cfg(test)]
 mod tests {

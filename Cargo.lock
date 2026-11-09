@@ -834,6 +834,7 @@ dependencies = [
  "dman-search",
  "dman-store",
  "dman-torrent",
+ "dman-web",
  "dman-ytdlp",
  "futures-util",
  "hmac",

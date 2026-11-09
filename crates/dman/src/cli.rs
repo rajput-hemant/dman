@@ -111,8 +111,8 @@ pub enum Command {
         #[command(subcommand)]
         cmd: TrackersCmd,
     },
-    /// Run the web UI (not available yet).
-    Serve,
+    /// Serve the browser UI (enable it on the running daemon, or run a daemon with it).
+    Serve(ServeArgs),
 }
 
 #[derive(Args, Debug, Default)]
@@ -212,6 +212,31 @@ pub enum DaemonCmd {
     EngineRestart,
     /// Write the default config file if none exists.
     GenConfig,
+}
+
+#[derive(Args, Debug, Default)]
+pub struct ServeArgs {
+    /// Address to bind (default from `[web]`: 127.0.0.1). Non-loopback exposes the UI.
+    #[arg(long, value_name = "ADDR")]
+    pub bind: Option<String>,
+    /// TCP port (default from `[web]`: 6811).
+    #[arg(long, value_name = "N")]
+    pub port: Option<u16>,
+    /// Mount point behind a reverse proxy, e.g. /dman.
+    #[arg(long, value_name = "PATH")]
+    pub base_path: Option<String>,
+    /// Write these settings (and enabled = true) to `[web]` in config.toml.
+    #[arg(long)]
+    pub persist: bool,
+    /// Stop the web UI of the running daemon (with --persist: also disable it in config.toml).
+    #[arg(
+        long,
+        conflicts_with_all = ["bind", "port", "base_path", "print_token"]
+    )]
+    pub stop: bool,
+    /// Print the access token (secret!) after starting. Never printed otherwise.
+    #[arg(long)]
+    pub print_token: bool,
 }
 
 #[derive(Args, Debug, Default)]
@@ -557,5 +582,34 @@ mod tests {
                 cmd: TrackersCmd::Status
             })
         ));
+    }
+
+    #[test]
+    fn serve_arguments() {
+        let serve = |args: &[&str]| match parse(args).unwrap().command {
+            Some(Command::Serve(a)) => a,
+            other => panic!("not serve: {other:?}"),
+        };
+        let a = serve(&["serve"]);
+        assert!(a.bind.is_none() && a.port.is_none() && a.base_path.is_none());
+        assert!(!a.persist && !a.stop && !a.print_token);
+        let a = serve(&[
+            "serve",
+            "--bind",
+            "0.0.0.0",
+            "--port",
+            "8080",
+            "--base-path",
+            "/dman",
+            "--persist",
+            "--print-token",
+        ]);
+        assert_eq!(a.bind.as_deref(), Some("0.0.0.0"));
+        assert_eq!(a.port, Some(8080));
+        assert_eq!(a.base_path.as_deref(), Some("/dman"));
+        assert!(a.persist && a.print_token);
+        assert!(serve(&["serve", "--stop", "--persist"]).stop);
+        assert!(parse(&["serve", "--stop", "--port", "1"]).is_err());
+        assert!(parse(&["serve", "--port", "70000"]).is_err());
     }
 }

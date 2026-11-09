@@ -18,7 +18,7 @@ use dman_proto::search::{
 };
 use dman_proto::{
     AddOutcome, AddParams, AddSource, Engine, ErrorCode, GlobalStats, Job, JobDetail, JobId,
-    JobOptions, Limits, RpcError, VideoOptions, VideoProbeParams,
+    JobOptions, Limits, RpcError, VideoOptions,
 };
 use maud::Markup;
 
@@ -588,28 +588,31 @@ pub async fn job_limits(
 
 // ---------------------------------------------------------------------- add
 
-/// The video options are shown only when the daemon has a usable video engine and
-/// knows `video.probe`; older daemons answer with a "method not found" error.
+/// How long the yt-dlp availability read from `engine.status` is reused.
+const VIDEO_CACHE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The video options are shown when `engine.status` lists an available yt-dlp
+/// (cached for up to 10 s); an unreadable status hides them.
 async fn video_available(st: &AppState) -> bool {
-    let probe: Result<serde_json::Value, _> = st
-        .call(method::VIDEO_PROBE, VideoProbeParams::default())
-        .await;
-    let known = match probe {
-        Ok(_) => true,
-        Err(e) => e.code == ErrorCode::InvalidInput,
-    };
-    if !known {
-        return false;
+    if let Ok(c) = st.video_cache.lock()
+        && let Some((at, v)) = *c
+        && at.elapsed() < VIDEO_CACHE
+    {
+        return v;
     }
-    match st
+    let available = match st
         .call::<Vec<EngineStatus>>(method::ENGINE_STATUS, ())
         .await
     {
-        Ok(list) => !list
+        Ok(list) => list
             .iter()
-            .any(|s| s.engine == Engine::YtDlp && !s.available),
-        Err(_) => true,
+            .any(|s| s.engine == Engine::YtDlp && s.available),
+        Err(_) => false,
+    };
+    if let Ok(mut c) = st.video_cache.lock() {
+        *c = Some((std::time::Instant::now(), available));
     }
+    available
 }
 
 pub async fn add_form(State(st): St, Extension(ctx): Extension<Ctx>) -> Response {
@@ -702,10 +705,25 @@ pub async fn add(State(st): St, Extension(c): Extension<Ctx>, h: HeaderMap, p: P
         )
         .await;
     }
-    let options = JobOptions {
+    let mut options = JobOptions {
         dir: p.text("dir").map(str::to_string),
         ..JobOptions::default()
     };
+    if let Some(v) = p.text("download_limit") {
+        match fmt::parse_rate(v) {
+            Some(n) => options.max_download_limit = Some(n),
+            None => {
+                return fail(
+                    &st,
+                    &c,
+                    &h,
+                    StatusCode::BAD_REQUEST,
+                    &format!("invalid download limit: {v}"),
+                )
+                .await;
+            }
+        }
+    }
     match add_sources(&st, sources, options, p.flag("paused")).await {
         Ok((ok, bad)) => {
             full_page(

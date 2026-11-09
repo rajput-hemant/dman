@@ -84,6 +84,8 @@ pub(crate) struct AppState {
     pub sessions: Mutex<HashMap<String, auth::Session>>,
     /// CSRF token used when no access token is configured (no sessions).
     pub open_csrf: String,
+    /// Last yt-dlp availability read from `engine.status`.
+    pub video_cache: Mutex<Option<(std::time::Instant, bool)>>,
 }
 
 impl AppState {
@@ -129,6 +131,7 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         exposed: cfg.exposed,
         sessions: Mutex::new(HashMap::new()),
         open_csrf: auth::random_id(),
+        video_cache: Mutex::new(None),
     });
     let r = |p: &str| format!("{base}{p}");
     let mut app = Router::new()

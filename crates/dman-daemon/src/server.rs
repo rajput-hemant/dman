@@ -51,6 +51,8 @@ pub struct ServerState {
     pub search: Arc<crate::search::SearchService>,
     /// The video engine's tools (`video.probe`, re-detection on `engine.restart`).
     pub video: Arc<crate::video::VideoService>,
+    /// The browser UI listener (`web.*`).
+    pub web: Arc<crate::web::WebHost>,
 }
 
 /// The axum router serving the API.
@@ -121,6 +123,50 @@ fn to_request(method: &str, params: Value) -> Result<Request, WireError> {
             ));
         }
     })
+}
+
+/// Runs one API method for an already authenticated caller (a WebSocket session
+/// after `session.hello`, or the web UI backend). Session control (`session.*`,
+/// `daemon.shutdown`) is not handled here. The future may be dropped to cancel
+/// long-running work (magnet preview, video probe).
+pub async fn dispatch(
+    state: &Arc<ServerState>,
+    method: &str,
+    params: Value,
+) -> Result<Value, WireError> {
+    match method {
+        method::JOBS_PREVIEW_MAGNET => {
+            let p = parse::<method::PreviewMagnetParams>(params)?;
+            Ok(json!(state.preview.run(p).await?))
+        }
+        method::VIDEO_PROBE => {
+            let p = parse::<dman_proto::VideoProbeParams>(params)?;
+            Ok(json!(state.video.probe(p).await?))
+        }
+        method::ENGINE_RESTART => {
+            // yt-dlp/ffmpeg are looked up again first (the manager publishes
+            // the new status), then aria2 is restarted.
+            let tools = state.video.redetect().await;
+            let status = state.engine.restart().await?;
+            Ok(json!([status, crate::video::engine_status(&tools)]))
+        }
+        method::WEB_STATUS => Ok(json!(state.web.status().await)),
+        method::WEB_START => {
+            let p = parse::<method::WebStartParams>(params)?;
+            Ok(json!(state.web.start_with(state, p).await?))
+        }
+        method::WEB_STOP => {
+            let p = parse::<method::WebStopParams>(params)?;
+            Ok(json!(state.web.stop_with(p.persist).await?))
+        }
+        m if crate::search::handles(m) => Ok(state.search.call(m, params).await?),
+        m => Ok(state.manager.call(to_request(m, params)?).await?),
+    }
+}
+
+/// Methods whose work is cancelled when the connection ends.
+fn cancel_on_disconnect(method: &str) -> bool {
+    matches!(method, method::JOBS_PREVIEW_MAGNET | method::VIDEO_PROBE)
 }
 
 fn hello(state: &ServerState, params: Value) -> Result<HelloResult, RpcError> {
@@ -292,91 +338,24 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
                 tracing::info!("shutdown requested over the API");
                 let _ = state.shutdown_request.try_send(());
             }
-            method::JOBS_PREVIEW_MAGNET => {
-                let params = match parse::<method::PreviewMagnetParams>(req.params) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        reply(Response::err(id, e)).await;
-                        continue;
-                    }
-                };
-                let preview = state.preview.clone();
-                let out = out_tx.clone();
-                previews.retain(|t| !t.is_finished());
-                previews.push(tokio::spawn(async move {
-                    let resp = match preview.run(params).await {
-                        Ok(v) => Response::ok(id, json!(v)),
-                        Err(e) => Response::err(id, e),
-                    };
-                    let _ = out.send(encode(&resp)).await;
-                }));
-            }
-            method::VIDEO_PROBE => {
-                let params = match parse::<dman_proto::VideoProbeParams>(req.params) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        reply(Response::err(id, e)).await;
-                        continue;
-                    }
-                };
-                // Runs off the manager; aborted (yt-dlp killed) on disconnect.
-                let video = state.video.clone();
-                let out = out_tx.clone();
-                previews.retain(|t| !t.is_finished());
-                previews.push(tokio::spawn(async move {
-                    let resp = match video.probe(params).await {
-                        Ok(v) => Response::ok(id, json!(v)),
-                        Err(e) => Response::err(id, e),
-                    };
-                    let _ = out.send(encode(&resp)).await;
-                }));
-            }
-            method::ENGINE_RESTART => {
-                let engine = state.engine.clone();
-                let video = state.video.clone();
-                let out = out_tx.clone();
-                tasks.retain(|t| !t.is_finished());
-                tasks.push(tokio::spawn(async move {
-                    // yt-dlp/ffmpeg are looked up again first (the manager
-                    // publishes the new status), then aria2 is restarted.
-                    let tools = video.redetect().await;
-                    let resp = match engine.restart().await {
-                        Ok(status) => {
-                            Response::ok(id, json!([status, crate::video::engine_status(&tools)]))
-                        }
-                        Err(e) => Response::err(id, e),
-                    };
-                    let _ = out.send(encode(&resp)).await;
-                }));
-            }
-            m if crate::search::handles(m) => {
-                let search = state.search.clone();
+            m => {
+                let state = state.clone();
                 let out = out_tx.clone();
                 let method = m.to_owned();
-                tasks.retain(|t| !t.is_finished());
-                tasks.push(tokio::spawn(async move {
-                    let resp = match search.call(&method, req.params).await {
+                let list = if cancel_on_disconnect(m) {
+                    &mut previews
+                } else {
+                    &mut tasks
+                };
+                list.retain(|t| !t.is_finished());
+                list.push(tokio::spawn(async move {
+                    let resp = match dispatch(&state, &method, req.params).await {
                         Ok(v) => Response::ok(id, v),
                         Err(e) => Response::err(id, e),
                     };
                     let _ = out.send(encode(&resp)).await;
                 }));
             }
-            m => match to_request(m, req.params) {
-                Err(e) => reply(Response::err(id, e)).await,
-                Ok(r) => {
-                    let manager = state.manager.clone();
-                    let out = out_tx.clone();
-                    tasks.retain(|t| !t.is_finished());
-                    tasks.push(tokio::spawn(async move {
-                        let resp = match manager.call(r).await {
-                            Ok(v) => Response::ok(id, v),
-                            Err(e) => Response::err(id, e),
-                        };
-                        let _ = out.send(encode(&resp)).await;
-                    }));
-                }
-            },
         }
     }
     if let Some(f) = forwarder {

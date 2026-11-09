@@ -545,6 +545,7 @@ pub fn add_page(base: &str, csrf: &str, video: bool) -> Markup {
             label { "Magnet links and URLs, one per line"
                 textarea name="uris" rows="5" placeholder="magnet:?xt=urn:btih:...\nhttps://example.org/file.iso" {} }
             label { "Directory (optional) " input type="text" name="dir"; }
+            label { "Download limit (optional) " input type="text" name="download_limit" placeholder="e.g. 500K, 2M"; }
             label.inline { input type="checkbox" name="paused" value="1"; " Add paused" }
             @if video {
                 h2 { "Video" }
@@ -660,6 +661,12 @@ pub fn search_page(
                         " " (p.name)
                     } }
                 }
+            }
+        }
+        @if !providers.iter().any(|p| p.enabled) {
+            p.msg.warn {
+                "No search providers are enabled. Enable at least one in "
+                a href=(format!("{base}/settings")) { "Settings" } "."
             }
         }
         div #search-results sse-swap="search" hx-swap="innerHTML" { (search_results(base, view)) }

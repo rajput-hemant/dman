@@ -6,6 +6,10 @@ use dman_client::ReconnectingClient;
 use dman_proto::method::{
     BatchResult, FsListParams, FsListing, LimitsUpdate, MagnetPreview, RemoveParams, Reorder,
 };
+use dman_proto::search::{
+    ProviderInfo, ProviderSetParams, ProviderTestReport, ProvidersImported, ResolvedMagnet,
+    SearchHistoryEntry, SearchResolveParams, SearchSnapshot, SearchStartParams, SearchStarted,
+};
 use dman_proto::{AddOutcome, AddParams, JobDetail, JobId, JobOptions, Limits, SpeedSample};
 
 use crate::format::{limit, plural};
@@ -71,6 +75,33 @@ pub enum ApiCall {
     },
     /// `stats.history` (global speed graph; polled while it is visible).
     StatsHistory,
+    /// `search.start`.
+    SearchStart(SearchStartParams),
+    /// `search.cancel`.
+    SearchCancel(u64),
+    /// `search.results` (re-sync of a running search after lost events).
+    SearchResults(u64),
+    /// `search.resolve` (magnet from a result's detail page).
+    SearchResolve(SearchResolveParams),
+    /// `search.history`.
+    SearchHistory,
+    /// `search.history_clear`.
+    SearchHistoryClear,
+    /// `providers.list`.
+    ProvidersList,
+    /// `providers.set`.
+    ProvidersSet(ProviderSetParams),
+    /// `providers.test` (can take a while; never blocks the UI).
+    ProvidersTest(String),
+    /// `providers.import` with the TOML text of a local file.
+    ProvidersImport(String),
+    /// `providers.export` of the custom providers; the TOML is written to `path`.
+    ProvidersExport {
+        /// Local file the reply is written to.
+        path: String,
+    },
+    /// `providers.remove` (custom providers only).
+    ProvidersRemove(String),
     /// `daemon.shutdown`.
     Shutdown,
 }
@@ -102,6 +133,18 @@ impl ApiCall {
             ApiCall::Rename { .. } => "Renaming".into(),
             ApiCall::PreviewMagnet { .. } => "Fetching magnet metadata".into(),
             ApiCall::StatsHistory => "Loading speed history".into(),
+            ApiCall::SearchStart(_) => "Starting search".into(),
+            ApiCall::SearchCancel(_) => "Cancelling search".into(),
+            ApiCall::SearchResults(_) => "Reloading search results".into(),
+            ApiCall::SearchResolve(_) => "Resolving magnet link".into(),
+            ApiCall::SearchHistory => "Loading search history".into(),
+            ApiCall::SearchHistoryClear => "Clearing search history".into(),
+            ApiCall::ProvidersList => "Loading providers".into(),
+            ApiCall::ProvidersSet(_) => "Saving provider".into(),
+            ApiCall::ProvidersTest(n) => format!("Testing {n}"),
+            ApiCall::ProvidersImport(_) => "Importing providers".into(),
+            ApiCall::ProvidersExport { .. } => "Exporting providers".into(),
+            ApiCall::ProvidersRemove(n) => format!("Removing {n}"),
             ApiCall::Shutdown => "Shutting down the daemon".into(),
         }
     }
@@ -124,6 +167,18 @@ impl ApiCall {
             ApiCall::Rename { .. } => "Rename",
             ApiCall::PreviewMagnet { .. } => "Magnet preview",
             ApiCall::StatsHistory => "Speed history",
+            ApiCall::SearchStart(_) => "Search",
+            ApiCall::SearchCancel(_) => "Cancel search",
+            ApiCall::SearchResults(_) => "Reload search",
+            ApiCall::SearchResolve(_) => "Resolve magnet",
+            ApiCall::SearchHistory => "Search history",
+            ApiCall::SearchHistoryClear => "Clear history",
+            ApiCall::ProvidersList => "Load providers",
+            ApiCall::ProvidersSet(_) => "Save provider",
+            ApiCall::ProvidersTest(_) => "Provider test",
+            ApiCall::ProvidersImport(_) => "Import providers",
+            ApiCall::ProvidersExport { .. } => "Export providers",
+            ApiCall::ProvidersRemove(_) => "Remove provider",
             ApiCall::Shutdown => "Shutdown",
         }
     }
@@ -172,6 +227,36 @@ impl ApiCall {
                 .await
                 .map(|p| ApiReply::MagnetPreview(Box::new(p))),
             ApiCall::StatsHistory => client.stats_history().await.map(ApiReply::History),
+            ApiCall::SearchStart(p) => client.search_start(p).await.map(ApiReply::SearchStarted),
+            ApiCall::SearchCancel(id) => client.search_cancel(id).await.map(|()| ApiReply::Done),
+            ApiCall::SearchResults(id) => client
+                .search_results(id)
+                .await
+                .map(|s| ApiReply::SearchSnapshot(Box::new(s))),
+            ApiCall::SearchResolve(p) => client.search_resolve(p).await.map(ApiReply::Resolved),
+            ApiCall::SearchHistory => client.search_history().await.map(ApiReply::SearchHistory),
+            ApiCall::SearchHistoryClear => {
+                client.search_history_clear().await.map(|()| ApiReply::Done)
+            }
+            ApiCall::ProvidersList => client.providers_list().await.map(ApiReply::Providers),
+            ApiCall::ProvidersSet(p) => client
+                .providers_set(p)
+                .await
+                .map(|i| ApiReply::Provider(Box::new(i))),
+            ApiCall::ProvidersTest(name) => client
+                .providers_test(&name)
+                .await
+                .map(|r| ApiReply::ProviderTest(Box::new(r))),
+            ApiCall::ProvidersImport(toml) => {
+                client.providers_import(&toml).await.map(ApiReply::Imported)
+            }
+            ApiCall::ProvidersExport { .. } => {
+                client.providers_export(None).await.map(ApiReply::Exported)
+            }
+            ApiCall::ProvidersRemove(name) => client
+                .providers_remove(&name)
+                .await
+                .map(|()| ApiReply::Done),
             ApiCall::Shutdown => client.shutdown().await.map(|()| ApiReply::Done),
         };
         r.map_err(|e| e.to_string())
@@ -197,6 +282,24 @@ pub enum ApiReply {
     MagnetPreview(Box<MagnetPreview>),
     /// Global speed samples, oldest first.
     History(Vec<SpeedSample>),
+    /// A search was started.
+    SearchStarted(SearchStarted),
+    /// The latest merged state of a search.
+    SearchSnapshot(Box<SearchSnapshot>),
+    /// A magnet link read from a detail page.
+    Resolved(ResolvedMagnet),
+    /// Recent searches, newest first.
+    SearchHistory(Vec<SearchHistoryEntry>),
+    /// Every provider.
+    Providers(Vec<ProviderInfo>),
+    /// One provider after a change.
+    Provider(Box<ProviderInfo>),
+    /// Result of a provider test.
+    ProviderTest(Box<ProviderTestReport>),
+    /// Providers added or replaced by an import.
+    Imported(ProvidersImported),
+    /// TOML of the exported providers.
+    Exported(String),
 }
 
 /// Severity of a status message.
@@ -236,6 +339,21 @@ pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome,
             format!("Fetched {}", plural(p.files.len(), "file")),
         ),
         Ok(ApiReply::History(h)) => (Outcome::Ok, format!("{} speed samples", h.len())),
+        Ok(ApiReply::SearchStarted(s)) => (
+            Outcome::Ok,
+            format!("Searching {}", plural(s.providers.len(), "provider")),
+        ),
+        Ok(ApiReply::SearchSnapshot(s)) => (Outcome::Ok, plural(s.results.len(), "result")),
+        Ok(ApiReply::Resolved(_)) => (Outcome::Ok, "Magnet link resolved".into()),
+        Ok(ApiReply::SearchHistory(h)) => (Outcome::Ok, plural(h.len(), "past search")),
+        Ok(ApiReply::Providers(p)) => (Outcome::Ok, plural(p.len(), "provider")),
+        Ok(ApiReply::Provider(p)) => (Outcome::Ok, format!("Saved {}", p.name)),
+        Ok(ApiReply::ProviderTest(r)) => (Outcome::Ok, format!("Tested {}", r.name)),
+        Ok(ApiReply::Imported(i)) => (
+            Outcome::Ok,
+            format!("Imported {}", plural(i.names.len(), "provider")),
+        ),
+        Ok(ApiReply::Exported(_)) => (Outcome::Ok, "Providers exported".into()),
 
         Ok(ApiReply::Done) if matches!(call, ApiCall::SetOptions { .. }) => {
             (Outcome::Ok, "Option saved".into())

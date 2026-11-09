@@ -10,6 +10,7 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
+use crate::action::Action;
 use crate::api::ApiCall;
 use crate::theme::Theme;
 use crate::widgets::input::LineInput;
@@ -41,6 +42,8 @@ pub enum ConfirmNext {
     Then(Box<ConfirmState>),
     /// Leave the top view, dropping what was typed in it.
     LeaveView,
+    /// Run an action in the top view.
+    Run(Action),
 }
 
 /// A confirmation dialog.
@@ -84,6 +87,16 @@ impl ConfirmState {
             lines,
             mode: ConfirmMode::YesNo,
             next: ConfirmNext::LeaveView,
+        }
+    }
+
+    /// A y/N dialog that runs `action` when confirmed.
+    pub fn run(title: impl Into<String>, lines: Vec<String>, action: Action) -> Self {
+        Self {
+            title: title.into(),
+            lines,
+            mode: ConfirmMode::YesNo,
+            next: ConfirmNext::Run(action),
         }
     }
 
@@ -131,6 +144,7 @@ impl ConfirmState {
         match &self.next {
             ConfirmNext::Call(c) => ModalOutcome::Api(c.clone()),
             ConfirmNext::LeaveView => ModalOutcome::LeaveView,
+            ConfirmNext::Run(a) => ModalOutcome::Run(*a),
             ConfirmNext::Then(next) => {
                 ModalOutcome::Replace(crate::widgets::Modal::Confirm(next.as_ref().clone()))
             }

@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 │    89s ago                                                                                                        now│
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  Speed graph on (w hides it)
- p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit  s sort  Space select  Enter detail
+ p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit  s sort  Space select  Enter detail  f search

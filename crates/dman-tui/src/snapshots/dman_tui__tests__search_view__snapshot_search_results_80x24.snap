@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+┌ Search torrents ─────────────────────────────────────────────────────────────┐
+│  Query     ubuntu 24.04                                                      │
+│  Category  (optional, e.g. movies, tv, software)                             │
+│  Providers [x] 1337x  [x] nyaa                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+ 1337x ✓ 3 in 340 ms   nyaa ✗ failed: timed out after 15s   tpb ⠋
+ sort seeders▼  4 results  1 marked
+  #   Title                         Size     S     L Sources          Date
+●   1 Ubuntu 24.04.1 Desktop…    6.0 GiB  1204    31 1337x,tpb        2024-08-29
+    2 Ubuntu 24.04 Server        2.0 GiB   310     8 nyaa             2024-04-25
+    3 ubuntu-24.04-live-serv…  900.0 MiB    12     1 1337x            2024-05-02
+    4 Kubuntu 24.04              4.0 GiB     4     - nyaa,1337x       2023-11-07
+
+
+
+
+
+
+
+
+ Searching 3 providers…
+ Enter add  e edit query  Space select  s sort  / filter  h history

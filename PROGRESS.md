@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 60 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
+**Overall: 65 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -22,7 +22,7 @@ commit this file together with the code it describes.
 | M2 TUI core (loop, keymap, palette, downloads view, add view, confirmations) | 12 | done |
 | M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | done |
 | M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | in progress |
-| M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | — |
+| M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | done |
 | M6 Video engine (yt-dlp adapter, probe UI, options, fallbacks) | 10 | in progress |
 | M7 Web UI (htmx views, live updates, upload, auth, responsive) | 12 | — |
 | M8 Remote and release (TLS, reconnect, completions, installers, update, docs, review) | 11 | — |
@@ -79,8 +79,8 @@ commit this file together with the code it describes.
 ### M5 — Search (12 %)
 - [x] `dman-search` library: declarative provider defs (torznab/feed/html/json), built-ins (Nyaa, YTS, TPB, Knaben, 1337x, Torznab template; all off, unverified against live sites), concurrent fan-out with per-provider timeout/rate limit/cap, dedupe by info-hash, ranking, test_provider, import/export, tracker-list fetch
 - [x] Daemon: providers config (`[[provider]]` + built-in overrides by name), `search.start/cancel/results/history`, results streamed as events, search history persisted (redb), `providers.list/set/test/import/export`, secrets for API keys, runtime changes without restart
-- [ ] TUI Search view: provider selector, query, live results table (title, size, S/L, source, date), filters (size, seeders, source), add from results (magnet or detail resolve), history + re-run, per-provider errors; first-run prompt to enable providers (D26)
-- [ ] Settings view basics for providers (enable/disable/reorder/test/import/export)
+- [x] TUI Search view: provider selector, query, live results table (title, size, S/L, source, date), filters (size, seeders, source), add from results (magnet or detail resolve), history + re-run, per-provider errors; first-run prompt to enable providers (D26)
+- [x] Settings view basics for providers (enable/disable/reorder/test/import/export)
 - [x] CLI `dman search <q> [--provider X] [--add N]`, `dman search --history`, `dman providers ...`, `dman trackers status`; tracker-list source (Q2) fetched/cached/attached in daemon
 - [x] Live-verified Nyaa, TPB (fixed HTML entities), Knaben; 1337x (403 Cloudflare) and YTS (unreachable) stay unverified
 

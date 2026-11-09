@@ -216,6 +216,16 @@ fn spawn_cmd(cmd: Cmd, client: &ReconnectingClient, tx: &mpsc::Sender<Msg>) {
                 .unwrap_or_default(),
             ),
             Cmd::ReadClipboard => Msg::Clipboard(blocking(read_clipboard).await.and_then(|r| r)),
+            Cmd::ReadProviderFile(path) => Msg::ProviderFile(
+                blocking(move || read_provider_file(&path))
+                    .await
+                    .and_then(|r| r),
+            ),
+            Cmd::WriteProviderFile { path, content } => Msg::ProviderFileWritten(
+                blocking(move || write_provider_file(&path, &content))
+                    .await
+                    .and_then(|r| r),
+            ),
             Cmd::Notify { title, body } => {
                 // Best effort: a headless machine has no notification service.
                 let _ = blocking(move || {
@@ -242,6 +252,48 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> 
     tokio::task::spawn_blocking(f)
         .await
         .map_err(|e| format!("background task failed: {e}"))
+}
+
+/// `~/x` to the home directory.
+fn expand_home(path: &str) -> std::path::PathBuf {
+    match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
+        (Some(rest), Some(home)) => std::path::Path::new(&home).join(rest),
+        _ => std::path::PathBuf::from(path),
+    }
+}
+
+/// Largest providers file accepted for import.
+const MAX_PROVIDER_FILE: u64 = 1 << 20;
+
+fn read_provider_file(path: &str) -> Result<(String, String), String> {
+    let full = expand_home(path);
+    let meta = std::fs::metadata(&full).map_err(|e| format!("{path}: {e}"))?;
+    if meta.len() > MAX_PROVIDER_FILE {
+        return Err(format!("{path} is too big for a providers file"));
+    }
+    std::fs::read_to_string(&full)
+        .map(|t| (path.to_owned(), t))
+        .map_err(|e| format!("{path}: {e}"))
+}
+
+/// Writes a new file only: an existing file is never overwritten.
+fn write_provider_file(path: &str, content: &str) -> Result<String, String> {
+    use std::io::Write;
+    let full = expand_home(path);
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&full)
+        .map_err(|e| {
+            if e.kind() == io::ErrorKind::AlreadyExists {
+                format!("{path} already exists; choose another name")
+            } else {
+                format!("{path}: {e}")
+            }
+        })?;
+    f.write_all(content.as_bytes())
+        .map_err(|e| format!("{path}: {e}"))?;
+    Ok(path.to_owned())
 }
 
 /// Text from the system clipboard (decision D17). Fails on headless hosts and
@@ -353,5 +405,29 @@ async fn signal_task(tx: mpsc::Sender<Msg>) {
 async fn signal_task(tx: mpsc::Sender<Msg>) {
     if tokio::signal::ctrl_c().await.is_ok() {
         let _ = tx.send(Msg::Terminate).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_files_round_trip_and_never_overwrite() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("providers.toml");
+        let path = path.to_string_lossy().into_owned();
+        assert_eq!(
+            write_provider_file(&path, "[[provider]]\n"),
+            Ok(path.clone())
+        );
+        let err = write_provider_file(&path, "other").expect_err("exists");
+        assert!(err.contains("already exists"), "{err}");
+        assert_eq!(
+            read_provider_file(&path),
+            Ok((path.clone(), "[[provider]]\n".to_owned()))
+        );
+        let missing = dir.path().join("missing.toml");
+        assert!(read_provider_file(&missing.to_string_lossy()).is_err());
     }
 }

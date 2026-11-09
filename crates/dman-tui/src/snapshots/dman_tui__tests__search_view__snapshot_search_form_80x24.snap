@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+┌ Search torrents ─────────────────────────────────────────────────────────────┐
+│  Query     ubuntu                                                            │
+│  Category  (optional, e.g. movies, tv, software)                             │
+│▸ Providers [ ] 1337x  [x] nyaa                                               │
+└──────────────────────────────────────────────────────────────────────────────┘
+ sort seeders▼
+
+
+
+
+
+
+
+             Type a query and press Enter · p providers · h history
+
+
+
+
+
+
+ Connected to daemon 0.1.0
+ Space toggle  ←→ move  Enter search  Tab next field  Esc cancel/back

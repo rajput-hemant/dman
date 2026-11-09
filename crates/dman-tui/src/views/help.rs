@@ -57,6 +57,15 @@ fn popups() -> Vec<(&'static str, Vec<(String, String)>)> {
             ]));
             h
         }),
+        (
+            "Search form (query, category, providers)",
+            own(&[
+                ("Enter", "run the search"),
+                ("Tab / Shift-Tab", "next / previous field"),
+                ("← →  Space", "providers: move / switch one on or off"),
+                ("Esc", "cancel the running search, else leave"),
+            ]),
+        ),
         ("File browser (Add: Ctrl-o)", FileBrowser::hints()),
         ("Directory picker (Add: Ctrl-f)", DirPicker::hints()),
         ("Preview (Add: Ctrl-s)", Preview::key_help()),
@@ -113,6 +122,8 @@ const fn title(ctx: Context) -> &'static str {
         Context::Detail => "Detail",
         Context::Help => "Help",
         Context::Add => "Add",
+        Context::Search => "Search",
+        Context::Providers => "Search providers",
     }
 }
 

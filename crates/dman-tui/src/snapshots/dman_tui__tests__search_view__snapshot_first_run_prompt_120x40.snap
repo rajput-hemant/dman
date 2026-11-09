@@ -1,0 +1,44 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 120, 40)"
+---
+ dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
+┌ Search torrents ─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│▸ Query                                                                                                               │
+│  Category  (optional, e.g. movies, tv, software)                                                                     │
+│  Providers none enabled — press F2 to open the providers settings                                                    │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ sort seeders▼
+
+
+
+
+
+
+
+
+                              ┌ No search provider is enabled. Open the settings? y/N ───┐
+                              │All search providers are off by default, so a search      │
+                              │would find nothing. Enable the providers you want in the  │
+                              │providers settings (Space toggles one), then search.      │
+                              │                                                          │
+                              │y yes   n no                                              │
+                              └──────────────────────────────────────────────────────────┘
+                                Type a query and press Enter · F2 providers · F3 history
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ Connected to daemon 0.1.0
+ y confirm  n/Esc cancel

@@ -11,4 +11,4 @@ expression: "render(&mut s, 120, 10)"
   debian-13.2.0-amd64-netinst.iso          seeding ████████ 100%           - 256.0 KiB/s      -  700.0 MiB    5/40  1.50
   Waiting (2)
  Connected to daemon 0.1.0
- p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit  s sort  Space select  Enter detail
+ p pause  r resume  d remove  a add  / filter  : palette  ? help  q quit  s sort  Space select  Enter detail  f search

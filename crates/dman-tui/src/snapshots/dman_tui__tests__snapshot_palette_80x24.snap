@@ -16,8 +16,8 @@ expression: "render(&mut s, 80, 24)"
   report│Pause all                                       P             │ 3.0 MiB
   missin│Detail: toggle the file under the cursor (wait… Space         │       -
         │Detail: select / deselect all files (waiting/p… a             │
+        │Providers: remove a custom provider             D, Del        │
         └──────────────────────────────────────────────────────────────┘
-
 
 
 

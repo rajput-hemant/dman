@@ -115,6 +115,44 @@ pub enum Action {
     AddToggleMirror,
     /// Add view: choose the download directory on the daemon host.
     AddPickDir,
+    /// Open the search view.
+    Search,
+    /// Search view: run the query.
+    SearchRun,
+    /// Search view: edit the query.
+    SearchEdit,
+    /// Search view: next field.
+    SearchNextField,
+    /// Search view: previous field.
+    SearchPrevField,
+    /// Search view: cancel the running search, close the history, or leave.
+    SearchCancel,
+    /// Search view: open the Add view with the result(s) (history: re-run).
+    SearchAdd,
+    /// Search view: add the result(s) with the profile defaults.
+    SearchAddDirect,
+    /// Search view: show or hide the search history.
+    SearchHistory,
+    /// Search view: clear the search history (confirmed).
+    SearchHistoryClear,
+    /// Open the search providers settings.
+    SearchProviders,
+    /// Search view: set the minimum seeders.
+    SearchFilterSeeders,
+    /// Search view: set the size range.
+    SearchFilterSize,
+    /// Search view: filter by source provider.
+    SearchFilterSource,
+    /// Providers view: enable or disable the provider.
+    ProviderToggle,
+    /// Providers view: test the provider.
+    ProviderTest,
+    /// Providers view: import custom providers from a file.
+    ProviderImport,
+    /// Providers view: export custom providers to a file.
+    ProviderExport,
+    /// Providers view: remove a custom provider (confirmed).
+    ProviderRemove,
     /// Open the command palette.
     Palette,
     /// Show the help screen.
@@ -182,6 +220,25 @@ impl Action {
         Action::AddPasteClipboard,
         Action::AddToggleMirror,
         Action::AddPickDir,
+        Action::Search,
+        Action::SearchRun,
+        Action::SearchEdit,
+        Action::SearchNextField,
+        Action::SearchPrevField,
+        Action::SearchCancel,
+        Action::SearchAdd,
+        Action::SearchAddDirect,
+        Action::SearchHistory,
+        Action::SearchHistoryClear,
+        Action::SearchProviders,
+        Action::SearchFilterSeeders,
+        Action::SearchFilterSize,
+        Action::SearchFilterSource,
+        Action::ProviderToggle,
+        Action::ProviderTest,
+        Action::ProviderImport,
+        Action::ProviderExport,
+        Action::ProviderRemove,
         Action::Palette,
         Action::Help,
         Action::Back,
@@ -244,6 +301,25 @@ impl Action {
             Action::AddPasteClipboard => "add_paste_clipboard",
             Action::AddToggleMirror => "add_toggle_mirror",
             Action::AddPickDir => "add_pick_dir",
+            Action::Search => "search",
+            Action::SearchRun => "search_run",
+            Action::SearchEdit => "search_edit",
+            Action::SearchNextField => "search_next_field",
+            Action::SearchPrevField => "search_prev_field",
+            Action::SearchCancel => "search_cancel",
+            Action::SearchAdd => "search_add",
+            Action::SearchAddDirect => "search_add_direct",
+            Action::SearchHistory => "search_history",
+            Action::SearchHistoryClear => "search_history_clear",
+            Action::SearchProviders => "search_providers",
+            Action::SearchFilterSeeders => "search_filter_seeders",
+            Action::SearchFilterSize => "search_filter_size",
+            Action::SearchFilterSource => "search_filter_source",
+            Action::ProviderToggle => "provider_toggle",
+            Action::ProviderTest => "provider_test",
+            Action::ProviderImport => "provider_import",
+            Action::ProviderExport => "provider_export",
+            Action::ProviderRemove => "provider_remove",
             Action::Palette => "palette",
             Action::Help => "help",
             Action::Back => "back",
@@ -316,6 +392,25 @@ impl Action {
             Action::AddPasteClipboard => "Add view: paste from clipboard",
             Action::AddToggleMirror => "Add view: toggle mirrors (one download from all URLs)",
             Action::AddPickDir => "Add view: choose download directory (daemon)",
+            Action::Search => "Search torrents",
+            Action::SearchRun => "Search: run the query",
+            Action::SearchEdit => "Search: edit the query",
+            Action::SearchNextField => "Search: next field",
+            Action::SearchPrevField => "Search: previous field",
+            Action::SearchCancel => "Search: cancel the running search (leave when idle)",
+            Action::SearchAdd => "Search: add result(s) in the Add view",
+            Action::SearchAddDirect => "Search: add result(s) directly with defaults",
+            Action::SearchHistory => "Search: history",
+            Action::SearchHistoryClear => "Search: clear the history",
+            Action::SearchProviders => "Search providers",
+            Action::SearchFilterSeeders => "Search: minimum seeders",
+            Action::SearchFilterSize => "Search: size range",
+            Action::SearchFilterSource => "Search: filter by source provider",
+            Action::ProviderToggle => "Providers: enable / disable",
+            Action::ProviderTest => "Providers: test the provider",
+            Action::ProviderImport => "Providers: import from a file",
+            Action::ProviderExport => "Providers: export to a file",
+            Action::ProviderRemove => "Providers: remove a custom provider",
             Action::Palette => "Command palette",
             Action::Help => "Help (key bindings)",
             Action::Back => "Back / close",
@@ -379,6 +474,25 @@ impl Action {
             Action::AddPasteClipboard => "clipboard",
             Action::AddToggleMirror => "mirror",
             Action::AddPickDir => "folder",
+            Action::Search => "search",
+            Action::SearchRun => "search",
+            Action::SearchEdit => "edit query",
+            Action::SearchNextField => "next field",
+            Action::SearchPrevField => "prev field",
+            Action::SearchCancel => "cancel",
+            Action::SearchAdd => "add",
+            Action::SearchAddDirect => "add now",
+            Action::SearchHistory => "history",
+            Action::SearchHistoryClear => "clear history",
+            Action::SearchProviders => "providers",
+            Action::SearchFilterSeeders => "min seeders",
+            Action::SearchFilterSize => "size",
+            Action::SearchFilterSource => "source",
+            Action::ProviderToggle => "toggle",
+            Action::ProviderTest => "test",
+            Action::ProviderImport => "import",
+            Action::ProviderExport => "export",
+            Action::ProviderRemove => "remove",
             Action::Palette => "palette",
             Action::Help => "help",
             Action::Back => "back",
@@ -411,6 +525,24 @@ impl Action {
             | Action::AddPasteClipboard
             | Action::AddToggleMirror
             | Action::AddPickDir => Context::Add,
+            Action::SearchRun
+            | Action::SearchEdit
+            | Action::SearchNextField
+            | Action::SearchPrevField
+            | Action::SearchCancel
+            | Action::SearchAdd
+            | Action::SearchAddDirect
+            | Action::SearchHistory
+            | Action::SearchHistoryClear
+            | Action::SearchProviders
+            | Action::SearchFilterSeeders
+            | Action::SearchFilterSize
+            | Action::SearchFilterSource => Context::Search,
+            Action::ProviderToggle
+            | Action::ProviderTest
+            | Action::ProviderImport
+            | Action::ProviderExport
+            | Action::ProviderRemove => Context::Providers,
             _ => Context::Downloads,
         }
     }
@@ -440,6 +572,14 @@ impl Action {
                 | Action::DetailToggleAllFiles
                 | Action::DetailEditOption
                 | Action::AddPickDir
+                | Action::SearchRun
+                | Action::SearchAddDirect
+                | Action::SearchHistoryClear
+                | Action::ProviderToggle
+                | Action::ProviderTest
+                | Action::ProviderImport
+                | Action::ProviderExport
+                | Action::ProviderRemove
         )
     }
 }

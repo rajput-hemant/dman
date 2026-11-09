@@ -63,6 +63,10 @@ pub enum Msg {
     PathsChecked(Vec<(String, PathStatus)>),
     /// Local source files were read for the preview.
     FilesRead(Loaded),
+    /// A providers file was read: `(path, text)`.
+    ProviderFile(Result<(String, String), String>),
+    /// A providers file was written: the path.
+    ProviderFileWritten(Result<String, String>),
     /// The clipboard text, or why it could not be read.
     Clipboard(Result<String, String>),
     /// Events were dropped (slow consumer); state must be re-fetched.
@@ -90,6 +94,16 @@ pub enum Cmd {
     ReadFiles(Vec<String>),
     /// Read the clipboard; answered with [`Msg::Clipboard`].
     ReadClipboard,
+    /// Read a providers file; answered with [`Msg::ProviderFile`].
+    ReadProviderFile(String),
+    /// Write a providers export (never over an existing file); answered with
+    /// [`Msg::ProviderFileWritten`].
+    WriteProviderFile {
+        /// Target path.
+        path: String,
+        /// TOML text.
+        content: String,
+    },
     /// Show a desktop notification (best effort; never answered).
     Notify {
         /// Summary line.
@@ -216,6 +230,10 @@ pub struct State {
     pub tick: Duration,
     /// The global speed graph of the downloads view (memory only).
     pub graph: GraphState,
+    /// Search view state (the last search outlives the view).
+    pub search: views::search::SearchState,
+    /// Search providers as last reported by the daemon.
+    pub providers: views::providers::ProvidersState,
     /// Desktop notifications for finished jobs are enabled.
     pub desktop: bool,
     /// Time zone used to show schedule times (the client's local zone).
@@ -248,6 +266,8 @@ impl State {
             size: opts.size,
             tick: opts.tick,
             graph: GraphState::default(),
+            search: views::search::SearchState::default(),
+            providers: views::providers::ProvidersState::default(),
             desktop: opts.desktop,
             time_zone: jiff::tz::TimeZone::system(),
             now_override: None,
@@ -364,9 +384,16 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Cmd> {
             Vec::new()
         }
         Msg::Clipboard(r) => views::add::on_clipboard(state, r),
+        Msg::ProviderFile(r) => views::providers::on_file_read(state, r),
+        Msg::ProviderFileWritten(r) => {
+            views::providers::on_file_written(state, r);
+            Vec::new()
+        }
         Msg::Lagged => {
             state.status.warn("Missed some live updates; reloading");
-            vec![Cmd::Resync]
+            let mut cmds = vec![Cmd::Resync];
+            cmds.extend(views::search::on_lagged(state));
+            cmds
         }
         Msg::Tick => on_tick(state),
         Msg::Terminate => vec![Cmd::Quit],
@@ -376,7 +403,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Cmd> {
 fn on_tick(state: &mut State) -> Vec<Cmd> {
     let mut cmds = views::detail::on_tick(state);
     cmds.extend(graph::on_tick(state));
-    let animating = views::add::on_tick(state);
+    let animating = views::add::on_tick(state) | views::search::on_tick(state);
     if matches!(state.conn, ConnState::Disconnected { .. }) && !state.retry_left.is_zero() {
         state.retry_left = state.retry_left.saturating_sub(state.tick);
     } else if cmds.is_empty() && !animating {
@@ -456,6 +483,13 @@ fn on_submit(state: &mut State, kind: PromptKind, value: &str) -> Vec<Cmd> {
         PromptKind::Rename { id, file_index } => {
             views::rename::submit(state, id, file_index, value)
         }
+        PromptKind::SearchSeeders
+        | PromptKind::SearchSize
+        | PromptKind::SearchSource
+        | PromptKind::SearchTitle => views::search::submit(state, kind, value),
+        PromptKind::ProvidersImport | PromptKind::ProvidersExport => {
+            views::providers::submit(state, kind, value)
+        }
         PromptKind::MaxConcurrent => match value.parse::<u32>() {
             Ok(n) if (1..=1000).contains(&n) => {
                 state.call(ApiCall::SetLimits(dman_proto::method::LimitsUpdate {
@@ -524,7 +558,9 @@ pub fn apply_action(state: &mut State, action: Action) -> Vec<Cmd> {
             state.modal = Some(Modal::Confirm(views::downloads::shutdown_confirm()));
             Vec::new()
         }
-        Action::Filter => {
+        Action::Search => views::search::open(state),
+        Action::SearchProviders => views::providers::open(state),
+        Action::Filter if !matches!(state.view(), View::Search) => {
             state.views.truncate(1);
             state.modal = Some(Modal::Filter(FilterState::new(&state.list.filter)));
             Vec::new()
@@ -581,8 +617,13 @@ fn apply_event(state: &mut State, event: Event) -> Vec<Cmd> {
             state.engines.retain(|e| e.engine != status.engine);
             state.engines.push(status);
         }
-        // The Search view comes with the next TUI task.
-        Event::SearchUpdate { .. } | Event::SearchFinished { .. } => {}
+        Event::SearchUpdate {
+            search_id,
+            provider,
+            status,
+            results,
+        } => views::search::on_update(state, search_id, &provider, status, results),
+        Event::SearchFinished { search_id } => views::search::on_finished(state, search_id),
         Event::JobFinished {
             name,
             path,
@@ -626,6 +667,7 @@ fn on_conn(state: &mut State, conn: ConnState) {
             views::detail::on_disconnect(state);
             graph::on_disconnect(state);
             views::add::on_disconnect(state);
+            views::search::on_disconnect(state);
         }
         ConnState::Failed { error } => {
             state.status.error(format!("Cannot connect: {error}"));
@@ -653,6 +695,11 @@ fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String
     if matches!(call, ApiCall::FsList(_)) {
         views::add::on_fs_listing(state, result);
         return Vec::new();
+    }
+    if let Some(cmds) = views::search::on_result(state, call, result)
+        .or_else(|| views::providers::on_result(state, call, result))
+    {
+        return cmds;
     }
     if let Ok(ApiReply::Limits(l)) = result {
         state.limits = l.clone();

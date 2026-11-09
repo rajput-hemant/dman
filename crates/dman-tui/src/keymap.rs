@@ -27,6 +27,10 @@ pub enum Context {
     Help,
     /// The add view.
     Add,
+    /// The search view.
+    Search,
+    /// The search providers settings.
+    Providers,
 }
 
 impl Context {
@@ -37,6 +41,8 @@ impl Context {
         Context::Detail,
         Context::Help,
         Context::Add,
+        Context::Search,
+        Context::Providers,
     ];
 
     /// Name used in `config.toml` (`[keys.help] back = ["esc"]`) and on screen.
@@ -47,6 +53,8 @@ impl Context {
             Context::Detail => "detail",
             Context::Help => "help",
             Context::Add => "add",
+            Context::Search => "search",
+            Context::Providers => "providers",
         }
     }
 
@@ -120,6 +128,7 @@ const DEFAULTS: &[(Context, Action, &[&str])] = &[
     (Context::Downloads, Action::SetMaxConcurrent, &["c"]),
     (Context::Downloads, Action::OpenDetail, &["enter", "l"]),
     (Context::Downloads, Action::Add, &["a"]),
+    (Context::Downloads, Action::Search, &["f"]),
     (
         Context::Detail,
         Action::Back,
@@ -170,6 +179,59 @@ const DEFAULTS: &[(Context, Action, &[&str])] = &[
     ),
     (Context::Add, Action::AddToggleMirror, &["ctrl-t"]),
     (Context::Add, Action::AddPickDir, &["ctrl-f"]),
+    (Context::Search, Action::Up, &["k", "up"]),
+    (Context::Search, Action::Down, &["j", "down"]),
+    (Context::Search, Action::PageUp, &["pageup", "ctrl-u"]),
+    (Context::Search, Action::PageDown, &["pagedown", "ctrl-d"]),
+    (Context::Search, Action::Top, &["g", "home"]),
+    (Context::Search, Action::Bottom, &["G", "end"]),
+    (Context::Search, Action::ToggleSelect, &["space"]),
+    (Context::Search, Action::SelectAll, &["ctrl-a"]),
+    (Context::Search, Action::SelectNone, &["u"]),
+    (Context::Search, Action::SortNext, &["s"]),
+    (Context::Search, Action::SortReverse, &["S"]),
+    (Context::Search, Action::Filter, &["/"]),
+    (Context::Search, Action::ClearFilter, &["ctrl-l"]),
+    (Context::Search, Action::SearchRun, &["ctrl-r", "r"]),
+    (Context::Search, Action::SearchEdit, &["e", "i"]),
+    (Context::Search, Action::SearchNextField, &["tab"]),
+    (Context::Search, Action::SearchPrevField, &["backtab"]),
+    (Context::Search, Action::SearchCancel, &["esc"]),
+    (Context::Search, Action::SearchAdd, &["enter", "a"]),
+    (Context::Search, Action::SearchAddDirect, &["A"]),
+    (Context::Search, Action::SearchHistory, &["h", "f3"]),
+    (Context::Search, Action::SearchHistoryClear, &["x"]),
+    (Context::Search, Action::SearchProviders, &["p", "f2"]),
+    (Context::Search, Action::SearchFilterSeeders, &["m"]),
+    (Context::Search, Action::SearchFilterSize, &["z"]),
+    (Context::Search, Action::SearchFilterSource, &["o"]),
+    (Context::Search, Action::Back, &["q"]),
+    (Context::Providers, Action::Up, &["k", "up"]),
+    (Context::Providers, Action::Down, &["j", "down"]),
+    (Context::Providers, Action::PageUp, &["pageup", "ctrl-u"]),
+    (
+        Context::Providers,
+        Action::PageDown,
+        &["pagedown", "ctrl-d"],
+    ),
+    (Context::Providers, Action::Top, &["g", "home"]),
+    (Context::Providers, Action::Bottom, &["G", "end"]),
+    (
+        Context::Providers,
+        Action::ProviderToggle,
+        &["space", "enter"],
+    ),
+    (Context::Providers, Action::ProviderTest, &["t"]),
+    (Context::Providers, Action::ProviderImport, &["i"]),
+    (Context::Providers, Action::ProviderExport, &["e"]),
+    (Context::Providers, Action::ProviderRemove, &["D", "delete"]),
+    (Context::Providers, Action::MoveUp, &["K", "-"]),
+    (Context::Providers, Action::MoveDown, &["J", "+", "="]),
+    (
+        Context::Providers,
+        Action::Back,
+        &["esc", "q", "h", "backspace", "left"],
+    ),
 ];
 
 impl Keymap {

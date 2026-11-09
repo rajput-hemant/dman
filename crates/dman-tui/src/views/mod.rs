@@ -15,7 +15,9 @@ pub mod add;
 pub mod detail;
 pub mod downloads;
 pub mod help;
+pub mod providers;
 pub mod rename;
+pub mod search;
 
 use crossterm::event::{KeyEvent, MouseEvent, MouseEventKind};
 use ratatui::Frame;
@@ -36,6 +38,10 @@ pub enum View {
     Help(help::HelpState),
     /// Add downloads.
     Add(Box<add::AddState>),
+    /// Search torrents (state lives in `State::search`).
+    Search,
+    /// Search providers settings (state lives in `State::providers`).
+    Providers,
 }
 
 impl View {
@@ -46,6 +52,8 @@ impl View {
             View::Detail(_) => Context::Detail,
             View::Help(_) => Context::Help,
             View::Add(_) => Context::Add,
+            View::Search => Context::Search,
+            View::Providers => Context::Providers,
         }
     }
 
@@ -56,6 +64,8 @@ impl View {
             View::Detail(_) => detail::FOOTER,
             View::Help(_) => &[Action::Down, Action::Up, Action::PageDown, Action::Back],
             View::Add(_) => add::FOOTER,
+            View::Search => search::FOOTER,
+            View::Providers => providers::FOOTER,
         }
     }
 }
@@ -64,7 +74,8 @@ impl View {
 pub fn handle_raw_key(state: &mut State, key: KeyEvent) -> Option<Vec<Cmd>> {
     match state.view() {
         View::Add(_) => add::handle_raw_key(state, key),
-        View::Downloads | View::Detail(_) | View::Help(_) => None,
+        View::Search => search::handle_raw_key(state, key),
+        View::Downloads | View::Detail(_) | View::Help(_) | View::Providers => None,
     }
 }
 
@@ -75,6 +86,8 @@ pub fn apply_action(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         View::Help(_) => help::apply(state, action),
         View::Detail(_) => detail::apply(state, action),
         View::Add(_) => add::apply(state, action),
+        View::Search => search::apply(state, action),
+        View::Providers => providers::apply(state, action),
     }
 }
 
@@ -94,7 +107,8 @@ pub fn on_mouse(state: &mut State, m: MouseEvent) -> Vec<Cmd> {
             };
             help::scroll(state, delta);
         }
-        View::Detail(_) | View::Add(_) => {}
+        View::Search => search::on_mouse(state, m),
+        View::Detail(_) | View::Add(_) | View::Providers => {}
     }
     Vec::new()
 }
@@ -110,7 +124,8 @@ pub fn on_paste(state: &mut State, text: &str) -> Vec<Cmd> {
             state.views.push(View::Add(Box::new(a)));
             return cmds;
         }
-        View::Detail(_) | View::Help(_) => state.dirty = false,
+        View::Search => return search::on_paste(state, text),
+        View::Detail(_) | View::Help(_) | View::Providers => state.dirty = false,
     }
     Vec::new()
 }
@@ -126,6 +141,8 @@ pub fn render(state: &State, frame: &mut Frame<'_>) {
         View::Detail(d) => detail::render(frame, l.body, state, d),
         View::Help(h) => help::render(frame, l.body, state, h),
         View::Add(a) => add::render(frame, l.body, state, a),
+        View::Search => search::render(frame, l.body, state),
+        View::Providers => providers::render(frame, l.body, state),
     }
     if l.graph.height > 0 {
         graph::render_panel(frame, l.graph, state);

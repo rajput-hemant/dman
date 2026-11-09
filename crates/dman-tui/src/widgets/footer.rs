@@ -18,6 +18,11 @@ pub fn hints(state: &State) -> Vec<(String, String)> {
     {
         return h;
     }
+    if let crate::views::View::Search = state.view()
+        && let Some(h) = crate::views::search::footer_hints(state)
+    {
+        return h;
+    }
     let ctx = state.context();
     state
         .view()

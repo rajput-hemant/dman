@@ -33,6 +33,7 @@ pub const FOOTER: &[Action] = &[
     Action::SortNext,
     Action::ToggleSelect,
     Action::OpenDetail,
+    Action::Search,
 ];
 
 /// Global download limit steps in bytes/s (0 = unlimited sits above the top).

@@ -17,6 +17,18 @@ pub enum PromptKind {
     MaxConcurrent,
     /// A per-download option of the detail view.
     JobOption(crate::views::detail::OptField),
+    /// Search: minimum seeders.
+    SearchSeeders,
+    /// Search: size range.
+    SearchSize,
+    /// Search: source provider filter.
+    SearchSource,
+    /// Search: fuzzy title filter.
+    SearchTitle,
+    /// Providers: path of a file to import.
+    ProvidersImport,
+    /// Providers: path of a file to export to.
+    ProvidersExport,
     /// A new name for a download (or one of its files).
     Rename {
         /// The download.

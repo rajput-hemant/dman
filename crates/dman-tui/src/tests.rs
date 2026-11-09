@@ -2397,3 +2397,1490 @@ fn header_shows_the_schedule_brief() {
         "{narrow}"
     );
 }
+
+// ------------------------------------------------------------------- search
+
+mod search_view {
+    use dman_proto::AddSource;
+    use dman_proto::search::{
+        ProviderInfo, ProviderSetParams, ProviderStatus, ProviderTestReport, ProvidersImported,
+        ResolvedMagnet, SearchHistoryEntry, SearchResolveParams, SearchResultDto,
+        SearchStartParams, SearchStarted,
+    };
+
+    use super::*;
+    use crate::views::providers::TestState;
+    use crate::views::search::{Focus, Prov};
+
+    // ------------------------------------------------------------ fixtures
+
+    fn prov(name: &str, enabled: bool, verified: bool, builtin: bool, order: i32) -> ProviderInfo {
+        ProviderInfo {
+            name: name.into(),
+            kind: if builtin { "html" } else { "torznab" }.into(),
+            enabled,
+            order,
+            timeout_secs: 15,
+            verified,
+            builtin,
+            url: format!("https://{}.example/search", name.to_lowercase()),
+            description: Some(format!("{name} test provider")),
+            rate_limit_per_min: Some(30),
+            max_results: 100,
+            api_key_ref: None,
+        }
+    }
+
+    fn providers() -> Vec<ProviderInfo> {
+        vec![
+            prov("1337x", true, true, true, 10),
+            prov("nyaa", true, false, true, 20),
+            prov("tpb", false, true, true, 30),
+            prov("mine", false, false, false, 40),
+        ]
+    }
+
+    fn all_off() -> Vec<ProviderInfo> {
+        providers()
+            .into_iter()
+            .map(|p| ProviderInfo {
+                enabled: false,
+                ..p
+            })
+            .collect()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn res(
+        title: &str,
+        size: u64,
+        seeders: Option<u32>,
+        leechers: Option<u32>,
+        date: i64,
+        sources: &[&str],
+    ) -> SearchResultDto {
+        SearchResultDto {
+            title: title.into(),
+            size: Some(size),
+            seeders,
+            leechers,
+            date: Some(date),
+            sources: sources.iter().map(|s| (*s).to_owned()).collect(),
+            ..SearchResultDto::default()
+        }
+    }
+
+    fn magnet(hash: &str) -> Option<String> {
+        Some(format!("magnet:?xt=urn:btih:{hash}"))
+    }
+
+    const GIB: u64 = 1 << 30;
+    const MIB: u64 = 1 << 20;
+
+    fn results() -> Vec<SearchResultDto> {
+        vec![
+            SearchResultDto {
+                magnet: magnet("aaaa"),
+                info_hash: Some("aaaa".into()),
+                ..res(
+                    "Ubuntu 24.04.1 Desktop amd64",
+                    6 * GIB,
+                    Some(1204),
+                    Some(31),
+                    1_724_932_800,
+                    &["1337x", "tpb"],
+                )
+            },
+            SearchResultDto {
+                detail_url: Some("https://nyaa.example/view/2".into()),
+                ..res(
+                    "Ubuntu 24.04 Server",
+                    2 * GIB,
+                    Some(310),
+                    Some(8),
+                    1_714_046_400,
+                    &["nyaa"],
+                )
+            },
+            SearchResultDto {
+                torrent_url: Some("https://1337x.example/t/3.torrent".into()),
+                ..res(
+                    "ubuntu-24.04-live-server",
+                    900 * MIB,
+                    Some(12),
+                    Some(1),
+                    1_714_651_200,
+                    &["1337x"],
+                )
+            },
+            SearchResultDto {
+                magnet: magnet("dddd"),
+                ..res(
+                    "Kubuntu 24.04",
+                    4 * GIB,
+                    Some(4),
+                    None,
+                    1_699_358_400,
+                    &["nyaa", "1337x"],
+                )
+            },
+        ]
+    }
+
+    fn st() -> State {
+        let mut s = state();
+        s.time_zone = jiff::tz::TimeZone::UTC;
+        s
+    }
+
+    fn reply(s: &mut State, cmd: &Cmd, result: Result<ApiReply, String>) -> Vec<Cmd> {
+        let Cmd::Api(call) = cmd else {
+            panic!("not an api cmd: {cmd:?}")
+        };
+        update(
+            s,
+            Msg::ActionResult {
+                call: call.clone(),
+                result,
+            },
+        )
+    }
+
+    fn deliver_providers(s: &mut State, list: Vec<ProviderInfo>) {
+        update(
+            s,
+            Msg::ActionResult {
+                call: ApiCall::ProvidersList,
+                result: Ok(ApiReply::Providers(list)),
+            },
+        );
+    }
+
+    /// Open the search view with `list` providers known.
+    fn open_search(s: &mut State, list: Vec<ProviderInfo>) {
+        let cmds = key(s, 'f');
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::ProvidersList)]);
+        deliver_providers(s, list);
+    }
+
+    fn started(id: u64, names: &[&str]) -> Result<ApiReply, String> {
+        Ok(ApiReply::SearchStarted(SearchStarted {
+            search_id: id,
+            providers: names.iter().map(|n| (*n).to_owned()).collect(),
+        }))
+    }
+
+    fn update_event(
+        id: u64,
+        provider: &str,
+        status: ProviderStatus,
+        r: Vec<SearchResultDto>,
+    ) -> Msg {
+        Msg::Event(Event::SearchUpdate {
+            search_id: id,
+            provider: provider.into(),
+            status,
+            results: r,
+        })
+    }
+
+    fn done(count: u32, ms: u64) -> ProviderStatus {
+        ProviderStatus::Done {
+            count,
+            elapsed_ms: ms,
+        }
+    }
+
+    /// Type `query`, press Enter and answer `search.start` with id 7.
+    fn run_search(s: &mut State, query: &str) -> SearchStartParams {
+        typed(s, query);
+        let cmds = code(s, KeyCode::Enter);
+        let Some(Cmd::Api(ApiCall::SearchStart(p))) = cmds.first().cloned() else {
+            panic!("no search.start: {cmds:?}")
+        };
+        reply(s, &cmds[0], started(7, &["1337x", "nyaa"]));
+        p
+    }
+
+    /// A finished search with mixed provider outcomes.
+    fn searched() -> State {
+        let mut s = st();
+        open_search(&mut s, providers());
+        run_search(&mut s, "ubuntu");
+        update(
+            &mut s,
+            update_event(7, "1337x", done(3, 340), results()[..3].to_vec()),
+        );
+        update(
+            &mut s,
+            update_event(
+                7,
+                "nyaa",
+                ProviderStatus::Failed {
+                    error: "timed out after 15s".into(),
+                },
+                results()[..3].to_vec(),
+            ),
+        );
+        s
+    }
+
+    fn rows(s: &State) -> Vec<String> {
+        let run = s.search.run.as_ref().expect("a search");
+        s.search
+            .rows
+            .iter()
+            .map(|i| run.results[*i].title.clone())
+            .collect()
+    }
+
+    fn add_text(s: &State) -> String {
+        match s.view() {
+            View::Add(a) => a.sources.text(),
+            v => panic!("not the add view: {v:?}"),
+        }
+    }
+
+    fn submit_prompt(s: &mut State, kind: char, text: &str) {
+        key(s, kind);
+        assert!(
+            matches!(s.modal, Some(Modal::Prompt(_))),
+            "prompt for {kind}"
+        );
+        typed(s, text);
+        code(s, KeyCode::Enter);
+    }
+
+    // ------------------------------------------------------------- opening
+
+    #[test]
+    fn f_opens_search_and_loads_providers() {
+        let mut s = st();
+        let cmds = key(&mut s, 'f');
+        assert!(matches!(s.view(), View::Search));
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::ProvidersList)]);
+        assert_eq!(s.search.focus, Focus::Query);
+        deliver_providers(&mut s, providers());
+        assert!(
+            s.modal.is_none(),
+            "providers are enabled: no first-run prompt"
+        );
+        assert_eq!(s.providers.list.len(), 4);
+    }
+
+    #[test]
+    fn palette_opens_search_and_providers() {
+        let mut s = st();
+        key(&mut s, ':');
+        update(&mut s, Msg::Paste("search torrents".into()));
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert!(matches!(s.view(), View::Search));
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::ProvidersList)]);
+        code(&mut s, KeyCode::Esc);
+        assert!(matches!(s.view(), View::Downloads));
+        key(&mut s, ':');
+        update(&mut s, Msg::Paste("search providers".into()));
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert!(matches!(s.view(), View::Providers));
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::ProvidersList)]);
+    }
+
+    #[test]
+    fn first_run_prompt_when_no_provider_is_enabled() {
+        let mut s = st();
+        open_search(&mut s, all_off());
+        let Some(Modal::Confirm(c)) = &s.modal else {
+            panic!("no first-run prompt")
+        };
+        assert!(c.title.contains("No search provider is enabled"));
+        assert!(c.lines.iter().any(|l| l.contains("off by default")));
+        // Cancel keeps the search view and is not repeated.
+        key(&mut s, 'n');
+        assert!(s.modal.is_none());
+        assert!(matches!(s.view(), View::Search));
+        let cmds = code(&mut s, KeyCode::F(2));
+        assert!(matches!(s.view(), View::Providers));
+        deliver_providers(&mut s, all_off());
+        assert!(s.modal.is_none());
+        assert_eq!(cmds.len(), 1);
+        code(&mut s, KeyCode::Esc);
+        // Re-opening the search later does not ask again.
+        code(&mut s, KeyCode::Esc);
+        key(&mut s, 'f');
+        deliver_providers(&mut s, all_off());
+        assert!(s.modal.is_none());
+    }
+
+    #[test]
+    fn first_run_prompt_offers_the_providers_settings() {
+        let mut s = st();
+        open_search(&mut s, all_off());
+        let cmds = key(&mut s, 'y');
+        assert!(matches!(s.view(), View::Providers));
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::ProvidersList)]);
+    }
+
+    #[test]
+    fn first_run_prompt_only_when_search_is_on_top() {
+        let mut s = st();
+        key(&mut s, 'f');
+        code(&mut s, KeyCode::F(1));
+        deliver_providers(&mut s, all_off());
+        assert!(s.modal.is_none(), "help is on top");
+    }
+
+    // ------------------------------------------------------------ starting
+
+    #[test]
+    fn enter_starts_a_search() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        typed(&mut s, "ubuntu 24.04");
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::SearchStart(SearchStartParams {
+                query: "ubuntu 24.04".into(),
+                providers: None,
+                category: None,
+            }))]
+        );
+        assert_eq!(s.search.focus, Focus::Results);
+        assert!(s.search.running());
+        assert_eq!(s.pending, 1, "search.start is in flight");
+    }
+
+    #[test]
+    fn keys_in_the_query_are_text() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        // `q`, `f`, `p` would quit / search / open settings outside the field.
+        assert!("qfp?:".chars().all(|c| key(&mut s, c).is_empty()));
+        assert_eq!(s.search.query.text(), "qfp?:");
+        assert!(matches!(s.view(), View::Search));
+    }
+
+    #[test]
+    fn category_and_provider_selection_are_sent() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        typed(&mut s, "ubuntu");
+        code(&mut s, KeyCode::Tab);
+        assert_eq!(s.search.focus, Focus::Category);
+        typed(&mut s, "software");
+        code(&mut s, KeyCode::Tab);
+        assert_eq!(s.search.focus, Focus::Providers);
+        // Only enabled providers are offered; switch the first one off.
+        key(&mut s, ' ');
+        assert!(s.search.off.contains("1337x"));
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::SearchStart(SearchStartParams {
+                query: "ubuntu".into(),
+                providers: Some(vec!["nyaa".into()]),
+                category: Some("software".into()),
+            }))]
+        );
+    }
+
+    #[test]
+    fn empty_query_and_no_provider_selected_are_refused() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert_eq!(status_text(&s), "Type a query first");
+        typed(&mut s, "x");
+        code(&mut s, KeyCode::Tab);
+        code(&mut s, KeyCode::Tab);
+        key(&mut s, ' ');
+        code(&mut s, KeyCode::Right);
+        key(&mut s, ' ');
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert_eq!(status_text(&s), "Select at least one provider");
+        assert!(s.search.run.is_none());
+    }
+
+    #[test]
+    fn offline_search_is_refused_and_keeps_the_old_results() {
+        let mut s = searched();
+        disconnect(&mut s);
+        key(&mut s, 'e');
+        typed(&mut s, "more");
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert!(cmds.is_empty());
+        assert!(status_text(&s).contains("disabled"), "{}", status_text(&s));
+        assert_eq!(s.search.run.as_ref().map(|r| r.results.len()), Some(3));
+    }
+
+    // ------------------------------------------------------------- results
+
+    #[test]
+    fn updates_merge_results_and_provider_statuses() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        run_search(&mut s, "ubuntu");
+        let run = s.search.run.as_ref().expect("run");
+        assert_eq!(run.id, Some(7));
+        assert!(run.providers.iter().all(|(_, p)| *p == Prov::Running));
+        update(
+            &mut s,
+            update_event(7, "1337x", done(2, 340), results()[..2].to_vec()),
+        );
+        let run = s.search.run.as_ref().expect("run");
+        assert_eq!(
+            run.providers[0],
+            (
+                "1337x".into(),
+                Prov::Done {
+                    count: 2,
+                    elapsed_ms: 340
+                }
+            )
+        );
+        assert_eq!(run.providers[1], ("nyaa".into(), Prov::Running));
+        assert_eq!(s.search.rows.len(), 2);
+        // The list is cumulative: the next update replaces it.
+        update(&mut s, update_event(7, "nyaa", done(2, 900), results()));
+        assert_eq!(s.search.rows.len(), 4);
+        assert!(s.search.running());
+        update(&mut s, Msg::Event(Event::SearchFinished { search_id: 7 }));
+        assert!(!s.search.running());
+        assert_eq!(
+            status_text(&s),
+            "Search 'ubuntu': 4 results from 2 providers"
+        );
+    }
+
+    #[test]
+    fn a_failing_provider_is_shown_and_hides_nothing() {
+        let mut s = searched();
+        let run = s.search.run.as_ref().expect("run");
+        assert_eq!(
+            run.providers[1],
+            ("nyaa".into(), Prov::Failed("timed out after 15s".into()))
+        );
+        assert_eq!(run.failed(), 1);
+        assert_eq!(s.search.rows.len(), 3, "results of the other provider stay");
+        update(&mut s, Msg::Event(Event::SearchFinished { search_id: 7 }));
+        assert!(
+            status_text(&s).ends_with(", 1 failed"),
+            "{}",
+            status_text(&s)
+        );
+        let text = render(&mut s, 120, 24);
+        assert!(
+            text.contains("nyaa ✗ failed: timed out after 15s"),
+            "{text}"
+        );
+        assert!(text.contains("1337x ✓ 3 in 340 ms"), "{text}");
+    }
+
+    #[test]
+    fn events_before_the_start_reply_are_replayed() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        typed(&mut s, "ubuntu");
+        let cmds = code(&mut s, KeyCode::Enter);
+        // The daemon is faster than the reply.
+        update(
+            &mut s,
+            update_event(7, "1337x", done(1, 20), results()[..1].to_vec()),
+        );
+        update(
+            &mut s,
+            update_event(7, "nyaa", done(0, 30), results()[..1].to_vec()),
+        );
+        update(&mut s, Msg::Event(Event::SearchFinished { search_id: 7 }));
+        assert!(s.search.rows.is_empty(), "id not known yet");
+        reply(&mut s, &cmds[0], started(7, &["1337x", "nyaa"]));
+        assert_eq!(s.search.rows.len(), 1);
+        assert!(!s.search.running());
+        let run = s.search.run.as_ref().expect("run");
+        assert!(
+            run.providers
+                .iter()
+                .all(|(_, p)| matches!(p, Prov::Done { .. }))
+        );
+    }
+
+    #[test]
+    fn events_of_other_searches_are_ignored() {
+        let mut s = searched();
+        update(
+            &mut s,
+            update_event(
+                99,
+                "x",
+                done(1, 1),
+                vec![res("other", 1, Some(1), None, 0, &["x"])],
+            ),
+        );
+        update(&mut s, Msg::Event(Event::SearchFinished { search_id: 99 }));
+        assert_eq!(s.search.rows.len(), 3);
+        assert!(s.search.running());
+    }
+
+    #[test]
+    fn no_enabled_provider_finishes_at_once() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        typed(&mut s, "ubuntu");
+        let cmds = code(&mut s, KeyCode::Enter);
+        reply(&mut s, &cmds[0], started(8, &[]));
+        assert!(!s.search.running());
+        assert!(status_text(&s).contains("No provider is enabled"));
+    }
+
+    #[test]
+    fn failed_start_is_reported() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        typed(&mut s, "ubuntu");
+        let cmds = code(&mut s, KeyCode::Enter);
+        reply(&mut s, &cmds[0], Err("daemon exploded".into()));
+        assert!(!s.search.running());
+        assert_eq!(status_text(&s), "Search failed: daemon exploded");
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("search failed: daemon exploded"), "{text}");
+        // A new search can be started.
+        assert!(!s.search.starting);
+        let cmds = key(&mut s, 'r');
+        assert!(matches!(
+            cmds.as_slice(),
+            [Cmd::Api(ApiCall::SearchStart(_))]
+        ));
+    }
+
+    #[test]
+    fn disconnect_while_starting_ends_the_search() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        typed(&mut s, "ubuntu");
+        code(&mut s, KeyCode::Enter);
+        disconnect(&mut s);
+        assert!(!s.search.running());
+        assert!(!s.search.starting);
+    }
+
+    #[test]
+    fn lagged_events_reload_a_running_search() {
+        let mut s = searched();
+        let cmds = update(&mut s, Msg::Lagged);
+        assert_eq!(cmds[0], Cmd::Resync);
+        assert_eq!(cmds[1], Cmd::Api(ApiCall::SearchResults(7)));
+        let snap = dman_proto::search::SearchSnapshot {
+            search_id: 7,
+            query: "ubuntu".into(),
+            category: None,
+            finished: true,
+            providers: vec![("1337x".into(), done(4, 10)), ("nyaa".into(), done(0, 10))],
+            results: results(),
+        };
+        reply(
+            &mut s,
+            &cmds[1],
+            Ok(ApiReply::SearchSnapshot(Box::new(snap))),
+        );
+        assert_eq!(s.search.rows.len(), 4);
+        assert!(!s.search.running());
+    }
+
+    // --------------------------------------------------------- cancel/leave
+
+    #[test]
+    fn esc_cancels_a_running_search_then_leaves() {
+        let mut s = searched();
+        let cmds = code(&mut s, KeyCode::Esc);
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::SearchCancel(7))]);
+        assert!(
+            matches!(s.view(), View::Search),
+            "Esc cancelled, did not leave"
+        );
+        // A second Esc while cancelling does nothing more.
+        assert!(code(&mut s, KeyCode::Esc).is_empty());
+        update(&mut s, Msg::Event(Event::SearchFinished { search_id: 7 }));
+        let run = s.search.run.as_ref().expect("run");
+        assert!(run.finished);
+        assert_eq!(
+            run.providers[0].1,
+            Prov::Done {
+                count: 3,
+                elapsed_ms: 340
+            }
+        );
+        // Idle: Esc leaves.
+        assert!(code(&mut s, KeyCode::Esc).is_empty());
+        assert!(matches!(s.view(), View::Downloads));
+    }
+
+    #[test]
+    fn running_providers_become_cancelled() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        run_search(&mut s, "ubuntu");
+        code(&mut s, KeyCode::Esc);
+        update(&mut s, Msg::Event(Event::SearchFinished { search_id: 7 }));
+        let run = s.search.run.as_ref().expect("run");
+        assert!(run.providers.iter().all(|(_, p)| *p == Prov::Cancelled));
+    }
+
+    #[test]
+    fn leaving_keeps_the_search_and_results() {
+        let mut s = searched();
+        assert!(key(&mut s, 'q').is_empty(), "q leaves without cancelling");
+        assert!(matches!(s.view(), View::Downloads));
+        assert!(s.search.running());
+        // Results keep streaming in while the view is closed.
+        update(&mut s, update_event(7, "nyaa", done(4, 500), results()));
+        update(&mut s, Msg::Event(Event::SearchFinished { search_id: 7 }));
+        assert!(key(&mut s, 'f').len() == 1);
+        assert_eq!(s.search.rows.len(), 4);
+        assert_eq!(s.search.focus, Focus::Results, "results have the keyboard");
+        assert_eq!(s.search.query.text(), "ubuntu");
+    }
+
+    // ----------------------------------------------------- sort and filter
+
+    #[test]
+    fn default_sort_is_seeders_and_cycles() {
+        let mut s = searched();
+        update(&mut s, update_event(7, "nyaa", done(1, 5), results()));
+        assert_eq!(
+            rows(&s),
+            vec![
+                "Ubuntu 24.04.1 Desktop amd64",
+                "Ubuntu 24.04 Server",
+                "ubuntu-24.04-live-server",
+                "Kubuntu 24.04"
+            ]
+        );
+        key(&mut s, 's'); // leechers
+        assert_eq!(rows(&s)[0], "Ubuntu 24.04.1 Desktop amd64");
+        key(&mut s, 's'); // size
+        assert_eq!(rows(&s)[3], "ubuntu-24.04-live-server");
+        key(&mut s, 's'); // date
+        assert_eq!(rows(&s)[0], "Ubuntu 24.04.1 Desktop amd64");
+        assert_eq!(rows(&s)[3], "Kubuntu 24.04");
+        key(&mut s, 's'); // title
+        assert_eq!(rows(&s)[0], "Kubuntu 24.04");
+        assert_eq!(status_text(&s), "Sorted by title");
+        key(&mut s, 's'); // source
+        assert_eq!(s.search.sort.label(), "source");
+        key(&mut s, 'S');
+        assert!(s.search.reverse);
+        assert_eq!(status_text(&s), "Sorted by source, reversed");
+        key(&mut s, 's'); // seeders again
+        assert_eq!(s.search.sort.label(), "seeders");
+        assert_eq!(rows(&s)[0], "Kubuntu 24.04", "reversed: fewest first");
+    }
+
+    #[test]
+    fn filters_by_seeders_size_source_and_title() {
+        let mut s = searched();
+        update(&mut s, update_event(7, "nyaa", done(1, 5), results()));
+        submit_prompt(&mut s, 'm', "10");
+        assert_eq!(rows(&s).len(), 3);
+        assert_eq!(status_text(&s), "Minimum seeders: 10");
+        submit_prompt(&mut s, 'z', "1GiB-4GiB");
+        assert_eq!(rows(&s), vec!["Ubuntu 24.04 Server"]);
+        assert_eq!(status_text(&s), "Size filter: 1.0 GiB – 4.0 GiB");
+        // Filters stack; clear all with Ctrl-l.
+        press(&mut s, KeyCode::Char('l'), KeyModifiers::CONTROL);
+        assert!(s.search.filters.is_empty());
+        assert_eq!(rows(&s).len(), 4);
+        submit_prompt(&mut s, 'o', "nyaa");
+        assert_eq!(rows(&s), vec!["Ubuntu 24.04 Server", "Kubuntu 24.04"]);
+        submit_prompt(&mut s, '/', "kbn");
+        assert_eq!(rows(&s), vec!["Kubuntu 24.04"], "fuzzy title match");
+        let text = render(&mut s, 120, 24);
+        assert!(text.contains("source nyaa"), "{text}");
+        assert!(text.contains("1/4 shown"), "{text}");
+    }
+
+    #[test]
+    fn bad_filter_input_is_rejected() {
+        let mut s = searched();
+        submit_prompt(&mut s, 'm', "lots");
+        assert!(status_text(&s).contains("must be a number"));
+        submit_prompt(&mut s, 'z', "4GiB-1GiB");
+        assert!(status_text(&s).contains("bigger than the largest"));
+        submit_prompt(&mut s, 'z', "huge");
+        assert!(status_text(&s).contains("is not a size"));
+        assert!(s.search.filters.is_empty());
+    }
+
+    #[test]
+    fn filtered_out_results_cannot_be_added_by_accident() {
+        let mut s = searched();
+        submit_prompt(&mut s, 'o', "zzz");
+        assert!(s.search.rows.is_empty());
+        // Nothing under the cursor: no add.
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("hidden by the filters"), "{text}");
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(matches!(s.view(), View::Search));
+        assert_eq!(status_text(&s), "No result under the cursor");
+    }
+
+    #[test]
+    fn cursor_follows_the_result_when_the_list_changes() {
+        let mut s = searched();
+        key(&mut s, 'j');
+        assert_eq!(
+            s.search.current().map(|r| r.title.as_str()),
+            Some("Ubuntu 24.04 Server")
+        );
+        // A new result with more seeders pushes everything down.
+        let mut more = results();
+        more.insert(0, res("Top hit", GIB, Some(5000), Some(1), 1, &["tpb"]));
+        update(&mut s, update_event(7, "nyaa", done(4, 5), more));
+        assert_eq!(
+            s.search.current().map(|r| r.title.as_str()),
+            Some("Ubuntu 24.04 Server")
+        );
+    }
+
+    // -------------------------------------------------------------- adding
+
+    #[test]
+    fn enter_opens_the_add_view_with_the_magnet() {
+        let mut s = searched();
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(matches!(s.view(), View::Add(_)));
+        assert_eq!(add_text(&s).trim(), "magnet:?xt=urn:btih:aaaa");
+        // Leaving the (clean?) add view returns to the search with results kept.
+        assert!(s.search.run.is_some());
+    }
+
+    #[test]
+    fn a_adds_marked_results_in_one_add_view() {
+        let mut s = searched();
+        update(&mut s, update_event(7, "nyaa", done(1, 5), results()));
+        key(&mut s, ' '); // Desktop (magnet); the cursor moves on
+        code(&mut s, KeyCode::Down); // past the detail-only result
+        key(&mut s, ' '); // live-server (torrent url)
+        assert_eq!(s.search.selected.len(), 2);
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("2 marked"), "{text}");
+        // Marked: Desktop (magnet) and live-server (torrent url).
+        key(&mut s, 'a');
+        assert!(matches!(s.view(), View::Add(_)));
+        let t = add_text(&s);
+        assert!(t.contains("magnet:?xt=urn:btih:aaaa"), "{t}");
+        assert!(t.contains("https://1337x.example/t/3.torrent"), "{t}");
+        assert!(s.search.selected.is_empty(), "marks are consumed");
+    }
+
+    #[test]
+    fn torrent_url_only_results_are_added_as_http_sources() {
+        let mut s = searched();
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Down);
+        let cmds = key(&mut s, 'A');
+        let [Cmd::Api(ApiCall::Add(p))] = cmds.as_slice() else {
+            panic!("no jobs.add: {cmds:?}")
+        };
+        assert_eq!(
+            p.sources,
+            vec![AddSource::Uris {
+                uris: vec!["https://1337x.example/t/3.torrent".into()]
+            }]
+        );
+        assert_eq!(p.options, dman_proto::JobOptions::default());
+        assert!(!p.paused);
+        assert!(matches!(s.view(), View::Search));
+    }
+
+    #[test]
+    fn capital_a_adds_directly_with_defaults() {
+        let mut s = searched();
+        key(&mut s, ' '); // Desktop (magnet), cursor moves on
+        code(&mut s, KeyCode::Down); // skip the detail-only result
+        key(&mut s, ' '); // live-server (torrent url)
+        let cmds = key(&mut s, 'A');
+        let [Cmd::Api(ApiCall::Add(p))] = cmds.as_slice() else {
+            panic!("no jobs.add: {cmds:?}")
+        };
+        // Two marked results are two downloads, each its own source.
+        assert_eq!(p.sources.len(), 2);
+        assert!(matches!(s.view(), View::Search));
+    }
+
+    #[test]
+    fn magnet_less_result_is_resolved_first() {
+        let mut s = searched();
+        code(&mut s, KeyCode::Down); // Ubuntu 24.04 Server: detail page only
+        let cmds = code(&mut s, KeyCode::Enter);
+        let expected = SearchResolveParams {
+            detail_url: Some("https://nyaa.example/view/2".into()),
+            provider: Some("nyaa".into()),
+            ..SearchResolveParams::default()
+        };
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::SearchResolve(expected))]);
+        assert!(matches!(s.view(), View::Search), "waits for the magnet");
+        assert!(status_text(&s).starts_with("Resolving 1 magnet link"));
+        assert_eq!(s.search.resolving_keys().len(), 1);
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("resolving 1"), "{text}");
+        // A second add while resolving is refused.
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(status_text(&s).contains("Still resolving"));
+        reply(
+            &mut s,
+            &cmds[0],
+            Ok(ApiReply::Resolved(ResolvedMagnet {
+                magnet: "magnet:?xt=urn:btih:bbbb".into(),
+            })),
+        );
+        assert!(matches!(s.view(), View::Add(_)));
+        assert_eq!(add_text(&s).trim(), "magnet:?xt=urn:btih:bbbb");
+        assert!(s.search.adding.is_none());
+    }
+
+    #[test]
+    fn resolve_failure_is_reported_and_the_view_stays() {
+        let mut s = searched();
+        code(&mut s, KeyCode::Down);
+        let cmds = code(&mut s, KeyCode::Enter);
+        reply(&mut s, &cmds[0], Err("page has no magnet link".into()));
+        assert!(matches!(s.view(), View::Search));
+        assert!(
+            status_text(&s).contains("Cannot add"),
+            "{}",
+            status_text(&s)
+        );
+        assert!(status_text(&s).contains("page has no magnet link"));
+        assert!(s.search.adding.is_none());
+    }
+
+    #[test]
+    fn resolved_and_failed_mix_adds_what_it_can() {
+        let mut s = searched();
+        update(&mut s, update_event(7, "nyaa", done(1, 5), results()));
+        // Mark the detail-only result and the magnet result.
+        key(&mut s, ' '); // Desktop (magnet)
+        key(&mut s, ' '); // Server (detail)
+        let cmds = key(&mut s, 'a');
+        assert_eq!(cmds.len(), 1);
+        reply(&mut s, &cmds[0], Err("blocked".into()));
+        assert!(
+            matches!(s.view(), View::Add(_)),
+            "the magnet is still added"
+        );
+        assert_eq!(add_text(&s).trim(), "magnet:?xt=urn:btih:aaaa");
+        assert!(
+            status_text(&s).starts_with("1 of 2 could not be resolved"),
+            "{}",
+            status_text(&s)
+        );
+    }
+
+    #[test]
+    fn direct_add_waits_for_resolution() {
+        let mut s = searched();
+        code(&mut s, KeyCode::Down);
+        let cmds = key(&mut s, 'A');
+        assert!(matches!(
+            cmds.as_slice(),
+            [Cmd::Api(ApiCall::SearchResolve(_))]
+        ));
+        let next = reply(
+            &mut s,
+            &cmds[0],
+            Ok(ApiReply::Resolved(ResolvedMagnet {
+                magnet: "magnet:?xt=urn:btih:bbbb".into(),
+            })),
+        );
+        let [Cmd::Api(ApiCall::Add(p))] = next.as_slice() else {
+            panic!("no jobs.add: {next:?}")
+        };
+        assert_eq!(
+            p.sources,
+            vec![AddSource::Uris {
+                uris: vec!["magnet:?xt=urn:btih:bbbb".into()]
+            }]
+        );
+    }
+
+    #[test]
+    fn result_without_any_link_cannot_be_added() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        run_search(&mut s, "x");
+        update(
+            &mut s,
+            update_event(
+                7,
+                "1337x",
+                done(1, 1),
+                vec![res("bare", 1, Some(1), None, 0, &["1337x"])],
+            ),
+        );
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert!(
+            status_text(&s).contains("no magnet link or page"),
+            "{}",
+            status_text(&s)
+        );
+        assert!(matches!(s.view(), View::Search));
+    }
+
+    #[test]
+    fn disconnect_drops_a_pending_resolution() {
+        let mut s = searched();
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Enter);
+        assert!(s.search.adding.is_some());
+        disconnect(&mut s);
+        assert!(s.search.adding.is_none());
+        assert!(matches!(
+            s.search.run.as_ref().map(|r| r.finished),
+            Some(false)
+        ));
+    }
+
+    // ------------------------------------------------------------- history
+
+    fn history() -> Vec<SearchHistoryEntry> {
+        vec![
+            SearchHistoryEntry {
+                query: "debian 12".into(),
+                providers: vec!["nyaa".into()],
+                category: Some("software".into()),
+                at: 1_724_932_800,
+                result_count: 42,
+            },
+            SearchHistoryEntry {
+                query: "ubuntu".into(),
+                providers: vec![],
+                category: None,
+                at: 1_724_846_400,
+                result_count: 7,
+            },
+        ]
+    }
+
+    fn open_history(s: &mut State) {
+        let cmds = code(s, KeyCode::F(3));
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::SearchHistory)]);
+        reply(s, &cmds[0], Ok(ApiReply::SearchHistory(history())));
+    }
+
+    #[test]
+    fn history_lists_and_reruns() {
+        let mut s = searched();
+        open_history(&mut s);
+        assert!(s.search.history_open);
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("debian 12"), "{text}");
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            cmds[1..],
+            [Cmd::Api(ApiCall::SearchStart(SearchStartParams {
+                query: "debian 12".into(),
+                providers: Some(vec!["nyaa".into()]),
+                category: Some("software".into()),
+            }))],
+            "the running search is cancelled first"
+        );
+        assert_eq!(cmds[0], Cmd::Api(ApiCall::SearchCancel(7)));
+        assert!(!s.search.history_open);
+        assert_eq!(s.search.query.text(), "debian 12");
+        assert_eq!(s.search.category.text(), "software");
+        assert_eq!(s.search.focus, Focus::Results);
+    }
+
+    #[test]
+    fn history_all_providers_entry_resets_the_selection() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        s.search.off.insert("nyaa".into());
+        open_history(&mut s);
+        code(&mut s, KeyCode::Down);
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::SearchStart(SearchStartParams {
+                query: "ubuntu".into(),
+                providers: None,
+                category: None,
+            }))]
+        );
+    }
+
+    #[test]
+    fn x_clears_the_history_after_confirmation() {
+        let mut s = searched();
+        open_history(&mut s);
+        assert!(key(&mut s, 'x').is_empty());
+        let Some(Modal::Confirm(c)) = &s.modal else {
+            panic!("no confirmation")
+        };
+        assert!(c.title.starts_with("Clear the search history"));
+        key(&mut s, 'n');
+        assert!(s.modal.is_none());
+        assert_eq!(s.search.history.len(), 2, "nothing was cleared");
+        key(&mut s, 'x');
+        let cmds = key(&mut s, 'y');
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::SearchHistoryClear)]);
+        reply(&mut s, &cmds[0], Ok(ApiReply::Done));
+        assert!(s.search.history.is_empty());
+        assert_eq!(status_text(&s), "Search history cleared");
+    }
+
+    #[test]
+    fn esc_and_h_close_the_history_first() {
+        let mut s = searched();
+        open_history(&mut s);
+        assert!(code(&mut s, KeyCode::Esc).is_empty());
+        assert!(!s.search.history_open);
+        assert!(matches!(s.view(), View::Search));
+        open_history(&mut s);
+        key(&mut s, 'h');
+        assert!(!s.search.history_open);
+    }
+
+    // ----------------------------------------------------------- providers
+
+    fn open_providers() -> State {
+        let mut s = st();
+        open_search(&mut s, providers());
+        let cmds = code(&mut s, KeyCode::F(2));
+        assert!(matches!(s.view(), View::Providers));
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::ProvidersList)]);
+        deliver_providers(&mut s, providers());
+        s
+    }
+
+    #[test]
+    fn space_toggles_and_warns_about_unverified_providers() {
+        let mut s = open_providers();
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Down); // mine: custom, disabled, unverified
+        let cmds = key(&mut s, ' ');
+        let expected = ProviderSetParams {
+            name: "mine".into(),
+            enabled: Some(true),
+            ..ProviderSetParams::default()
+        };
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::ProvidersSet(expected))]);
+        reply(
+            &mut s,
+            &cmds[0],
+            Ok(ApiReply::Provider(Box::new(ProviderInfo {
+                enabled: true,
+                ..prov("mine", false, false, false, 40)
+            }))),
+        );
+        assert!(s.providers.list[3].enabled);
+        assert_eq!(
+            status_text(&s),
+            "mine enabled — definition not verified against the live site"
+        );
+        // Verified providers get no warning.
+        code(&mut s, KeyCode::Up);
+        let cmds = code(&mut s, KeyCode::Enter);
+        reply(
+            &mut s,
+            &cmds[0],
+            Ok(ApiReply::Provider(Box::new(ProviderInfo {
+                enabled: true,
+                ..prov("tpb", false, true, true, 30)
+            }))),
+        );
+        assert_eq!(status_text(&s), "tpb enabled");
+        // The search selector now offers it.
+        code(&mut s, KeyCode::Esc);
+        assert_eq!(
+            crate::views::providers::enabled(&s)
+                .map(|p| p.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["1337x", "nyaa", "tpb", "mine"]
+        );
+    }
+
+    #[test]
+    fn toggle_failure_reloads_the_list() {
+        let mut s = open_providers();
+        let cmds = key(&mut s, ' ');
+        let next = reply(&mut s, &cmds[0], Err("config is read-only".into()));
+        assert_eq!(next, vec![Cmd::Api(ApiCall::ProvidersList)]);
+        assert!(status_text(&s).contains("config is read-only"));
+    }
+
+    fn order_set(name: &str, order: i32) -> Cmd {
+        Cmd::Api(ApiCall::ProvidersSet(ProviderSetParams {
+            name: name.into(),
+            order: Some(order),
+            ..ProviderSetParams::default()
+        }))
+    }
+
+    #[test]
+    fn reorder_swaps_the_orders_of_neighbours() {
+        let mut s = open_providers();
+        let cmds = key(&mut s, 'J');
+        assert_eq!(cmds, vec![order_set("nyaa", 10), order_set("1337x", 20)]);
+        let names: Vec<&str> = s.providers.list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["nyaa", "1337x", "tpb", "mine"]);
+        assert_eq!(
+            s.providers.current().map(|p| p.name.as_str()),
+            Some("1337x")
+        );
+        // `-` and K move up again; `+` moves down.
+        let cmds = key(&mut s, 'K');
+        assert_eq!(cmds, vec![order_set("1337x", 10), order_set("nyaa", 20)]);
+        assert_eq!(s.providers.cursor, 0);
+        assert_eq!(key(&mut s, '+').len(), 2);
+        assert_eq!(key(&mut s, '-').len(), 2);
+        // Already first.
+        assert!(key(&mut s, 'K').is_empty());
+        assert_eq!(status_text(&s), "Already at the end of the list");
+    }
+
+    #[test]
+    fn reorder_renumbers_when_orders_are_tied() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        code(&mut s, KeyCode::F(2));
+        let tied = vec![
+            prov("a", true, true, true, 0),
+            prov("b", true, true, true, 0),
+            prov("c", true, true, true, 5),
+        ];
+        deliver_providers(&mut s, tied);
+        let cmds = key(&mut s, 'J'); // a moves behind b
+        let names: Vec<&str> = s.providers.list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, vec!["b", "a", "c"]);
+        // `b` keeps order 0; only the changed ones are sent.
+        assert_eq!(cmds, vec![order_set("a", 1), order_set("c", 2)]);
+    }
+
+    #[test]
+    fn reorder_needs_a_connection() {
+        let mut s = open_providers();
+        disconnect(&mut s);
+        assert!(key(&mut s, 'J').is_empty());
+        assert_eq!(s.providers.list[0].name, "1337x", "list unchanged");
+        assert!(status_text(&s).contains("disabled"));
+    }
+
+    fn report(ok: bool) -> ProviderTestReport {
+        ProviderTestReport {
+            name: "1337x".into(),
+            ok,
+            error: (!ok).then(|| "HTTP 503 from the site".into()),
+            results: if ok { 25 } else { 0 },
+            sample: ok.then(|| {
+                res(
+                    "Ubuntu 24.04 sample",
+                    6 * GIB,
+                    Some(99),
+                    Some(3),
+                    0,
+                    &["1337x"],
+                )
+            }),
+            elapsed_ms: 812,
+        }
+    }
+
+    #[test]
+    fn test_runs_in_the_background_and_shows_the_report() {
+        let mut s = open_providers();
+        let cmds = key(&mut s, 't');
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::ProvidersTest("1337x".into()))]);
+        assert_eq!(s.providers.tests.get("1337x"), Some(&TestState::Running));
+        // Not blocking: the list still navigates, a second test is refused.
+        code(&mut s, KeyCode::Down);
+        code(&mut s, KeyCode::Up);
+        assert!(key(&mut s, 't').is_empty());
+        assert!(status_text(&s).contains("already being tested"));
+        // The spinner animates while it runs.
+        s.dirty = false;
+        update(&mut s, Msg::Tick);
+        assert!(s.dirty);
+        reply(
+            &mut s,
+            &cmds[0],
+            Ok(ApiReply::ProviderTest(Box::new(report(true)))),
+        );
+        assert!(matches!(
+            s.providers.tests.get("1337x"),
+            Some(TestState::Done(_))
+        ));
+        assert_eq!(status_text(&s), "1337x: ok, 25 results");
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("ok: 25 results in 812 ms"), "{text}");
+        assert!(text.contains("sample: Ubuntu 24.04 sample"), "{text}");
+    }
+
+    #[test]
+    fn failing_test_shows_the_error() {
+        let mut s = open_providers();
+        let cmds = key(&mut s, 't');
+        reply(
+            &mut s,
+            &cmds[0],
+            Ok(ApiReply::ProviderTest(Box::new(report(false)))),
+        );
+        assert_eq!(
+            status_text(&s),
+            "1337x: test failed: HTTP 503 from the site"
+        );
+        let text = render(&mut s, 80, 24);
+        assert!(
+            text.contains("failed after 812 ms: HTTP 503 from the site"),
+            "{text}"
+        );
+        // An RPC error is shown too.
+        let cmds = key(&mut s, 't');
+        reply(&mut s, &cmds[0], Err("timed out".into()));
+        assert_eq!(
+            s.providers.tests.get("1337x"),
+            Some(&TestState::Failed("timed out".into()))
+        );
+    }
+
+    #[test]
+    fn disconnect_fails_running_tests() {
+        let mut s = open_providers();
+        key(&mut s, 't');
+        disconnect(&mut s);
+        assert!(matches!(
+            s.providers.tests.get("1337x"),
+            Some(TestState::Failed(_))
+        ));
+    }
+
+    #[test]
+    fn import_reads_the_file_then_sends_it() {
+        let mut s = open_providers();
+        key(&mut s, 'i');
+        typed(&mut s, "~/mine.toml");
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(cmds, vec![Cmd::ReadProviderFile("~/mine.toml".into())]);
+        let cmds = update(
+            &mut s,
+            Msg::ProviderFile(Ok((
+                "~/mine.toml".into(),
+                "[[provider]]\nname = 'x'\n".into(),
+            ))),
+        );
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::ProvidersImport(
+                "[[provider]]\nname = 'x'\n".into()
+            ))]
+        );
+        let next = reply(
+            &mut s,
+            &cmds[0],
+            Ok(ApiReply::Imported(ProvidersImported {
+                names: vec!["x".into(), "y".into()],
+            })),
+        );
+        assert_eq!(next, vec![Cmd::Api(ApiCall::ProvidersList)]);
+        assert_eq!(status_text(&s), "Imported 2 providers: x, y");
+    }
+
+    #[test]
+    fn import_problems_reach_the_status_line() {
+        let mut s = open_providers();
+        key(&mut s, 'i');
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        assert_eq!(status_text(&s), "Enter a file path");
+        update(
+            &mut s,
+            Msg::ProviderFile(Err("nope.toml: No such file or directory".into())),
+        );
+        assert!(status_text(&s).starts_with("Import failed: nope.toml"));
+        let cmds = update(&mut s, Msg::ProviderFile(Ok(("a".into(), "junk".into()))));
+        reply(
+            &mut s,
+            &cmds[0],
+            Err("invalid providers file: expected a table".into()),
+        );
+        assert!(status_text(&s).contains("invalid providers file"));
+    }
+
+    #[test]
+    fn export_writes_what_the_daemon_returns() {
+        let mut s = open_providers();
+        key(&mut s, 'e');
+        // Pre-filled with a file name; Enter accepts it.
+        let cmds = code(&mut s, KeyCode::Enter);
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::ProvidersExport {
+                path: "dman-providers.toml".into()
+            })]
+        );
+        let next = reply(
+            &mut s,
+            &cmds[0],
+            Ok(ApiReply::Exported("[[provider]]\n".into())),
+        );
+        assert_eq!(
+            next,
+            vec![Cmd::WriteProviderFile {
+                path: "dman-providers.toml".into(),
+                content: "[[provider]]\n".into()
+            }]
+        );
+        update(
+            &mut s,
+            Msg::ProviderFileWritten(Ok("dman-providers.toml".into())),
+        );
+        assert_eq!(status_text(&s), "Exported providers to dman-providers.toml");
+        update(
+            &mut s,
+            Msg::ProviderFileWritten(Err("dman-providers.toml already exists".into())),
+        );
+        assert!(status_text(&s).starts_with("Export failed"));
+    }
+
+    #[test]
+    fn only_custom_providers_can_be_removed_after_confirmation() {
+        let mut s = open_providers();
+        assert!(key(&mut s, 'D').is_empty());
+        assert!(s.modal.is_none());
+        assert!(status_text(&s).contains("built in"), "{}", status_text(&s));
+        key(&mut s, 'G');
+        assert_eq!(s.providers.current().map(|p| p.name.as_str()), Some("mine"));
+        key(&mut s, 'D');
+        let Some(Modal::Confirm(c)) = &s.modal else {
+            panic!("no confirmation")
+        };
+        assert!(c.title.contains("mine"));
+        key(&mut s, 'n');
+        assert!(s.modal.is_none());
+        key(&mut s, 'D');
+        let cmds = key(&mut s, 'y');
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::ProvidersRemove("mine".into()))]
+        );
+        let next = reply(&mut s, &cmds[0], Ok(ApiReply::Done));
+        assert_eq!(next, vec![Cmd::Api(ApiCall::ProvidersList)]);
+        assert_eq!(status_text(&s), "Removed provider mine");
+    }
+
+    #[test]
+    fn providers_view_goes_back_to_the_search() {
+        let mut s = open_providers();
+        code(&mut s, KeyCode::Esc);
+        assert!(matches!(s.view(), View::Search));
+        code(&mut s, KeyCode::F(2));
+        key(&mut s, 'q');
+        assert!(matches!(s.view(), View::Search));
+    }
+
+    // ----------------------------------------------------------- snapshots
+
+    fn mixed_state() -> State {
+        // 1337x done, nyaa failed, tpb still running.
+        let mut s = st();
+        open_search(&mut s, providers());
+        typed(&mut s, "ubuntu 24.04");
+        let cmds = code(&mut s, KeyCode::Enter);
+        reply(&mut s, &cmds[0], started(7, &["1337x", "nyaa", "tpb"]));
+        update(
+            &mut s,
+            update_event(7, "1337x", done(3, 340), results()[..3].to_vec()),
+        );
+        update(
+            &mut s,
+            update_event(
+                7,
+                "nyaa",
+                ProviderStatus::Failed {
+                    error: "timed out after 15s".into(),
+                },
+                results(),
+            ),
+        );
+        key(&mut s, ' ');
+        s
+    }
+
+    #[test]
+    fn snapshot_search_results_80x24() {
+        let mut s = mixed_state();
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_search_results_120x40() {
+        let mut s = mixed_state();
+        code(&mut s, KeyCode::Down);
+        submit_prompt(&mut s, 'm', "5");
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+
+    #[test]
+    fn snapshot_search_form_80x24() {
+        let mut s = st();
+        open_search(&mut s, providers());
+        typed(&mut s, "ubuntu");
+        code(&mut s, KeyCode::Tab);
+        code(&mut s, KeyCode::Tab);
+        key(&mut s, ' ');
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_search_history_80x24() {
+        let mut s = searched();
+        open_history(&mut s);
+        code(&mut s, KeyCode::Down);
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_providers_80x24() {
+        let mut s = open_providers();
+        key(&mut s, 't');
+        code(&mut s, KeyCode::Down);
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_providers_120x40() {
+        let mut s = open_providers();
+        let cmds = key(&mut s, 't');
+        reply(
+            &mut s,
+            &cmds[0],
+            Ok(ApiReply::ProviderTest(Box::new(report(true)))),
+        );
+        key(&mut s, 'G');
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::ProvidersSet(ProviderSetParams::default()),
+                result: Ok(ApiReply::Provider(Box::new(ProviderInfo {
+                    enabled: true,
+                    ..prov("mine", false, false, false, 40)
+                }))),
+            },
+        );
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+
+    #[test]
+    fn snapshot_first_run_prompt_80x24() {
+        let mut s = st();
+        open_search(&mut s, all_off());
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_first_run_prompt_120x40() {
+        let mut s = st();
+        open_search(&mut s, all_off());
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+}

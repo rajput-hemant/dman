@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <atom:link rel="self" type="application/rss+xml"/>
+    <title>Prowlarr</title>
+    <item>
+      <title>Ubuntu 24.04 Desktop amd64 &amp; extras</title>
+      <guid>https://indexer.example/details/42</guid>
+      <link>http://localhost:9696/1/download?apikey=SECRET&amp;link=abc&amp;file=ubuntu</link>
+      <pubDate>Sun, 09 Nov 2026 10:00:00 +0000</pubDate>
+      <size>6144000000</size>
+      <category>PC/ISO</category>
+      <enclosure url="http://localhost:9696/1/download?apikey=SECRET&amp;link=abc&amp;file=ubuntu" length="6144000000" type="application/x-bittorrent"/>
+      <torznab:attr name="category" value="4000"/>
+      <torznab:attr name="seeders" value="120"/>
+      <torznab:attr name="peers" value="150"/>
+      <torznab:attr name="infohash" value="0123456789ABCDEF0123456789ABCDEF01234567"/>
+      <torznab:attr name="magneturl" value="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&amp;dn=Ubuntu"/>
+    </item>
+    <item>
+      <title><![CDATA[Debian 12 netinst]]></title>
+      <guid>https://indexer.example/details/43</guid>
+      <link>http://localhost:9696/2/download?link=def</link>
+      <pubDate>Sat, 08 Nov 2026 08:30:00 GMT</pubDate>
+      <enclosure url="http://localhost:9696/2/download?link=def" length="400000000" type="application/x-bittorrent"/>
+      <torznab:attr name="seeders" value="3"/>
+      <torznab:attr name="leechers" value="1"/>
+    </item>
+    <item>
+      <title>No peers info</title>
+      <guid>https://indexer.example/details/44</guid>
+      <enclosure url="http://localhost:9696/3/download?link=ghi" length="1000" type="application/x-bittorrent"/>
+    </item>
+  </channel>
+</rss>

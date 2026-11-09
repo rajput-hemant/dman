@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Example tracker</title>
+  <updated>2026-11-09T10:00:00Z</updated>
+  <entry>
+    <title>Some Linux ISO</title>
+    <id>https://tracker.example/t/9</id>
+    <link rel="alternate" href="https://tracker.example/t/9"/>
+    <link rel="enclosure" type="application/x-bittorrent" href="https://tracker.example/dl/9" length="734003200"/>
+    <published>2026-11-08T12:00:00+01:00</published>
+    <updated>2026-11-09T10:00:00Z</updated>
+    <category term="Linux"/>
+  </entry>
+  <entry>
+    <title>Magnet entry</title>
+    <id>urn:uuid:1</id>
+    <link href="magnet:?xt=urn:btih:2123456789abcdef0123456789abcdef01234567&amp;dn=Magnet"/>
+    <updated>2026-11-09T10:00:00Z</updated>
+  </entry>
+</feed>

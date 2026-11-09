@@ -1,0 +1,127 @@
+# Built-in provider definitions (D25: declarative data; D26: all off by default).
+#
+# None of these have been verified against the live sites (verified = false):
+# they were written from knowledge of the public formats and are tested only
+# against hand-written fixtures. Use "Test" in settings; sites change markup,
+# domains and APIs, and mirrors differ. Fix by editing the definition.
+
+# ---------------------------------------------------------------- 1337x
+# HTML. Result rows carry no magnet: each detail page is fetched (first
+# `detail_limit` results only) to read it. Confidence: medium (markup changes
+# often; Cloudflare may block scraping; domain varies: 1337x.to, 1337x.st ...).
+[[provider]]
+name = "1337x"
+kind = "html"
+enabled = false
+verified = false
+order = 10
+timeout_secs = 20
+rate_limit_per_min = 30
+description = "1337x (HTML scrape, detail page per result for the magnet)"
+search_url = "https://1337x.to/sort-search/{query}/seeders/desc/1/"
+row = "table.table-list tbody tr"
+title = "td.name a:nth-of-type(2)"
+detail_link = "td.name a:nth-of-type(2) @href"
+size = "td.size"
+seeders = "td.seeds"
+leechers = "td.leeches"
+follow_detail_for_magnet = true
+detail_magnet = "a[href^='magnet:'] @href"
+detail_limit = 10
+
+# ------------------------------------------------------- The Pirate Bay
+# JSON via the apibay.org API used by the site itself. Confidence: medium-high
+# for the format (flat array; string-typed numbers; all-zero hash = no results).
+[[provider]]
+name = "The Pirate Bay"
+kind = "json"
+enabled = false
+verified = false
+order = 20
+description = "The Pirate Bay (apibay.org JSON API)"
+url = "https://apibay.org/q.php?q={query}&cat=0"
+items = ""
+title = "/name"
+size = "/size"
+seeders = "/seeders"
+leechers = "/leechers"
+date = "/added"
+info_hash = "/info_hash"
+magnet = "magnet:?xt=urn:btih:{/info_hash}&dn={/name|enc}&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.stealth.si%3A80%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"
+detail_url = "https://thepiratebay.org/description.php?id={/id}"
+
+# ----------------------------------------------------------------- Nyaa
+# RSS with the nyaa: namespace (seeders, leechers, size, infoHash, category).
+# Confidence: high for the feed format.
+[[provider]]
+name = "Nyaa"
+kind = "feed"
+enabled = false
+verified = false
+order = 30
+description = "Nyaa (RSS feed with nyaa: extension elements)"
+url = "https://nyaa.si/?page=rss&q={query}&c=0_0&f=0"
+
+# --------------------------------------------------------------- Knaben
+# JSON POST API (https://knaben.org API docs). Confidence: medium (field names
+# `hits`, `title`, `bytes`, `seeders`, `peers`, `hash`, `magnetUrl`, `details`,
+# `date`, `category` recalled from the docs; `peers` is assumed to be leechers).
+[[provider]]
+name = "Knaben"
+kind = "json"
+enabled = false
+verified = false
+order = 40
+description = "Knaben meta-search (JSON POST API)"
+url = "https://api.knaben.org/v1"
+method = "post"
+body = '{"search_type":"100%","search_field":"title","query":"{query}","order_by":"seeders","order_direction":"desc","from":0,"size":100,"hide_unsafe":true}'
+items = "/hits"
+title = "/title"
+size = "/bytes"
+seeders = "/seeders"
+leechers = "/peers"
+date = "/date"
+info_hash = "/hash"
+magnet = "/magnetUrl"
+detail_url = "/details"
+category = "/category"
+
+# ------------------------------------------------------------------ YTS
+# JSON list_movies API; one result per torrent (quality) of each movie, the
+# magnet is built from the hash. Confidence: high for the format, but the
+# domain changes often (yts.mx, yts.lt, yts.am ...).
+[[provider]]
+name = "YTS"
+kind = "json"
+enabled = false
+verified = false
+order = 50
+description = "YTS movies (JSON API, one result per quality)"
+url = "https://yts.mx/api/v2/list_movies.json?query_term={query}&limit=20&sort_by=seeds"
+items = "/data/movies"
+expand = "/torrents"
+title = "{^/title_long} [{/quality} {/type}]"
+size = "/size_bytes"
+seeders = "/seeds"
+leechers = "/peers"
+date = "/date_uploaded_unix"
+info_hash = "/hash"
+magnet = "magnet:?xt=urn:btih:{/hash}&dn={^/title_long|enc}%20[{/quality}]&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce&tr=udp%3A%2F%2Fopen.demonii.com%3A1337%2Fannounce&tr=udp%3A%2F%2Ftracker.torrent.eu.org%3A451%2Fannounce"
+torrent_url = "/url"
+detail_url = "{^/url}"
+category = "movies"
+
+# -------------------------------------------------- Torznab (template)
+# Prowlarr / Jackett. Fill in the endpoint and store the API key as the secret
+# named by `api_key_ref`. Prowlarr: <host>:9696/api/v2.0/indexers/all/results/torznab/api
+# Jackett: <host>:9117/api/v2.0/indexers/all/results/torznab/
+[[provider]]
+name = "Torznab"
+kind = "torznab"
+enabled = false
+verified = false
+order = 60
+description = "Torznab indexer (Prowlarr, Jackett): edit URL, set API key secret"
+url = "http://localhost:9696/api/v2.0/indexers/all/results/torznab/api"
+api_key_ref = "torznab"

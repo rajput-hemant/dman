@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 46 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
+**Overall: 51 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -67,16 +67,25 @@ commit this file together with the code it describes.
 ### M4 — Daemon services (13 %)
 - [x] dman-owned queue, disk guard (start refusal + pause/auto-resume), redb store, history across restarts (done in M1)
 - [x] Schedule windows `[[schedule]]` (run/pause, per-window limits, DST-safe via jiff), `schedule.get`, CLI `dman schedule`
-- [ ] Push active window + next change with stats (`GlobalStats.schedule: Option<ScheduleBrief>`, serde default) and show it in the TUI header; `dman limit` shows window overrides
-- [ ] Hooks on completion / error / end of seeding (`[notify.hooks]` commands, env DMAN_EVENT/ID/NAME/PATH/STATUS/ENGINE/SIZE, timeout, no shell unless configured), webhook POST with retry (`[notify.webhook]`), events `JobCompleted/JobFailed/SeedCompleted` (additive)
-- [ ] Desktop notifications (notify-rust) shown by the TUI client (D20); optional on daemon host (`[notify] desktop_on_daemon = true`)
+- [x] Schedule brief pushed with stats and shown in the TUI header
+- [ ] `dman limit` / `dman stats` show the active window and its overrides
+- [x] Hooks on completion / error / end of seeding (`[notify.hooks]` commands, env DMAN_EVENT/ID/NAME/PATH/STATUS/ENGINE/SIZE, timeout, no shell unless configured), webhook POST with retry (`[notify.webhook]`), events `JobCompleted/JobFailed/SeedCompleted` (additive)
+- [x] Desktop notifications (notify-rust) shown by the TUI client (D20); optional on daemon host (`[notify] desktop_on_daemon = true`)
 - [ ] Tracker-list source: download URL on a timer (Q2), cache in data dir, attach to new torrents when enabled (`bt-tracker`), CLI/TUI status
 - [ ] Remove-unselected-files cleanup (D28: opt-in + confirmation) after torrent completion
 - [ ] Real-aria2 tests for seeding/ratio stop (D12) using the local seeder fixture (crates/dman-daemon/tests/fixtures/seeder.py)
 - [ ] Hot reload of `[[schedule]]`/limits when config.toml changes (`config.reload` API + TUI settings later)
 
-### M5 … M8
-Detailed task lists are written when the previous milestone finishes. M5 library (`dman-search`) is being built in parallel.
+### M5 — Search (12 %)
+- [x] `dman-search` library: declarative provider defs (torznab/feed/html/json), built-ins (Nyaa, YTS, TPB, Knaben, 1337x, Torznab template; all off, unverified against live sites), concurrent fan-out with per-provider timeout/rate limit/cap, dedupe by info-hash, ranking, test_provider, import/export, tracker-list fetch
+- [ ] Daemon: providers config (`[[provider]]` + built-in overrides by name), `search.start/cancel/results/history`, results streamed as events, search history persisted (redb), `providers.list/set/test/import/export`, secrets for API keys, runtime changes without restart
+- [ ] TUI Search view: provider selector, query, live results table (title, size, S/L, source, date), filters (size, seeders, source), add from results (magnet or detail resolve), history + re-run, per-provider errors; first-run prompt to enable providers (D26)
+- [ ] Settings view basics for providers (enable/disable/reorder/test/import/export)
+- [ ] CLI `dman search <q> [--provider X] [--add N]`, `dman providers ...`
+- [ ] Try live verification of built-ins where the network allows; fix definitions
+
+### M6 … M8
+Detailed task lists are written when the previous milestone finishes.
 
 ### Follow-ups noted during M1
 - [x] Split `crates/dman-daemon/src/manager.rs` into `manager/` modules (largest 524 lines).
@@ -178,4 +187,4 @@ scraper 0.29 · quick-xml 0.42 · redb 4.5 · notify-rust 4.19 · insta · asser
 
 ## Session log
 
-- 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 done; M1 done (135 tests); M2 done (278 tests); M3 done; M4 schedules (372 tests).
+- 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 done; M1 done (135 tests); M2 done (278 tests); M3 done; M4 schedules (372 tests); hooks/webhook/notifications; dman-search library (52 tests). Release musl binary 10.5 MB (notify-rust/zbus + reqwest added ~5 MB).

@@ -1,0 +1,8 @@
+{
+  "total": {"value": 2, "relation": "eq"},
+  "max_score": null,
+  "hits": [
+    {"id": "a1", "title": "Ubuntu 24.04 Desktop amd64", "hash": "0123456789abcdef0123456789abcdef01234567", "bytes": 6144000000, "seeders": 400, "peers": 25, "date": "2026-11-08T10:03:45+00:00", "category": "Software", "cachedOrigin": "tpb", "details": "https://thepiratebay.org/description.php?id=70000001", "magnetUrl": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Ubuntu"},
+    {"id": "a2", "title": "Ubuntu Server", "hash": null, "bytes": 2800000000, "seeders": 5, "peers": 1, "date": "2026-10-02T00:00:00+00:00", "category": "Software", "details": "https://example.org/2", "magnetUrl": "magnet:?xt=urn:btih:AAAQEAYEAUDAOCAJBIFQYDIOB4IBCEQT&dn=Server"}
+  ]
+}

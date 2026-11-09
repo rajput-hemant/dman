@@ -1,0 +1,26 @@
+{
+  "status": "ok",
+  "status_message": "Query was successful",
+  "data": {
+    "movie_count": 2,
+    "limit": 20,
+    "page_number": 1,
+    "movies": [
+      {
+        "id": 1, "url": "https://yts.mx/movies/test-movie-2020", "imdb_code": "tt0000001",
+        "title": "Test Movie", "title_english": "Test Movie", "title_long": "Test Movie (2020)", "slug": "test-movie-2020", "year": 2020,
+        "torrents": [
+          {"url": "https://yts.mx/torrent/download/AAAA23456789ABCDEF0123456789ABCDEF01234", "hash": "AAAA23456789ABCDEF0123456789ABCDEF01234A", "quality": "720p", "type": "web", "seeds": 50, "peers": 10, "size": "800.5 MB", "size_bytes": 839385088, "date_uploaded": "2020-05-01 12:00:00", "date_uploaded_unix": 1588334400},
+          {"url": "https://yts.mx/torrent/download/BBBB23456789ABCDEF0123456789ABCDEF01234", "hash": "BBBB23456789ABCDEF0123456789ABCDEF01234B", "quality": "1080p", "type": "bluray", "seeds": 120, "peers": 20, "size": "1.6 GB", "size_bytes": 1717986918, "date_uploaded": "2020-05-02 12:00:00", "date_uploaded_unix": 1588420800}
+        ]
+      },
+      {
+        "id": 2, "url": "https://yts.mx/movies/other-2021", "title": "Other", "title_long": "Other (2021)", "year": 2021,
+        "torrents": [
+          {"url": "https://yts.mx/torrent/download/CCCC", "hash": "CCCC23456789ABCDEF0123456789ABCDEF01234C", "quality": "2160p", "type": "web", "seeds": 7, "peers": 2, "size_bytes": 4000000000, "date_uploaded_unix": 1620000000}
+        ]
+      }
+    ]
+  },
+  "@meta": {"server_time": 1794218400}
+}

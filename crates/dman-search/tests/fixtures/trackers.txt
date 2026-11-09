@@ -1,0 +1,6 @@
+# best trackers
+udp://tracker.opentrackr.org:1337/announce
+
+udp://open.stealth.si:80/announce
+http://tracker.example.org:6969/announce
+bogus line

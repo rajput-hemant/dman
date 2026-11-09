@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 0 %** · Current milestone: **M0 — spikes** · Last updated: 2026-11-09
+**Overall: 5 %** · Current milestone: **M1 — foundation** · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -9,14 +9,14 @@ commit this file together with the code it describes.
 
 - Local repository only (no remote yet). Toolchain: Rust 1.97 stable, musl target.
 - Engines available in the dev container: aria2c 1.37.0, yt-dlp 2026.10.26, ffmpeg.
-- Nothing implemented yet.
+- Done: proto, config, aria2 RPC client, API client. Next: aria2 supervisor/options, store, daemon, CLI.
 
 ## Milestones and weights (sum = 100 %)
 
 | Milestone | Weight | Status |
 | --- | --- | --- |
-| M0 Spikes (de-risk aria2/yt-dlp behaviour, size baseline) | 5 | in progress |
-| M1 Foundation (workspace, proto, config, aria2 client, daemon lifecycle, API, basic CLI) | 15 | — |
+| M0 Spikes (de-risk aria2/yt-dlp behaviour, size baseline) | 5 | done |
+| M1 Foundation (workspace, proto, config, aria2 client, daemon lifecycle, API, basic CLI) | 15 | in progress |
 | M2 TUI core (loop, keymap, palette, downloads view, add view, confirmations) | 12 | — |
 | M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | — |
 | M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | — |
@@ -28,7 +28,7 @@ commit this file together with the code it describes.
 ## Next up
 
 ### M0 — spikes (5 %)
-- [ ] aria2 behaviour spike: changeOption `out`/`index-out`/`bt-tracker` on paused items; magnet metadata-only → re-add with `select-file`; `bt-detach-seed-only`; session restore of paused items; upload counters after restart
+- [x] aria2 behaviour spike: changeOption `out`/`index-out`/`bt-tracker` on paused items; magnet metadata-only → re-add with `select-file`; `bt-detach-seed-only`; session restore of paused items; upload counters after restart
 - [x] yt-dlp spike: `--progress-template` JSON lines, kill + `--continue` resume, format choice without ffmpeg
 - [x] Size baseline: ratatui + axum + reqwest(rustls/ring) + scraper + redb on musl, stripped
 
@@ -38,6 +38,7 @@ commit this file together with the code it describes.
 - [x] `dman-config`: profiles, TOML load/validate, secrets.toml (0600), paths (`~/.config/dman`)
 - [x] `dman-aria2`: typed JSON-RPC/WebSocket client, notifications, multicall
 - [ ] `dman-aria2` supervisor + adapter: JobOptions→aria2 option mapping, capability detection (getVersion features), spawn/attach, port probe, generated aria2 config, restart with backoff, clean shutdown
+- [ ] `dman-store` (redb, pulled forward from M4 because the store is authoritative): jobs, blobs (.torrent), meta counters
 - [ ] `dman-daemon` skeleton: job manager (GID↔JobId), tick poller + deltas, event bus, API server (JSON-RPC over WS + POST), token auth
 - [x] `dman-client`: WebSocket JSON-RPC client, hello/auth, typed methods, subscribe, ReconnectingClient (no queued actions)
 - [ ] CLI (`dman` binary): `daemon start|stop|restart|status|run|gen-config`, `add`, `list`, `get`, `pause`, `resume`, `remove`, `purge`, `--json`, exit codes
@@ -99,6 +100,22 @@ axum 0.8 · tower-http 0.7 · rust-embed 8 · maud 0.27 · subtle 2.6 · reqwest
 scraper 0.29 · quick-xml 0.42 · redb 4.5 · notify-rust 4.19 · insta · assert_cmd · wiremock · proptest
 
 ## Spike findings
+
+### aria2 1.37.0 — done (scripts were in git-ignored spikes/aria2/)
+- Rename paused HTTP: `changeOption out` works. Rename paused torrent: `index-out` ("N=path", relative to `dir`, no torrent subdir); getOption shows only the last mapping → always send the FULL mapping. `select-file` works while paused.
+- `bt-tracker` on paused torrent works (announceList updates, used on unpause). On ACTIVE torrent aria2 says "OK" but ignores it, and a following `pause` can fail "cannot be paused now" → dman does pause → change → resume, with retry on pause.
+- aria2 does NO option validation: unknown names / garbage values return "OK". Errors always code 1, distinguished only by message ("GID … is not found", "cannot be paused now", "Cannot change option for GID#…", "No active download for GID#…"). dman validates options itself and verifies with getOption/tellStatus.
+- Magnet with `bt-metadata-only=true, bt-save-metadata=true`: completes, saves `<dir>/<infohash>.torrent`, NO followedBy → dman reads the file and calls addTorrent itself (with select-file from preview).
+- `bt-detach-seed-only=true` works: seeding items don't count toward max-concurrent. Seeding = status "active" + `seeder:"true"`.
+- Session restore: paused/waiting items come back paused with SAME gids and options. Seeding/complete items are NOT saved unless `--force-save=true`. If `dir` doesn't exist, addTorrent silently drops the torrent from the session → dman must create `dir` before adding.
+- Upload counters: without force-save a re-added torrent starts at uploadLength 0 (new gid). With force-save the `.aria2` control file keeps uploadLength across restart (but completed/removed entries are then persisted too and must be pruned).
+- getVersion features here: Async DNS, BitTorrent, Firefox3 Cookie, GZip, HTTPS, Message Digest, Metalink, XML-RPC, SFTP.
+- Active downloads accept changeOption for max-download-limit / max-upload-limit / seed-ratio.
+
+### Design consequences (adopted)
+- dman's store (redb) is authoritative: every job record (source, options, .torrent bytes, gid, desired state, uploaded-bytes base) is persisted by dman; aria2's session only speeds up resume of partial data. On daemon start: reconcile store ↔ aria2 (match gids; re-add missing items paused from stored source; seeding torrents re-added with stored .torrent, verify, uploaded = stored base + aria2 counter).
+- Run aria2c WITHOUT force-save; persist uploaded bytes in dman every tick (D12).
+- Option validation + allow-list lives in dman-aria2 (`options.rs`), verified after change.
 
 ### yt-dlp (2026.10.26) — done
 - Progress: `--newline --no-colors --progress-template "download:%(progress)j"` → one JSON object per line on stdout, mixed with log lines; keep only lines starting with `{`. Keys: status, downloaded_bytes, total_bytes, tmpfilename, filename, eta, speed, elapsed (eta/speed null early). Never use `-q` (suppresses progress).

@@ -223,11 +223,17 @@ fn delete_files_asks_once() {
 }
 
 #[test]
-fn delete_files_enter_confirms_and_esc_cancels() {
+fn delete_files_enter_confirms_once_and_esc_cancels() {
     let mut s = state();
     key(&mut s, 'D');
+    // One question (U1): Enter answers it.
     let cmds = code(&mut s, KeyCode::Enter);
     assert_eq!(cmds.len(), 1);
+    assert!(s.modal.is_none());
+    // Moving to Cancel and pressing Enter backs out.
+    key(&mut s, 'D');
+    code(&mut s, KeyCode::Left);
+    assert!(code(&mut s, KeyCode::Enter).is_empty());
     assert!(s.modal.is_none());
     key(&mut s, 'D');
     assert!(code(&mut s, KeyCode::Esc).is_empty());
@@ -613,10 +619,14 @@ fn mouse_click_and_wheel() {
             modifiers: KeyModifiers::NONE,
         })
     };
-    // Rows: 0 header, 1 info, 2 table header, 3 "Active", 4 job 1, 5 job 2.
-    update(&mut s, click(5));
+    // Clicks hit what the last frame drew.
+    let text = render(&mut s, 80, 24);
+    let row_of = |needle: &str| {
+        u16::try_from(text.lines().position(|l| l.contains(needle)).unwrap_or(0)).unwrap_or(0)
+    };
+    update(&mut s, click(row_of("big-dataset")));
     assert_eq!(s.list.cursor, Some(JobId(2)));
-    update(&mut s, click(3));
+    update(&mut s, click(row_of("── Active")));
     assert_eq!(
         s.list.cursor,
         Some(JobId(2)),
@@ -633,7 +643,8 @@ fn mouse_click_and_wheel() {
     );
     assert_eq!(s.list.cursor, Some(JobId(5)));
     let mut off = state_with(false);
-    update(&mut off, click(5));
+    render(&mut off, 80, 24);
+    update(&mut off, click(row_of("big-dataset")));
     assert_eq!(off.list.cursor, Some(JobId(1)), "mouse disabled");
 }
 
@@ -661,6 +672,7 @@ fn connecting_asks_for_the_engine_status() {
     assert_eq!(
         cmds,
         vec![
+            Cmd::Api(ApiCall::StatsHistory),
             Cmd::Api(ApiCall::EngineStatus),
             Cmd::Api(ApiCall::VideoPrefsGet(crate::api::PrefsIntent::Cache))
         ]
@@ -852,10 +864,10 @@ fn offline_rows_are_greyed() {
             line.contains("big-dataset")
         })
         .expect("job row rendered");
-    let status_x = (0..80u16)
-        .find(|x| buf[(*x, job_row)].symbol() == "a" && buf[(*x + 1, job_row)].symbol() == "c")
-        .expect("status cell");
-    assert_eq!(buf[(status_x, job_row)].fg, dim.expect("dim colour"));
+    let name_x = (0..80u16)
+        .find(|x| buf[(*x, job_row)].symbol() == "b" && buf[(*x + 1, job_row)].symbol() == "i")
+        .expect("name cell");
+    assert_eq!(buf[(name_x, job_row)].fg, dim.expect("dim colour"));
 }
 
 // ------------------------------------------------------------------ add view
@@ -1123,7 +1135,7 @@ mod add_view {
         views::add::push(&mut s, a);
         let text = render(&mut s, 80, 24);
         assert!(text.contains("⏎ Enter  Add 1 download"), "{text}");
-        assert!(text.contains("Enter review & add"), "footer: {text}");
+        assert!(text.contains("Enter  review & add"), "footer: {text}");
         code(&mut s, KeyCode::Enter);
         let text = render(&mut s, 80, 24);
         assert!(text.contains("add & start"), "{text}");
@@ -1870,8 +1882,11 @@ fn tabs_switch_with_tab_and_digits() {
     press(&mut s, KeyCode::BackTab, KeyModifiers::SHIFT);
     assert_eq!(detail_state(&s).tab, Tab::Files);
     press(&mut s, KeyCode::BackTab, KeyModifiers::SHIFT);
-    assert_eq!(detail_state(&s).tab, Tab::Options);
-    for (c, tab) in ['1', '2', '3', '4', '5', '6'].into_iter().zip(Tab::ALL) {
+    assert_eq!(detail_state(&s).tab, Tab::Info);
+    for (c, tab) in ['1', '2', '3', '4', '5', '6', '7']
+        .into_iter()
+        .zip(Tab::ALL)
+    {
         key(&mut s, c);
         assert_eq!(detail_state(&s).tab, tab);
     }
@@ -2485,9 +2500,9 @@ fn graph_history_and_live_stats() {
         download_speed: down,
         ..sample_stats()
     };
-    // Hidden: stats events are not collected.
+    // Always collected: the header graph shows them.
     update(&mut s, Msg::Event(Event::Stats { stats: stats(1) }));
-    assert!(s.graph.history.is_empty());
+    assert_eq!(s.graph.history.len(), 1);
     key(&mut s, 'w');
     deliver_history(&mut s);
     assert_eq!(s.graph.history.len(), 90);
@@ -2891,6 +2906,11 @@ mod search_view {
         };
         reply(s, &cmds[0], started(7, &["1337x", "nyaa"]));
         p
+    }
+
+    /// [`searched`] for other test modules.
+    pub(super) fn searched_state() -> State {
+        searched()
     }
 
     /// A finished search with mixed provider outcomes.
@@ -3513,7 +3533,7 @@ mod search_view {
         code(&mut s, KeyCode::Down); // skip the detail-only result
         key(&mut s, ' '); // live-server (torrent url)
         let text = render(&mut s, 120, 40);
-        assert!(text.contains("Enter download 2 marked"), "{text}");
+        assert!(text.contains("Enter  download 2 marked"), "{text}");
         let cmds = code(&mut s, KeyCode::Enter);
         let [Cmd::Api(ApiCall::Add(p))] = cmds.as_slice() else {
             panic!("no jobs.add: {cmds:?}")
@@ -4842,9 +4862,10 @@ mod video_view {
         assert!(screen.contains("5 Speed"));
         key(&mut s, '2');
         assert!(status_text(&s).contains("only shown for torrents"));
-        // Tab skips the hidden ones: Files -> Speed -> Options -> Files.
+        // Tab skips the hidden ones: Files -> Speed -> Options -> Info -> Files.
         code(&mut s, KeyCode::Tab);
         assert_eq!(top_tab(&s), crate::views::detail::Tab::Speed);
+        code(&mut s, KeyCode::Tab);
         code(&mut s, KeyCode::Tab);
         code(&mut s, KeyCode::Tab);
         assert_eq!(top_tab(&s), crate::views::detail::Tab::Files);
@@ -5175,8 +5196,8 @@ mod usability {
         for w in [40u16, 60, 80, 120] {
             let text = render(&mut s, w, 24);
             let last = text.lines().nth(23).unwrap_or_default();
-            assert!(last.ends_with("? help"), "{w}: {last}");
-            assert!(last.contains(": palette"), "{w}: {last}");
+            assert!(last.ends_with("?  help"), "{w}: {last}");
+            assert!(last.contains(":  palette"), "{w}: {last}");
         }
         // Text-entry views name keys that still work there.
         key(&mut s, 'a');
@@ -5355,13 +5376,9 @@ mod usability {
     #[test]
     fn header_speed_is_zero_without_transfers() {
         let mut s = state();
-        assert!(
-            render(&mut s, 120, 40)
-                .lines()
-                .next()
-                .unwrap_or("")
-                .contains("15.0 MiB/s")
-        );
+        // The throughput card (rows 1-4) shows the global speed.
+        let head = |text: String| text.lines().take(5).collect::<Vec<_>>().join("\n");
+        assert!(head(render(&mut s, 120, 40)).contains("15.0 MiB/s"));
         let jobs: Vec<_> = s
             .jobs
             .values()
@@ -5372,8 +5389,7 @@ mod usability {
             })
             .collect();
         update(&mut s, Msg::Event(Event::JobsUpdated { jobs }));
-        let head = render(&mut s, 120, 40);
-        let head = head.lines().next().unwrap_or("");
+        let head = head(render(&mut s, 120, 40));
         assert!(!head.contains("15.0 MiB/s"), "{head}");
         assert_eq!(
             views::detail::summary(&s, &s.jobs[&JobId(1)], None),
@@ -6010,4 +6026,371 @@ mod quality_picker {
 
     #[allow(dead_code)]
     fn _unused(_: &AddState) {}
+}
+
+// ------------------------------------------------------------- redesign
+
+mod redesign {
+    use super::*;
+    use crate::theme::{ColorDepth, ThemeOptions};
+    use crate::widgets::toast::ToastAction;
+
+    fn removed(s: &mut State, ids: Vec<JobId>, delete_files: bool) {
+        update(
+            s,
+            Msg::ActionResult {
+                call: ApiCall::Remove {
+                    ids: ids.clone(),
+                    delete_files,
+                },
+                result: Ok(ApiReply::Batch(BatchResult {
+                    ok: ids,
+                    failed: vec![],
+                })),
+            },
+        );
+    }
+
+    #[test]
+    fn remove_offers_undo_that_restores() {
+        let mut s = state();
+        key(&mut s, 'd');
+        let cmds = key(&mut s, 'y');
+        assert_eq!(cmds.len(), 1);
+        removed(&mut s, vec![JobId(1)], false);
+        let toast = s.status.toasts.items.last().cloned().expect("a toast");
+        assert!(toast.text.contains("Removed 'ubuntu"), "{}", toast.text);
+        assert_eq!(toast.action, Some(ToastAction::Undo(vec![JobId(1)])));
+        assert_eq!(s.status.toasts.items.len(), 1, "one toast per result");
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains(" u  undo"), "{text}");
+        let cmds = key(&mut s, 'u');
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::Restore(vec![JobId(1)]))]);
+        assert!(!s.status.toasts.has_undo());
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::Restore(vec![JobId(1)]),
+                result: Ok(ApiReply::Batch(BatchResult {
+                    ok: vec![JobId(1)],
+                    failed: vec![],
+                })),
+            },
+        );
+        assert!(status_text(&s).starts_with("Restored 'ubuntu"));
+    }
+
+    #[test]
+    fn deleting_files_never_offers_undo() {
+        let mut s = state();
+        removed(&mut s, vec![JobId(1)], true);
+        assert!(!s.status.toasts.has_undo());
+        // `u` keeps its old meaning: unmark.
+        key(&mut s, ' ');
+        assert!(key(&mut s, 'u').is_empty());
+        assert!(s.list.selected.is_empty());
+    }
+
+    #[test]
+    fn undo_expires_with_its_toast() {
+        let mut s = state();
+        removed(&mut s, vec![JobId(2)], false);
+        ticks(&mut s, 40); // 10 s at 250 ms
+        assert!(!s.status.toasts.has_undo());
+        assert!(key(&mut s, 'u').is_empty());
+    }
+
+    #[test]
+    fn progress_messages_are_not_toasts_and_results_are() {
+        let mut s = state();
+        key(&mut s, 'p');
+        assert!(s.status.toasts.items.is_empty(), "'Pausing…' is no toast");
+        assert!(status_text(&s).starts_with("Pausing"));
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::Pause(vec![JobId(1)]),
+                result: Err("boom".into()),
+            },
+        );
+        let t = s.status.toasts.items.last().cloned().expect("toast");
+        assert_eq!(t.level, dman_proto::method::Level::Error);
+        assert!(t.text.contains("boom"));
+        // Errors stay 8 s, info 4 s.
+        ticks(&mut s, 20);
+        assert_eq!(s.status.toasts.items.len(), 1);
+        ticks(&mut s, 13);
+        assert!(s.status.toasts.items.is_empty());
+    }
+
+    #[test]
+    fn mouse_toggles_at_runtime_and_is_saved_when_allowed() {
+        let mut s = state();
+        let cmds = key(&mut s, 'm');
+        assert!(s.mouse);
+        assert_eq!(cmds, vec![Cmd::SetMouseCapture(true)]);
+        s.ui.persist_mouse = true;
+        let cmds = key(&mut s, 'm');
+        assert!(!s.mouse);
+        assert_eq!(
+            cmds,
+            vec![Cmd::SetMouseCapture(false), Cmd::SaveMouse(false)]
+        );
+    }
+
+    #[test]
+    fn chips_filter_by_state_and_toggle_back() {
+        let mut s = state();
+        key(&mut s, '5');
+        assert_eq!(s.list.order, vec![JobId(7)]);
+        key(&mut s, '5');
+        assert_eq!(s.list.order.len(), 7);
+        key(&mut s, '2');
+        assert_eq!(s.list.order, vec![JobId(1), JobId(2), JobId(3)]);
+    }
+
+    #[test]
+    fn sort_key_offers_direct_choices() {
+        let mut s = state();
+        key(&mut s, 's');
+        assert_eq!(s.list.sort, crate::list::SortKey::Name);
+        assert!(s.whichkey.is_some());
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("sort by"), "{text}");
+        key(&mut s, 'z');
+        assert_eq!(s.list.sort, crate::list::SortKey::Size);
+        assert!(s.whichkey.is_none());
+        // Any other key closes the card and works as usual.
+        key(&mut s, 's');
+        key(&mut s, 'j');
+        assert!(s.whichkey.is_none());
+        assert_ne!(s.list.cursor, Some(JobId(1)));
+        // It closes by itself.
+        key(&mut s, 's');
+        ticks(&mut s, 12);
+        assert!(s.whichkey.is_none());
+    }
+
+    #[test]
+    fn animations_run_only_while_something_moves() {
+        let mut s = state();
+        assert_eq!(s.frame_interval(), None, "animations off by default");
+        s.ui.animations = true;
+        update(&mut s, Msg::Frame(Duration::from_millis(33)));
+        assert_eq!(s.frame_interval(), None, "nothing moves");
+        let mut j = s.jobs[&JobId(2)].clone();
+        j.state = JobState::Complete;
+        j.completed_bytes = j.total_bytes;
+        update(&mut s, Msg::Event(Event::JobsUpdated { jobs: vec![j] }));
+        assert_eq!(s.frame_interval(), Some(Duration::from_millis(33)));
+        for _ in 0..60 {
+            update(&mut s, Msg::Frame(Duration::from_millis(33)));
+        }
+        assert_eq!(s.frame_interval(), None);
+        // A pending call shows a spinner: 10 fps.
+        key(&mut s, 'p');
+        assert_eq!(s.frame_interval(), Some(Duration::from_millis(100)));
+    }
+
+    #[test]
+    fn mouse_clicks_buttons_toasts_chips_and_palette_items() {
+        let mut s = state_with(true);
+        let click = |s: &mut State, needle: &str| {
+            let text = render(s, 80, 24);
+            let (row, line) = text
+                .lines()
+                .enumerate()
+                .find(|(_, l)| l.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} not on screen:\n{text}"));
+            let col = line[..line.find(needle).unwrap_or(0)].chars().count();
+            update(
+                s,
+                Msg::Mouse(MouseEvent {
+                    kind: MouseEventKind::Down(MouseButton::Left),
+                    column: u16::try_from(col).unwrap_or(0) + 1,
+                    row: u16::try_from(row).unwrap_or(0),
+                    modifiers: KeyModifiers::NONE,
+                }),
+            )
+        };
+        click(&mut s, "Failed 1");
+        assert_eq!(s.list.order, vec![JobId(7)]);
+        click(&mut s, "All 7");
+        key(&mut s, 'd');
+        let cmds = click(&mut s, "[ Remove ]");
+        assert_eq!(cmds.len(), 1, "{cmds:?}");
+        removed(&mut s, vec![JobId(1)], false);
+        let cmds = click(&mut s, "undo");
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::Restore(vec![JobId(1)]))]);
+        key(&mut s, ':');
+        typed(&mut s, "pause all");
+        let cmds = click(&mut s, "Pause all");
+        assert_eq!(cmds, vec![Cmd::Api(ApiCall::PauseAll)]);
+        // Footer hints run their action.
+        let cmds = click(&mut s, " r  retry");
+        assert!(matches!(cmds.as_slice(), [Cmd::Api(ApiCall::Resume(_))]));
+    }
+
+    #[test]
+    fn options_from_config_pick_theme_depth_and_motion() {
+        let opts = crate::TuiOptions {
+            theme: "tokyo-night".into(),
+            color: "256".into(),
+            icons: "ascii".into(),
+            density: "compact".into(),
+            animations: true,
+            ..crate::TuiOptions::default()
+        };
+        let s = opts.initial_state_with_env(&|_| None);
+        assert_eq!(s.theme.name, "tokyo-night");
+        assert_eq!(s.theme.depth, ColorDepth::Ansi256);
+        assert_eq!(s.theme.icons.active, "v");
+        assert!(s.ui.animations && !s.tall_rows());
+        let s = opts.initial_state_with_env(&|k| (k == "DMAN_REDUCE_MOTION").then(|| "1".into()));
+        assert!(!s.ui.animations);
+        let s = opts.initial_state_with_env(&|k| (k == "NO_COLOR").then(|| "1".into()));
+        assert_eq!(s.theme.depth, ColorDepth::Mono);
+        let bad = crate::TuiOptions {
+            theme: "nope".into(),
+            icons: "emoji".into(),
+            ..crate::TuiOptions::default()
+        };
+        let s = bad.initial_state_with_env(&|_| None);
+        let warn = s.status.last_error.clone().unwrap_or_default();
+        assert!(
+            warn.contains("unknown theme 'nope'") && warn.contains("emoji"),
+            "{warn}"
+        );
+    }
+
+    #[test]
+    fn tiny_terminals_get_a_note_instead_of_a_broken_layout() {
+        let mut s = state();
+        let text = render(&mut s, 30, 8);
+        assert!(text.contains("Terminal too small"), "{text}");
+    }
+
+    /// Render with `theme` and dump one letter per distinct cell style, plus
+    /// the legend, so colour and emphasis regressions show up in a diff.
+    fn styled(s: &mut State, theme: crate::theme::Theme, w: u16, h: u16) -> String {
+        s.theme = theme;
+        update(s, Msg::Resize(w, h));
+        let mut terminal = Terminal::new(TestBackend::new(w, h)).expect("test terminal");
+        terminal
+            .draw(|f| views::render(s, f))
+            .expect("draw succeeds");
+        let buf = terminal.backend().buffer();
+        let mut styles: Vec<String> = Vec::new();
+        let mut out = String::new();
+        for y in 0..h {
+            let mut line = String::new();
+            for x in 0..w {
+                let c = &buf[(x, y)];
+                let key = format!("fg={:?} bg={:?} mod={:?}", c.fg, c.bg, c.modifier);
+                let i = styles.iter().position(|k| *k == key).unwrap_or_else(|| {
+                    styles.push(key);
+                    styles.len() - 1
+                });
+                let sym = b"._abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+                    .get(i)
+                    .copied()
+                    .unwrap_or(b'?');
+                line.push(char::from(sym));
+            }
+            out.push_str(&line);
+            out.push('\n');
+        }
+        out.push('\n');
+        for (i, k) in styles.iter().enumerate() {
+            let sym = b"._abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+                .get(i)
+                .copied()
+                .unwrap_or(b'?');
+            out.push_str(&format!("{} {k}\n", char::from(sym)));
+        }
+        out
+    }
+
+    fn themed(depth: ColorDepth) -> crate::theme::Theme {
+        crate::theme::Theme::build(&ThemeOptions {
+            depth,
+            ..ThemeOptions::default()
+        })
+    }
+
+    #[test]
+    fn style_snapshot_downloads_truecolor_80x24() {
+        let mut s = state();
+        key(&mut s, ' ');
+        insta::assert_snapshot!(styled(&mut s, themed(ColorDepth::TrueColor), 80, 24));
+    }
+
+    #[test]
+    fn style_snapshot_downloads_16_colors_80x24() {
+        let mut s = state();
+        key(&mut s, ' ');
+        insta::assert_snapshot!(styled(&mut s, themed(ColorDepth::Ansi16), 80, 24));
+    }
+
+    #[test]
+    fn style_snapshot_delete_confirmation_mono_80x24() {
+        let mut s = state();
+        key(&mut s, 'D');
+        insta::assert_snapshot!(styled(&mut s, themed(ColorDepth::Mono), 80, 24));
+    }
+
+    #[test]
+    fn snapshot_downloads_160x45() {
+        let mut s = state();
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        insta::assert_snapshot!(render(&mut s, 160, 45));
+    }
+
+    #[test]
+    fn snapshot_detail_info_120x40() {
+        let mut s = state();
+        open_detail(&mut s, 7);
+        key(&mut s, '7');
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+
+    #[test]
+    fn snapshot_search_preview_160x45() {
+        let mut s = super::search_view::searched_state();
+        insta::assert_snapshot!(render(&mut s, 160, 45));
+    }
+
+    #[test]
+    fn snapshot_help_search_80x24() {
+        let mut s = state();
+        key(&mut s, '?');
+        key(&mut s, '/');
+        typed(&mut s, "pause");
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn help_search_filters_and_esc_clears_then_leaves() {
+        let mut s = state();
+        key(&mut s, '?');
+        key(&mut s, '/');
+        typed(&mut s, "zzzz");
+        let text = render(&mut s, 80, 24);
+        assert!(text.contains("Nothing matches"), "{text}");
+        code(&mut s, KeyCode::Enter);
+        // `q` is a key again after Enter: it leaves.
+        code(&mut s, KeyCode::Esc);
+        assert!(matches!(s.view(), View::Help(h) if h.query.text().is_empty()));
+        code(&mut s, KeyCode::Esc);
+        assert!(matches!(s.view(), View::Downloads));
+    }
+
+    #[test]
+    fn snapshot_toasts_and_whichkey_80x24() {
+        let mut s = state();
+        removed(&mut s, vec![JobId(6)], false);
+        key(&mut s, 's');
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
 }

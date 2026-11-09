@@ -429,6 +429,7 @@ pub fn first_run_prompt() -> ConfirmState {
         ],
         Action::SearchProviders,
     )
+    .label("Choose providers")
 }
 
 // --------------------------------------------------------------------- keys
@@ -496,18 +497,41 @@ pub fn on_paste(state: &mut State, text: &str) -> Vec<Cmd> {
 }
 
 /// Mouse wheel scrolls the results.
-pub fn on_mouse(state: &mut State, m: crossterm::event::MouseEvent) {
-    use crossterm::event::MouseEventKind;
-    let delta = match m.kind {
-        MouseEventKind::ScrollDown => 3,
-        MouseEventKind::ScrollUp => -3,
-        _ => {
-            state.dirty = false;
-            return;
-        }
-    };
+pub fn on_mouse(
+    state: &mut State,
+    m: crossterm::event::MouseEvent,
+    hit: Option<(ratatui::layout::Rect, crate::layout::Hit)>,
+) {
+    use crate::layout::Hit;
+    use crossterm::event::{MouseButton, MouseEventKind};
     let h = table_height(state);
-    move_cursor(&mut state.search, delta, h);
+    match (m.kind, hit) {
+        (MouseEventKind::ScrollDown, _) => move_cursor(&mut state.search, 3, h),
+        (MouseEventKind::ScrollUp, _) => move_cursor(&mut state.search, -3, h),
+        (MouseEventKind::Down(MouseButton::Left), Some((_, Hit::SearchRow(i)))) => {
+            let s = &mut state.search;
+            s.focus = Focus::Results;
+            let delta = isize::try_from(i).unwrap_or(0) - isize::try_from(s.cursor).unwrap_or(0);
+            move_cursor(s, delta, h);
+        }
+        (MouseEventKind::Down(MouseButton::Left), Some((r, Hit::SearchScroll))) => {
+            let s = &mut state.search;
+            let n = s.rows.len();
+            if n > 0 {
+                let frac = f64::from(m.row.saturating_sub(r.y)) / f64::from(r.height.max(1));
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    clippy::cast_precision_loss
+                )]
+                let i = ((frac * n as f64) as usize).min(n - 1);
+                let delta =
+                    isize::try_from(i).unwrap_or(0) - isize::try_from(s.cursor).unwrap_or(0);
+                move_cursor(s, delta, h);
+            }
+        }
+        _ => state.dirty = false,
+    }
 }
 
 /// Apply a search-view action.
@@ -1041,7 +1065,8 @@ fn on_started(state: &mut State, started: &SearchStarted) {
         .iter()
         .map(|n| (n.clone(), Prov::Running))
         .collect();
-    state.status.info(format!(
+    // The provider chips and the status line show the progress.
+    state.status.progress(format!(
         "Searching {}…",
         plural(started.providers.len(), "provider")
     ));
@@ -1149,11 +1174,14 @@ fn rerun(state: &mut State) -> Vec<Cmd> {
 }
 
 fn confirm_clear_history(state: &mut State) -> Vec<Cmd> {
-    state.modal = Some(Modal::Confirm(ConfirmState::yes_no(
-        "Clear the search history?",
-        vec!["Removes every remembered query. Downloads are not affected.".into()],
-        ApiCall::SearchHistoryClear,
-    )));
+    state.modal = Some(Modal::Confirm(
+        ConfirmState::yes_no(
+            "Clear the search history?",
+            vec!["Removes every remembered query. Downloads are not affected.".into()],
+            ApiCall::SearchHistoryClear,
+        )
+        .label("Clear"),
+    ));
     Vec::new()
 }
 

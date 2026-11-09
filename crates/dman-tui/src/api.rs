@@ -54,6 +54,9 @@ pub enum ApiCall {
         /// Also delete files on disk.
         delete_files: bool,
     },
+    /// `jobs.restore`: undo a remove-from-list (never offered after the files
+    /// were deleted).
+    Restore(Vec<JobId>),
     /// `jobs.purge` with explicit ids (never the "empty = all" form).
     Purge(Vec<JobId>),
     /// `jobs.reorder`.
@@ -160,6 +163,7 @@ impl ApiCall {
                 delete_files: true,
             } => format!("Removing {} and deleting files", n(ids)),
             ApiCall::Purge(ids) => format!("Purging {}", n(ids)),
+            ApiCall::Restore(ids) => format!("Restoring {}", n(ids)),
             ApiCall::Reorder { .. } => "Moving in queue".into(),
             ApiCall::SetLimits(_) => "Changing limits".into(),
             ApiCall::Add(p) => format!("Adding {}", plural(p.sources.len(), "source")),
@@ -201,6 +205,7 @@ impl ApiCall {
             ApiCall::ResumeAll => "Resume all",
             ApiCall::Remove { .. } => "Remove",
             ApiCall::Purge(_) => "Purge",
+            ApiCall::Restore(_) => "Undo",
             ApiCall::Reorder { .. } => "Move",
             ApiCall::SetLimits(_) => "Set limits",
             ApiCall::Add(_) => "Add",
@@ -251,6 +256,7 @@ impl ApiCall {
                 .await
                 .map(ApiReply::Batch),
             ApiCall::Purge(ids) => client.purge(&ids).await.map(ApiReply::Batch),
+            ApiCall::Restore(ids) => client.restore(&ids).await.map(ApiReply::Batch),
             ApiCall::Reorder { id, to } => client.reorder(id, to).await.map(|()| ApiReply::Done),
             ApiCall::SetLimits(u) => client.limits_set(u).await.map(ApiReply::Limits),
             ApiCall::Add(p) => client.add(*p).await.map(ApiReply::Added),

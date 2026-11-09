@@ -12,14 +12,13 @@ use dman_proto::{AddParams, AddSource, VideoProbeParams};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Clear, Paragraph, Wrap};
 
 use super::options::{Field, Parsed};
 use super::source::{Kind, Token};
 use super::video::{self, ProbeFetch, ProbeKey};
 use crate::format::{plural, size};
 use crate::theme::Theme;
-use crate::widgets::centered;
 use dman_torrent::{TorrentMeta, parse_torrent};
 
 /// One download that will be requested.
@@ -910,20 +909,14 @@ impl Preview {
 
     /// Draw the modal.
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-        let rect = centered(
-            area,
-            area.width.saturating_sub(4).min(100),
-            area.height.saturating_sub(2).min(34),
-        );
+        // An in-place step of the add view (drawn over the whole form).
+        let rect = area;
         frame.render_widget(Clear, rect);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(theme.border)
-            .title(Span::styled(
-                " Review — nothing is added until you press Enter ",
-                theme.accent,
-            ));
-        let inner = block.inner(rect);
+        let block = theme.block_focus(true).title(Span::styled(
+            " Review — nothing is added until you press Enter ",
+            theme.accent,
+        ));
+        let inner = block.inner(rect).inner(ratatui::layout::Margin::new(1, 0));
         frame.render_widget(block, rect);
         let (mut lines, cursor_line) = self.lines(theme, usize::from(inner.width));
         let h = usize::from(inner.height).saturating_sub(2);

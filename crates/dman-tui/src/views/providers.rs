@@ -258,14 +258,18 @@ fn confirm_remove(state: &mut State) -> Vec<Cmd> {
         return Vec::new();
     }
     let name = p.name.clone();
-    state.modal = Some(Modal::Confirm(ConfirmState::yes_no(
-        format!("Remove provider {name}?"),
-        vec![
-            "The custom provider is deleted from the configuration.".into(),
-            "Export it first (e) if you want to keep the definition.".into(),
-        ],
-        ApiCall::ProvidersRemove(name),
-    )));
+    state.modal = Some(Modal::Confirm(
+        ConfirmState::yes_no(
+            format!("Remove provider {name}?"),
+            vec![
+                "The custom provider is deleted from the configuration.".into(),
+                "Export it first (e) if you want to keep the definition.".into(),
+            ],
+            ApiCall::ProvidersRemove(name),
+        )
+        .label("Remove")
+        .destructive(),
+    ));
     Vec::new()
 }
 
@@ -515,17 +519,14 @@ fn detail_lines(state: &State) -> Vec<Line<'static>> {
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
     let p = &state.providers;
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(t.border)
-        .title(Span::styled(
-            format!(
-                " Search providers · {} enabled of {} ",
-                enabled(state).count(),
-                p.list.len()
-            ),
-            t.accent,
-        ));
+    let block = t.block_focus(true).title(Span::styled(
+        format!(
+            " Search providers · {} enabled of {} ",
+            enabled(state).count(),
+            p.list.len()
+        ),
+        t.accent,
+    ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let detail_h = if inner.height >= 12 { 7 } else { 0 };

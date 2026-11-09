@@ -15,6 +15,7 @@ use ratatui::widgets::Paragraph;
 use crate::action::Action;
 use crate::app::State;
 use crate::keymap::key_label;
+use crate::layout::Hit;
 use crate::views::{self, View};
 
 /// One footer entry: (keys, what they do).
@@ -113,18 +114,32 @@ pub fn hints(state: &State) -> Vec<Hint> {
     h
 }
 
+/// Most hints shown at once (including the pinned palette / help hints).
+pub const MAX_HINTS: usize = 6;
+
 fn width(h: &Hint) -> usize {
-    h.0.chars().count() + h.1.chars().count() + 3
+    h.0.chars().count() + h.1.chars().count() + 4
 }
 
-/// The hints that fit in `cols` columns: as many of the body as fit, always
-/// followed by the whole tail.
+/// The first key of `action` in its home context (or globally), for texts
+/// that name a key outside the footer (toasts).
+pub fn key_label_for(state: &State, action: Action) -> Option<String> {
+    state
+        .keymap
+        .keys_with_global(action.home_context(), action)
+        .first()
+        .map(|k| key_label(*k))
+}
+
+/// The hints that fit in `cols` columns: as many of the body as fit (at most
+/// [`MAX_HINTS`] in all), always followed by the whole tail.
 pub fn fitted(state: &State, cols: usize) -> Vec<Hint> {
     let tail = tail(state);
     let tail_w: usize = tail.iter().map(width).sum();
     let mut used = tail_w;
     let mut out = Vec::new();
-    for h in body(state) {
+    let room = MAX_HINTS.saturating_sub(tail.len());
+    for h in body(state).into_iter().take(room) {
         let w = width(&h);
         if used + w > cols {
             break;
@@ -136,16 +151,70 @@ pub fn fitted(state: &State, cols: usize) -> Vec<Hint> {
     out
 }
 
-/// Draw the footer.
+/// The mode shown in the pill at the left of the footer.
+pub fn mode(state: &State) -> &'static str {
+    use crate::widgets::Modal;
+    match &state.modal {
+        Some(Modal::Filter(_)) => return "FILTER",
+        Some(Modal::Confirm(_)) => return "CONFIRM",
+        Some(Modal::Palette(_)) => return "COMMAND",
+        Some(Modal::Prompt(_)) => return "INPUT",
+        Some(Modal::Welcome(_)) => return "WELCOME",
+        None => {}
+    }
+    match state.view() {
+        View::Downloads if !state.list.selected.is_empty() => "MARK",
+        View::Downloads => "LIST",
+        View::Detail(_) => "DETAIL",
+        View::Add(_) => "ADD",
+        View::Search => "SEARCH",
+        View::Providers => "PROVIDERS",
+        View::Help(_) => "HELP",
+    }
+}
+
+/// Draw the footer: mode pill, key hints as pills, and a spinner while
+/// calls are in flight.
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
-    let mut spans = Vec::new();
-    for (keys, label) in fitted(state, usize::from(area.width)) {
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled(keys, t.key));
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled(label, t.dim));
-        spans.push(Span::raw(" "));
+    let mode = format!(" {} ", mode(state));
+    let mut spans = vec![Span::styled(mode.clone(), t.mode), Span::raw(" ")];
+    let mut right: Vec<Span<'static>> = Vec::new();
+    if state.pending > 0 {
+        let spin = state
+            .anim_ms()
+            .map_or(t.icons.spinner[0], |ms| t.icons.spin(ms));
+        right.push(Span::styled(format!("{spin} "), t.accent));
+        right.push(Span::styled("working ", t.dim));
+    }
+    let right_w: usize = right.iter().map(Span::width).sum();
+    let cols = usize::from(area.width).saturating_sub(mode.chars().count() + 1 + right_w);
+    let mut x = area.x + u16::try_from(mode.chars().count() + 1).unwrap_or(0);
+    for (keys, label) in fitted(state, cols) {
+        let w = u16::try_from(width(&(keys.clone(), label.clone()))).unwrap_or(0);
+        if let Some(a) = action_of(state, &keys) {
+            state.hit(Rect::new(x, area.y, w.saturating_sub(1), 1), Hit::Action(a));
+        }
+        x += w;
+        spans.push(Span::styled(format!(" {keys} "), t.pill));
+        spans.push(Span::styled(format!(" {label} "), t.dim));
+    }
+    let used: usize = spans.iter().map(Span::width).sum();
+    let width = usize::from(area.width);
+    if used + right_w <= width {
+        spans.push(Span::raw(" ".repeat(width - used - right_w)));
+        spans.extend(right);
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// The action a footer key text runs in the current context (no modal).
+fn action_of(state: &State, keys: &str) -> Option<Action> {
+    if state.modal.is_some() {
+        return None;
+    }
+    Action::ALL
+        .iter()
+        .copied()
+        .find(|a| key_for(state, *a).as_deref() == Some(keys))
 }

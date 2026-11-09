@@ -31,7 +31,7 @@ use dman_proto::method::FsListParams;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use self::browser::{DirOutcome, DirPicker, FileBrowser, FileOutcome, LocalListing};
 use self::options::{Field, OptionsForm};
@@ -793,6 +793,7 @@ pub fn discard_confirm() -> ConfirmState {
         "Leave without adding?",
         vec!["The links and options you entered are not added and will be lost.".into()],
     )
+    .label("Leave")
 }
 
 /// Every add view on the stack (a help screen may sit above it).
@@ -1159,9 +1160,8 @@ fn pad(mut line: Line<'static>, width: usize) -> Line<'static> {
 
 fn render_sources(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState) {
     let focused = a.focus == Focus::Sources && a.overlay.is_none();
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(if focused { theme.accent } else { theme.border })
+    let block = theme
+        .block_focus(focused)
         .title(Span::styled(sources_title(a), theme.accent));
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -1427,13 +1427,10 @@ fn option_lines(a: &AddState, theme: &Theme, width: usize) -> (Vec<Line<'static>
 
 fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState) {
     let focused = matches!(a.focus, Focus::Field(_) | Focus::Advanced) && a.overlay.is_none();
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(if focused { theme.accent } else { theme.border })
-        .title(Span::styled(
-            " Options · empty fields use your defaults ",
-            theme.accent,
-        ));
+    let block = theme.block_focus(focused).title(Span::styled(
+        " Options · empty fields use your defaults ",
+        theme.accent,
+    ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let (lines, focus_line) = option_lines(a, theme, usize::from(inner.width));
@@ -1446,6 +1443,11 @@ fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState
 /// Draw the add view.
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, a: &AddState) {
     let t = &state.theme;
+    if let Some(Overlay::Preview(p)) = &a.overlay {
+        // The review is a step of its own: it replaces the form.
+        p.render(frame, area, t);
+        return;
+    }
     let hint = a.engine_hint();
     let hint_h = u16::from(hint.is_some());
     let opt_lines = option_lines(a, t, usize::from(area.width.saturating_sub(2)))

@@ -14,7 +14,7 @@ use dman_proto::method::{FsEntry, FsListing};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::Paragraph;
 
 use crate::format::{size, truncate};
 use crate::theme::Theme;
@@ -530,13 +530,16 @@ fn render_popup(
         area.width.saturating_sub(6).min(90),
         area.height.saturating_sub(2).min(30),
     );
-    frame.render_widget(Clear, rect);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(theme.border)
-        .title(Span::styled(title.to_owned(), theme.accent));
-    let inner = block.inner(rect);
-    frame.render_widget(block, rect);
+    let inner = crate::widgets::modal_frame(
+        frame,
+        rect,
+        theme,
+        Line::from(Span::styled(
+            title.to_owned(),
+            theme.accent.patch(theme.surface_bg()),
+        )),
+        theme.border_focus,
+    );
     let width = usize::from(inner.width);
     let mut lines = vec![Line::styled(truncate_left(head, width), theme.accent)];
     if let Some(e) = error {

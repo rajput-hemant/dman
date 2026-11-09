@@ -116,6 +116,63 @@ pub fn truncate(s: &str, max: usize) -> String {
     out
 }
 
+/// Shorten `s` to at most `max` characters by cutting the middle, so the
+/// start and the extension survive: `ubuntu-24.04…amd64.iso`.
+pub fn middle(s: &str, max: usize) -> String {
+    let n = s.chars().count();
+    if n <= max {
+        return s.to_owned();
+    }
+    if max < 8 {
+        return truncate(s, max);
+    }
+    let keep = max - 1;
+    // Keep a little more of the head; the tail keeps the extension.
+    let tail = keep / 2;
+    let head = keep - tail;
+    let mut out: String = s.chars().take(head).collect();
+    out.push('…');
+    out.extend(s.chars().skip(n - tail));
+    out
+}
+
+/// A number and its unit, split so the unit can be drawn dimmer:
+/// `("12.0", " MiB/s")`. `compact` drops the space and the `iB`:
+/// `("12.0", "M")`.
+pub fn split_size(bytes: u64, per_sec: bool, compact: bool) -> (String, String) {
+    let text = size(bytes);
+    let (num, unit) = text.split_once(' ').unwrap_or((&text, ""));
+    let unit = if compact {
+        match unit {
+            "B" => "B".to_owned(),
+            u => u.trim_end_matches("iB").to_owned(),
+        }
+    } else if per_sec {
+        format!(" {unit}/s")
+    } else {
+        format!(" {unit}")
+    };
+    (num.to_owned(), unit)
+}
+
+/// `1.2G` style compact size.
+pub fn size_compact(bytes: u64) -> String {
+    let (n, u) = split_size(bytes, false, true);
+    format!("{n}{u}")
+}
+
+/// `just now`, `5m ago`, `3h ago`, `2d ago`.
+pub fn ago(secs: i64) -> String {
+    match secs.max(0) {
+        0..=59 => "just now".into(),
+        s @ 60..=3599 => format!("{}m ago", s / 60),
+        s @ 3600..=86_399 => format!("{}h ago", s / 3600),
+        s @ 86_400..=2_591_999 => format!("{}d ago", s / 86_400),
+        s @ 2_592_000..=31_535_999 => format!("{}mo ago", s / 2_592_000),
+        s => format!("{}y ago", s / 31_536_000),
+    }
+}
+
 /// `3 downloads` / `1 download`.
 pub fn plural(n: usize, word: &str) -> String {
     if n == 1 {
@@ -143,6 +200,33 @@ mod tests {
         assert_eq!(truncate("abcdef", 4), "abc…");
         assert_eq!(truncate("abc", 4), "abc");
         assert_eq!(truncate("abc", 0), "");
+    }
+
+    #[test]
+    fn middle_ellipsis_keeps_the_extension() {
+        assert_eq!(middle("short.iso", 20), "short.iso");
+        let m = middle("ubuntu-24.04.1-desktop-amd64.iso", 20);
+        assert_eq!(m.chars().count(), 20);
+        assert!(
+            m.starts_with("ubuntu-24.") && m.ends_with("amd64.iso"),
+            "{m}"
+        );
+        assert_eq!(middle("abcdefghij", 5), "abcd…");
+    }
+
+    #[test]
+    fn units_split() {
+        assert_eq!(
+            split_size(12 << 20, true, false),
+            ("12.0".into(), " MiB/s".into())
+        );
+        assert_eq!(
+            split_size(12 << 20, true, true),
+            ("12.0".into(), "M".into())
+        );
+        assert_eq!(size_compact(500), "500B");
+        assert_eq!(ago(30), "just now");
+        assert_eq!(ago(7200), "2h ago");
     }
 
     #[test]

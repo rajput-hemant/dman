@@ -1,0 +1,38 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "styled(&mut s, themed(ColorDepth::Mono), 80, 24)"
+---
+.....___________________________________._______________________________________
+_aaaaaaa________________________________________________________________________
+................................................................................
+....bbbbbb__....................................................................
+.aacccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.
+...____________________________________________________________________________.
+...____________________________________________________________________________.
+....bbbbdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd........
+...__.._deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeed_______.
+....____deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeed_______.
+....bbbbdeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeed........
+..._____deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeed_______.
+....____deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeed_______.
+._______deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeed_______.
+._______de_____eeeeeeeeeeeeeeeeeeeeeeeeeee__________eeffffffffffffffffed_______.
+._______dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd_______.
+.______________________________________________________________________________.
+.______________________________________________________________________________.
+.______________________________________________________________________________.
+.______________________________________________________________________________.
+.______________________________________________________________________________.
+.______________________________________________________________________________.
+................................................................................
+fffffffffeggg______________ggggggg________ggggggg______________eeeeeeeeeeeeeeeee
+
+. fg=Reset bg=Reset mod=BOLD | DIM
+_ fg=Reset bg=Reset mod=DIM
+a fg=Reset bg=Reset mod=BOLD | DIM | REVERSED
+b fg=Reset bg=Reset mod=BOLD | DIM | UNDERLINED
+c fg=Reset bg=Reset mod=DIM | REVERSED
+d fg=Reset bg=Reset mod=BOLD
+e fg=Reset bg=Reset mod=NONE
+f fg=Reset bg=Reset mod=BOLD | REVERSED
+g fg=Reset bg=Reset mod=REVERSED

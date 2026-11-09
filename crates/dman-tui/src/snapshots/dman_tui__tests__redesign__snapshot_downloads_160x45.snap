@@ -1,0 +1,49 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 160, 45)"
+---
+ dman ▸ local  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed                                                                250.0 GiB free  mouse off  ● online
+╭ Throughput ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▼   15.0 MiB/s   peak      –   ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀                 no limit │
+│ ▲    1.0 MiB/s   peak      –   ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀          limit 2.0 MiB/s │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  All 7   Active 3   Waiting 2   Done 1   Failed 1                                                                                     ● 1 marked  sort queue ▼
+╭ Downloads ───────────────────────────────────────────────────────────────────────────────────╮╭ debian-13.2.0-amd64-netinst.iso ─────────────────────────────╮
+│── Active 3 ──────────────────────────────────────────────────────────────────────────────────││ ↑ Seeding (sharing with others) — press p to stop            │
+│  ↓ ubuntu-24.04.1-desktop-amd64.iso          ██████▋     66%   12.0M   2m51s    6.0G   42/118││                                                              │
+│    4.0 GiB of 6.0 GiB · 42 peers · torrent · added 23h ago                                   ││ ██████████████████████████████████████████████████████ 100%  │
+│ ●↓ big-dataset-2026.tar.zst                  █           10%    3.0M   1h42m   20.0G        8││ 700.0 MiB of 700.0 MiB                                       │
+│    2.0 GiB of 20.0 GiB · 8 connections · example.org · added 23h ago                         ││                                                              │
+│▌ ↑ debian-13.2.0-amd64-netinst.iso           ██████████ 100%  256.0K   r1.50  700.0M     5/40││ ▼      0 B/s                                                 │
+│    700.0 MiB of 700.0 MiB · ratio 1.50 · torrent · added 23h ago                             ││ ▲  256.0 KiB/s                                               │
+│── Waiting 2 ─────────────────────────────────────────────────────────────────────────────────││                                                              │
+│  ◔ ▶ Big Buck Bunny (1080p).mp4                            –       queued #1       –        –││ Peers   5/40                                                 │
+│    video · added 23h ago                                                                     ││ Ratio   1.50                                                 │
+│  ⏸ archlinux-2026.11.01-x86_64.iso           ██▌         25%          paused    1.2G      0/0││ Engine  aria2                                                │
+│    300.0 MiB of 1.2 GiB · torrent · added 23h ago                                            ││ Folder  /home/me/Downloads                                   │
+│── Stopped 2 ─────────────────────────────────────────────────────────────────────────────────││ Source  https://example.org/debian-13.2.0-amd64-netinst.iso  │
+│  ✓ report-q3.pdf                             ██████████ 100%  done · 23h ago    3.0M        –││ Added   23h ago                                              │
+│    3.0 MiB · example.org                                                                     ││                                                              │
+│  ✗ missing-file.zip                          404 Not Found                         –        –││                                                              │
+│    example.org · added 23h ago                                                               ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││  Enter  details   p  pause   n  rename   d  remove           │
+╰──────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────╯
+ MARK   p  pause 1  r  resume 1  d  remove 1  D  delete files  :  palette  ?  help

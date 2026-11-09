@@ -155,17 +155,20 @@ pub enum Tab {
     Speed,
     /// Editable options.
     Options,
+    /// Folder, source, hash, comment, error.
+    Info,
 }
 
 impl Tab {
     /// All tabs, in display order (key `1` … `6`).
-    pub const ALL: [Tab; 6] = [
+    pub const ALL: [Tab; 7] = [
         Tab::Files,
         Tab::Peers,
         Tab::Trackers,
         Tab::Pieces,
         Tab::Speed,
         Tab::Options,
+        Tab::Info,
     ];
 
     /// Tab title.
@@ -177,6 +180,7 @@ impl Tab {
             Tab::Pieces => "Pieces",
             Tab::Speed => "Speed",
             Tab::Options => "Options",
+            Tab::Info => "Info",
         }
     }
 
@@ -267,7 +271,7 @@ impl DetailState {
             Tab::Peers => d.peers.len(),
             Tab::Trackers => d.trackers.len(),
             Tab::Options => option_rows(&d.options).len(),
-            Tab::Pieces | Tab::Speed => 0,
+            Tab::Pieces | Tab::Speed | Tab::Info => 0,
         }
     }
 
@@ -405,7 +409,7 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         View::Detail(d) => (d.id, d.tab),
         _ => return None,
     };
-    let page = isize::try_from(state.list_height().max(1)).unwrap_or(1);
+    let page = isize::try_from(state.list_height().saturating_sub(8).max(1)).unwrap_or(1);
     let tabs = Tab::visible(is_torrent(state, id));
     let d = top(state)?;
     match action {
@@ -430,6 +434,7 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::DetailPieces => d.set_tab(Tab::Pieces),
         Action::DetailSpeed => d.set_tab(Tab::Speed),
         Action::DetailOptions => d.set_tab(Tab::Options),
+        Action::DetailInfo => d.set_tab(Tab::Info),
         Action::Pause => return Some(state.call(ApiCall::Pause(vec![id]))),
         Action::Resume => return Some(state.call(ApiCall::Resume(vec![id]))),
         Action::Remove => return Some(downloads::confirm_remove_ids(state, vec![id], false)),
@@ -441,6 +446,20 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         _ => return None,
     }
     Some(Vec::new())
+}
+
+/// A tab was clicked.
+pub fn select_tab(state: &mut State, tab: Tab) -> Vec<Cmd> {
+    let action = match tab {
+        Tab::Files => Action::DetailFiles,
+        Tab::Peers => Action::DetailPeers,
+        Tab::Trackers => Action::DetailTrackers,
+        Tab::Pieces => Action::DetailPieces,
+        Tab::Speed => Action::DetailSpeed,
+        Tab::Options => Action::DetailOptions,
+        Tab::Info => Action::DetailInfo,
+    };
+    apply(state, action).unwrap_or_default()
 }
 
 /// Why file selection cannot change now.

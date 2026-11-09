@@ -177,6 +177,22 @@ pub enum Action {
     VideoDefaultAudio,
     /// Re-read config.toml in the daemon (limits, schedule, notifications, search, ...).
     ReloadConfig,
+    /// Switch mouse support on or off (saved in `[ui] mouse`).
+    ToggleMouse,
+    /// Undo the last remove-from-list while its toast shows (else unmark).
+    Undo,
+    /// Show every download.
+    ShowAll,
+    /// Show only active (downloading / seeding) downloads.
+    ShowActive,
+    /// Show only waiting / paused downloads.
+    ShowWaiting,
+    /// Show only finished downloads.
+    ShowDone,
+    /// Show only failed downloads.
+    ShowFailed,
+    /// Detail: Info tab (folder, source, hash, comment).
+    DetailInfo,
     /// Shut the daemon and its engines down.
     Shutdown,
 }
@@ -267,6 +283,14 @@ impl Action {
         Action::VideoDefaultQuality,
         Action::VideoDefaultAudio,
         Action::ReloadConfig,
+        Action::ToggleMouse,
+        Action::Undo,
+        Action::ShowAll,
+        Action::ShowActive,
+        Action::ShowWaiting,
+        Action::ShowDone,
+        Action::ShowFailed,
+        Action::DetailInfo,
         Action::Shutdown,
     ];
 
@@ -356,6 +380,14 @@ impl Action {
             Action::VideoDefaultQuality => "video_default_quality",
             Action::VideoDefaultAudio => "video_default_audio",
             Action::ReloadConfig => "reload_config",
+            Action::ToggleMouse => "toggle_mouse",
+            Action::Undo => "undo",
+            Action::ShowAll => "show_all",
+            Action::ShowActive => "show_active",
+            Action::ShowWaiting => "show_waiting",
+            Action::ShowDone => "show_done",
+            Action::ShowFailed => "show_failed",
+            Action::DetailInfo => "detail_info",
             Action::Shutdown => "shutdown",
         }
     }
@@ -459,6 +491,14 @@ impl Action {
             }
             Action::VideoDefaultAudio => "Video default audio (best, m4a, opus, mp3)",
             Action::ReloadConfig => "Reload config.toml",
+            Action::ToggleMouse => "Mouse on / off (click rows, tabs, buttons; saved)",
+            Action::Undo => "Undo the last remove from the list (while its notice shows)",
+            Action::ShowAll => "Show all downloads",
+            Action::ShowActive => "Show only active downloads",
+            Action::ShowWaiting => "Show only waiting and paused downloads",
+            Action::ShowDone => "Show only finished downloads",
+            Action::ShowFailed => "Show only failed downloads",
+            Action::DetailInfo => "Detail: Info tab (folder, source, hash)",
             Action::Shutdown => "Shut down the daemon and engines",
         }
     }
@@ -468,8 +508,8 @@ impl Action {
         match self {
             Action::Up => "up",
             Action::Down => "down",
-            Action::PageUp => "pgup",
-            Action::PageDown => "pgdn",
+            Action::PageUp => "page up",
+            Action::PageDown => "page down",
             Action::Top => "top",
             Action::Bottom => "bottom",
             Action::ToggleSelect => "select",
@@ -549,6 +589,14 @@ impl Action {
             Action::VideoDefaultQuality => "default quality",
             Action::VideoDefaultAudio => "default audio",
             Action::ReloadConfig => "reload",
+            Action::ToggleMouse => "mouse",
+            Action::Undo => "undo",
+            Action::ShowAll => "all",
+            Action::ShowActive => "active",
+            Action::ShowWaiting => "waiting",
+            Action::ShowDone => "done",
+            Action::ShowFailed => "failed",
+            Action::DetailInfo => "info",
             Action::Shutdown => "shutdown",
         }
     }
@@ -564,6 +612,7 @@ impl Action {
             | Action::VideoDefaultQuality
             | Action::VideoDefaultAudio
             | Action::ReloadConfig
+            | Action::ToggleMouse
             | Action::Shutdown => Context::Global,
             Action::Back
             | Action::DetailNextTab
@@ -574,6 +623,7 @@ impl Action {
             | Action::DetailPieces
             | Action::DetailSpeed
             | Action::DetailOptions
+            | Action::DetailInfo
             | Action::DetailToggleFile
             | Action::DetailToggleAllFiles
             | Action::DetailEditOption => Context::Detail,

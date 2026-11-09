@@ -2,71 +2,116 @@
 
 use dman_proto::{Job, JobDetail, PieceMap};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::layout::{Constraint, Layout, Margin, Rect};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Tabs};
+use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
 
 use super::{DetailState, Tab, option_rows};
 use crate::app::State;
 use crate::format;
+use crate::layout::Hit;
 use crate::theme::Theme;
+use crate::widgets::bar;
 
 fn field(t: &Theme, name: &str, value: String) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!("{name:>9}  "), t.dim),
-        Span::raw(value),
+        Span::styled(format!("{name:<11}"), t.faint),
+        Span::styled(value, t.text),
     ])
 }
 
-fn header_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line<'static>> {
+/// The live summary card: what is happening, the bar, speeds.
+fn card_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line<'static>> {
+    let t = &state.theme;
+    let now = super::summary(state, j, d.detail.as_ref());
+    let st = t.state(j.state);
+    let mut out = vec![Line::from(vec![
+        Span::styled(format!("{} ", t.icons.state(j.state)), st),
+        Span::styled(
+            format::truncate(&now, width.saturating_sub(2)),
+            st.add_modifier(Modifier::BOLD),
+        ),
+    ])];
+    let sizes = if j.total_bytes > 0 {
+        format!(
+            "  {} / {}",
+            format::size(j.completed_bytes),
+            format::size(j.total_bytes)
+        )
+    } else {
+        format!("  {} / ?", format::size(j.completed_bytes))
+    };
+    let pct = if j.total_bytes > 0 {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let p = (j.progress().clamp(0.0, 1.0) * 100.0).floor() as u32;
+        format!(" {p:>3}%")
+    } else {
+        String::new()
+    };
+    let bar_w = width
+        .saturating_sub(sizes.chars().count() + pct.len() + 1)
+        .max(4);
+    let mut bar_line = if j.total_bytes == 0 && j.state == dman_proto::JobState::Active {
+        bar::shuttle(t, bar_w, state.anim_ms(), st)
+    } else {
+        bar::bar(t, bar_w, state.shown_progress(j), st)
+    };
+    bar_line.push(Span::styled(pct, t.text.add_modifier(Modifier::BOLD)));
+    bar_line.push(Span::styled(sizes, t.dim));
+    out.push(Line::from(bar_line));
+    let history = state.job_speeds.get(&j.id).map_or(&[][..], Vec::as_slice);
+    let (dn, du) = format::split_size(j.download_speed, true, false);
+    let (un, uu) = format::split_size(j.upload_speed, true, false);
+    let mut speed = vec![
+        Span::styled(format!("{} ", t.icons.down), t.graph_down),
+        Span::styled(dn, t.text),
+        Span::styled(du, t.faint),
+        Span::raw(" "),
+        Span::styled(bar::sparkline(history, 12, 0), t.graph_down),
+        Span::raw("   "),
+        Span::styled(format!("{} ", t.icons.up), t.graph_up),
+        Span::styled(un, t.text),
+        Span::styled(uu, t.faint),
+    ];
+    let mut extra = |k: &str, v: String| {
+        speed.push(Span::styled(format!("   {k} "), t.faint));
+        speed.push(Span::styled(v, t.text));
+    };
+    if j.seeders.is_some() || j.connections > 0 {
+        extra("peers", format::peers(j));
+    }
+    if j.uploaded_bytes > 0 {
+        extra("ratio", format::ratio(j));
+    }
+    out.push(Line::from(speed));
+    out
+}
+
+fn info_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line<'static>> {
     let t = &state.theme;
     let room = width.saturating_sub(11);
-    let now = super::summary(state, j, d.detail.as_ref());
-    let now_style = match j.state {
-        dman_proto::JobState::Error => t.error,
-        dman_proto::JobState::Paused => t.warn,
-        dman_proto::JobState::Complete | dman_proto::JobState::Seeding => t.ok,
-        _ => t.text,
-    };
     let mut v = vec![
-        Line::from(vec![
-            Span::styled(format!("{:>9}  ", "Name"), t.dim),
-            Span::styled(
-                format::truncate(j.name.trim_start_matches("[METADATA]"), room),
-                t.accent,
-            ),
-        ]),
-        Line::from(vec![
-            Span::styled(format!("{:>9}  ", "Now"), t.dim),
-            Span::styled(format::truncate(&now, room), now_style),
-        ]),
         field(
             t,
-            "Status",
-            format!(
-                "{}  {}  {} / {}",
-                format::state(j.state),
-                format::progress_bar(j, 16),
-                format::size(j.completed_bytes),
-                format::size_or_dash(j.total_bytes)
-            ),
+            "Name",
+            format::middle(j.name.trim_start_matches("[METADATA]"), room),
         ),
+        field(t, "Folder", format::middle(&j.dir, room)),
+        field(t, "Source", format::middle(&j.source, room)),
         field(
             t,
-            "Speed",
-            format!(
-                "▼ {}  ▲ {}  ETA {}  peers {}  ratio {}",
-                format::speed(j.download_speed),
-                format::speed(j.upload_speed),
-                format::eta(j.eta_secs()),
-                format::peers(j),
-                format::ratio(j)
-            ),
+            "Engine",
+            match j.engine {
+                dman_proto::Engine::Aria2 => "aria2".to_owned(),
+                dman_proto::Engine::YtDlp => "yt-dlp (video)".to_owned(),
+            },
         ),
-        field(t, "Dir", format::truncate(&j.dir, room)),
-        field(t, "Source", format::truncate(&j.source, room)),
+        field(t, "Added", format::ago(state.now_secs() - j.added_at)),
     ];
+    if let Some(at) = j.completed_at {
+        v.push(field(t, "Finished", format::ago(state.now_secs() - at)));
+    }
     let hash = j
         .info_hash
         .clone()
@@ -75,67 +120,151 @@ fn header_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Li
         v.push(field(t, "Info hash", h));
     }
     if let Some(c) = d.detail.as_ref().and_then(|x| x.comment.as_ref()) {
-        v.push(field(t, "Comment", format::truncate(c, room)));
+        v.push(field(t, "Comment", c.clone()));
     }
     if let Some(e) = &j.error {
         v.push(Line::from(vec![
-            Span::styled(format!("{:>9}  ", "Error"), t.dim),
-            Span::styled(format::truncate(e, room), t.error),
+            Span::styled(format!("{:<11}", "Error"), t.faint),
+            Span::styled(format::truncate(e, room.max(10) * 3), t.error),
         ]));
-    }
-    if let Some(e) = &d.error {
-        v.push(Line::styled(
-            format::truncate(&format!("Detail refresh failed: {e}"), width),
-            t.warn,
-        ));
     }
     v
 }
 
-/// Draw the detail view.
+/// A file path relative to the download folder when it lies inside it.
+fn display_path(path: &str, dir: &str) -> String {
+    let dir = dir.trim_end_matches('/');
+    match path.strip_prefix(dir) {
+        Some(rest) if !dir.is_empty() && rest.starts_with('/') => rest[1..].to_owned(),
+        _ => path.to_owned(),
+    }
+}
+
+fn tab_count(d: &DetailState, tab: Tab) -> Option<usize> {
+    let detail = d.detail.as_ref()?;
+    match tab {
+        Tab::Files => Some(detail.files.len()),
+        Tab::Peers => Some(detail.peers.len()),
+        Tab::Trackers => Some(detail.trackers.len()),
+        _ => None,
+    }
+}
+
+fn render_tabs(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState) {
+    let t = &state.theme;
+    let shown = Tab::visible(super::is_torrent(state, d.id));
+    let mut spans = vec![Span::raw(" ")];
+    let mut x = area.x + 1;
+    for tab in shown {
+        let count = tab_count(d, tab)
+            .map(|n| format!(" {n}"))
+            .unwrap_or_default();
+        let label = format!(" {} {}", tab.index() + 1, tab.label());
+        let selected = tab == d.tab;
+        let w = label.chars().count() + count.chars().count() + 1;
+        if usize::from(x - area.x) + w > usize::from(area.width) {
+            break;
+        }
+        let (ls, cs) = if selected {
+            (t.mode, t.mode)
+        } else {
+            (t.dim, t.faint)
+        };
+        spans.push(Span::styled(label, ls));
+        spans.push(Span::styled(count, cs));
+        spans.push(Span::styled(" ", ls));
+        spans.push(Span::raw(" "));
+        let w16 = u16::try_from(w).unwrap_or(0);
+        state.hit(Rect::new(x, area.y, w16, 1), Hit::DetailTab(tab));
+        x += w16 + 1;
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// Draw the detail view: summary card, tab bar and the tab's body.
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState) {
     let t = &state.theme;
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(t.border)
-        .title(Span::styled(format!(" Download #{} ", d.id), t.accent));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
     let Some(job) = state.jobs.get(&d.id) else {
+        let block = t
+            .block()
+            .title(Span::styled(format!(" Download #{} ", d.id), t.accent));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
         frame.render_widget(
             Paragraph::new(Line::styled("This download is no longer listed.", t.warn)),
             inner,
         );
         return;
     };
-    let header = header_lines(state, job, d, usize::from(inner.width));
-    let h = u16::try_from(header.len()).unwrap_or(u16::MAX);
-    let [head, tabs, body] = Layout::vertical([
-        Constraint::Length(h),
+    let [card, tabs, body] = Layout::vertical([
+        Constraint::Length(5),
         Constraint::Length(1),
         Constraint::Fill(1),
     ])
-    .areas(inner);
-    frame.render_widget(Paragraph::new(header), head);
-    let shown = Tab::visible(super::is_torrent(state, d.id));
-    let titles: Vec<String> = shown
-        .iter()
-        .map(|tab| format!("{} {}", tab.index() + 1, tab.label()))
-        .collect();
+    .areas(area);
+    let engine = match job.engine {
+        dman_proto::Engine::Aria2 => "aria2",
+        dman_proto::Engine::YtDlp => "yt-dlp",
+    };
+    let title_room = usize::from(area.width).saturating_sub(24);
+    let block = t
+        .block()
+        .title(Span::styled(
+            format!(
+                " {} ",
+                format::middle(job.name.trim_start_matches("[METADATA]"), title_room)
+            ),
+            t.accent,
+        ))
+        .title(
+            Line::from(Span::styled(format!(" #{} · {engine} ", d.id), t.faint))
+                .alignment(ratatui::layout::Alignment::Right),
+        );
+    let card_inner = block.inner(card).inner(Margin::new(1, 0));
+    frame.render_widget(block, card);
     frame.render_widget(
-        Tabs::new(titles)
-            .select(shown.iter().position(|t| *t == d.tab).unwrap_or(0))
-            .style(t.dim)
-            .highlight_style(t.accent)
-            .divider("│"),
-        tabs,
+        Paragraph::new(card_lines(state, job, d, usize::from(card_inner.width))),
+        card_inner,
     );
+    render_tabs(frame, tabs, state, d);
+    let block = t.block_focus(true);
+    let inner = block.inner(body);
+    frame.render_widget(block, body);
+    let mut body = inner;
+    if let Some(e) = &d.error {
+        let [warn, rest] =
+            Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(body);
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                format::truncate(
+                    &format!("Detail refresh failed: {e}"),
+                    usize::from(warn.width),
+                ),
+                t.warn,
+            )),
+            warn,
+        );
+        body = rest;
+    }
     let waiting_meta = super::awaiting_metadata(job, d.detail.as_ref())
         && matches!(d.tab, Tab::Files | Tab::Peers | Tab::Trackers | Tab::Pieces);
     match &d.detail {
+        _ if d.tab == Tab::Info => {
+            frame.render_widget(
+                Paragraph::new(info_lines(state, job, d, usize::from(body.width)))
+                    .wrap(Wrap { trim: false }),
+                body,
+            );
+        }
         _ if waiting_meta => {
+            let spin = state
+                .anim_ms()
+                .map_or(t.icons.spinner[0], |ms| t.icons.spin(ms));
             let lines = vec![
-                Line::styled("Waiting for the torrent's metadata.", t.accent),
+                Line::from(vec![
+                    Span::styled(format!("{spin} "), t.accent),
+                    Span::styled("Waiting for the torrent's metadata.", t.accent),
+                ]),
                 Line::default(),
                 Line::styled(
                     "A magnet link only names the torrent; the list of files, its",
@@ -161,7 +290,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
             frame.render_widget(Paragraph::new(Line::styled(text, t.dim)), body);
         }
         Some(detail) => match d.tab {
-            Tab::Files => files(frame, body, t, d, detail),
+            Tab::Files => files(frame, body, state, d, detail),
             Tab::Peers => peers(frame, body, t, d, detail),
             Tab::Trackers => trackers(frame, body, t, d, detail),
             Tab::Pieces => pieces(frame, body, t, detail),
@@ -173,11 +302,12 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
                 "No speed samples yet (history is kept while the download runs).",
             ),
             Tab::Options => options(frame, body, t, d, detail),
+            Tab::Info => {}
         },
     }
     if !state.connected() {
         // Stale data: grey everything out.
-        frame.buffer_mut().set_style(inner, t.dim);
+        frame.buffer_mut().set_style(area, t.dim);
     }
 }
 
@@ -227,7 +357,8 @@ fn pct(done: u64, total: u64) -> String {
         .map_or_else(|| "-".into(), |p| format!("{p}%"))
 }
 
-fn files(frame: &mut Frame<'_>, area: Rect, t: &Theme, d: &DetailState, detail: &JobDetail) {
+fn files(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState, detail: &JobDetail) {
+    let t = &state.theme;
     if detail.files.is_empty() {
         frame.render_widget(
             Paragraph::new(Line::styled("No file list yet.", t.dim)),
@@ -235,37 +366,74 @@ fn files(frame: &mut Frame<'_>, area: Rect, t: &Theme, d: &DetailState, detail: 
         );
         return;
     }
-    let rows = detail
+    let height = usize::from(area.height.saturating_sub(1));
+    let start = window_start(detail.files.len(), d.cursor, height);
+    let bar_w = if area.width >= 100 { 16 } else { 8 };
+    let head = Row::new(vec![
+        Cell::from(""),
+        Cell::from("#"),
+        Cell::from("Path"),
+        Cell::from(format!("{:>10}", "Size")),
+        Cell::from("Done"),
+    ])
+    .style(t.header);
+    let rows: Vec<Row<'_>> = detail
         .files
         .iter()
-        .map(|f| {
-            (
-                [
-                    if f.selected { "[x]" } else { "[ ]" }.to_owned(),
-                    f.index.to_string(),
-                    f.path.clone(),
-                    format::size_or_dash(f.length),
-                    pct(f.completed, f.length),
-                ],
-                !f.selected,
-            )
+        .enumerate()
+        .skip(start)
+        .take(height)
+        .map(|(i, f)| {
+            let check = if f.selected { "☑" } else { "☐" };
+            #[allow(clippy::cast_precision_loss)]
+            let frac = if f.length == 0 {
+                0.0
+            } else {
+                f.completed as f64 / f.length as f64
+            };
+            let mut done = if f.selected {
+                bar::bar(t, bar_w, frac, t.info)
+            } else {
+                vec![Span::styled(format!("{:<bar_w$}", "skipped"), t.faint)]
+            };
+            if f.selected {
+                done.push(Span::styled(
+                    format!(" {:>4}", pct(f.completed, f.length)),
+                    t.text,
+                ));
+            }
+            let style = if i == d.cursor {
+                t.cursor
+            } else if f.selected {
+                Style::new()
+            } else {
+                t.dim
+            };
+            Row::new(vec![
+                Cell::from(Span::styled(check, if f.selected { t.ok } else { t.faint })),
+                Cell::from(Span::styled(f.index.to_string(), t.faint)),
+                Cell::from(display_path(
+                    &f.path,
+                    &state
+                        .jobs
+                        .get(&d.id)
+                        .map(|j| j.dir.clone())
+                        .unwrap_or_default(),
+                )),
+                Cell::from(format!("{:>10}", format::size_or_dash(f.length))),
+                Cell::from(Line::from(done)),
+            ])
+            .style(style)
         })
         .collect();
-    table(
-        frame,
-        area,
-        t,
-        d.cursor,
-        ["", "#", "Path", "Size", "Done"],
-        [
-            Constraint::Length(3),
-            Constraint::Length(4),
-            Constraint::Fill(1),
-            Constraint::Length(10),
-            Constraint::Length(5),
-        ],
-        rows,
-    );
+    let widths = [
+        Constraint::Length(1),
+        Constraint::Length(4),
+        Constraint::Fill(1),
+        Constraint::Length(10),
+        Constraint::Length(u16::try_from(bar_w + 5).unwrap_or(13)),
+    ];
+    frame.render_widget(Table::new(rows, widths).header(head), area);
 }
 
 fn peers(frame: &mut Frame<'_>, area: Rect, t: &Theme, d: &DetailState, detail: &JobDetail) {
@@ -401,15 +569,15 @@ fn pieces(frame: &mut Frame<'_>, area: Rect, t: &Theme, detail: &JobDetail) {
     let cells = usize::from(grid.width) * usize::from(grid.height);
     let grouped = n > cells;
     let mut spans = vec![
-        Span::styled("█", t.ok),
-        Span::raw(" have   "),
-        Span::styled("░", t.dim),
-        Span::raw(" missing"),
+        Span::styled("█", t.info),
+        Span::styled(" have   ", t.dim),
+        Span::styled("░", t.faint),
+        Span::styled(" missing", t.dim),
     ];
     if grouped {
         spans.extend([
             Span::raw("   "),
-            Span::styled("▒", t.warn),
+            Span::styled("▓", t.info),
             Span::raw(format!(
                 " partly (≈{} pieces per cell)",
                 n.div_ceil(cells.max(1))
@@ -433,11 +601,11 @@ fn pieces(frame: &mut Frame<'_>, area: Rect, t: &Theme, detail: &JobDetail) {
                         let got = bits[a..b.min(n)].iter().filter(|x| **x).count();
                         let len = b.min(n) - a;
                         if got == len {
-                            Span::styled("█", t.ok)
+                            Span::styled("█", t.info)
                         } else if got == 0 {
-                            Span::styled("░", t.dim)
+                            Span::styled("░", t.faint)
                         } else {
-                            Span::styled("▒", t.warn)
+                            Span::styled("▓", t.info)
                         }
                     })
                     .collect::<Vec<_>>(),

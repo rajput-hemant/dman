@@ -110,7 +110,9 @@ commit this file together with the code it describes.
 - [x] Video quality picker (user request): backend — `[video] ask_quality` (default true) + `default_audio`, `video.preferences.get/set` (persisted), probe `video_choices`/`audio_choices`/`needs_choice`, "v+a" format ids, defaults used when no choice
 - [ ] Fix (user): TUI treated YouTube URLs as plain http because engine status only arrived on engine changes — daemon now sends engine status after the snapshot on subscribe [x]; TUI also queries engine.status on connect [x]
 - [x] Single delete confirmation (U1) in TUI, CLI, web
-- [ ] Top-notch TUI (user request): research leading TUIs, then a visual/interaction polish pass
+- [x] Top-notch TUI (user request): research brief (.plan/tui-design-brief.md) + redesign P0 and most of P1 (themes, dashboard, preview pane, two-line rows, toasts + undo, layered dialogs, which-key for sort, mouse toggle, animations)
+- [ ] TUI leftovers: two-pane Add form (P1.8), braille piece map + speed windows, which-key for g/v/l, custom theme files; split app.rs/theme.rs/render.rs
+- [ ] Flaky: one gated daemon test failed once in a full run (not reproduced in 2 reruns) — watch
 - [x] Video quality picker UI in TUI, CLI and web (+ undo remove via jobs.restore): if ask_quality → probe → picker (video + audio lists, presets) with "Use as my default" and "Never ask again" checkboxes; else add with defaults; Settings toggle to ask again
 - [x] Web UI overhaul: paste-to-add + drag & drop, cards with progress bars, compact filters, bulk actions, one-click download from search, magnet file picker, folder picker, live detail, grouped settings, toasts, accessible responsive design
 

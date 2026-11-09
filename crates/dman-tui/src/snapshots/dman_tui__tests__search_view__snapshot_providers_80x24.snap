@@ -2,14 +2,15 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5  ⧗ 1           250.0 GiB free
-┌ Search providers · 2 enabled of 4 ───────────────────────────────────────────┐
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › Search › Search providers
+╭ Search providers · 2 enabled of 4 ───────────────────────────────────────────╮
 │On  Name                              Kind    Verified   Origin  Order Timeout│
 │[x] 1337x ⠋                           html    verified   builtin    10     15s│
 │[x] nyaa                              html    unverified builtin    20     15s│
 │[ ] tpb                               html    verified   builtin    30     15s│
 │[ ] mine                              torznab unverified custom     40     15s│
+│                                                                              │
 │                                                                              │
 │                                                                              │
 │                                                                              │
@@ -22,7 +23,6 @@ expression: "render(&mut s, 80, 24)"
 │max 100 results · rate limit 30/min                                           │
 │⚠ enabled — definition not verified against the live site                     │
 │Not tested yet — press t to test nyaa                                         │
-│                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
- Testing 1337x in the background…
- Space toggle  t test  K queue up  J queue down  i import  : palette  ? help
+│                                          ▌● Testing 1337x in the background… │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ PROVIDERS   Space  toggle  t  test  K  queue up  :  palette  ?  help ⠋ working

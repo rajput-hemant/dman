@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › Help
+╭ Keys ────────────────────────────────────────────────────────────────────────╮
+│ ⌕ pause                                                                      │
+│                                                                              │
+│ ── Downloads keys ────────────────────────────────────────────────────────── │
+│    3               Show only waiting and paused downloads                    │
+│    p               Pause                                                     │
+│    P               Pause all                                                 │
+│                                                                              │
+│ ── Detail keys ───────────────────────────────────────────────────────────── │
+│    Space           Detail: toggle the file under the cursor (waiting/paused… │
+│    a               Detail: select / deselect all files (waiting/paused only) │
+│    p               Pause                                                     │
+│                                                                              │
+│ ── Popup: Review before adding (Add: Enter) ──────────────────────────────── │
+│    Enter / y       add and start (or add paused)                             │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰ Keys can be changed in config.toml [keys] pause = ["p"] ─────────────────────╯
+ HELP   j  down  k  up  PgDn  page down  Esc  back  :  palette  ?  close help

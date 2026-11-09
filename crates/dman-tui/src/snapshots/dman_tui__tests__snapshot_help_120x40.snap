@@ -2,43 +2,43 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 120, 40)"
 ---
- dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
-┌ Help — key bindings ─────────────────────────────────────────────────────────────────────────────────────────────────┐
-│Global keys                                                                                                           │
-│  : Ctrl-p              Command palette                                                                               │
-│  ? F1                  Help (key bindings)                                                                           │
-│  q Ctrl-c              Quit the TUI (daemon keeps running)                                                           │
-│  F5                    Reload config.toml                                                                            │
-│  F6                    Video quality picker: ask every time / use defaults                                           │
-│  F7                    Video default quality (best, 1080p, 720p, audio:m4a, …)                                       │
-│  F8                    Video default audio (best, m4a, opus, mp3)                                                    │
-│  Q                     Shut down the daemon and engines                                                              │
-│                                                                                                                      │
-│Downloads keys                                                                                                        │
-│  k ↑                   Move up                                                                                       │
-│  j ↓                   Move down                                                                                     │
-│  PgUp Ctrl-u           Page up                                                                                       │
-│  PgDn Ctrl-d           Page down                                                                                     │
-│  g Home                Go to top                                                                                     │
-│  G End                 Go to bottom                                                                                  │
-│  Space                 Toggle selection                                                                              │
-│  Ctrl-a                Select all                                                                                    │
-│  Esc u                 Clear selection                                                                               │
-│  v                     Select range (anchor to cursor)                                                               │
-│  s                     Cycle sort key                                                                                │
-│  S                     Reverse sort order                                                                            │
-│  /                     Filter by name (fuzzy)                                                                        │
-│  Ctrl-l                Clear filter                                                                                  │
-│  ]                     Next page of stopped downloads                                                                │
-│  [                     Previous page of stopped downloads                                                            │
-│  p                     Pause                                                                                         │
-│  r                     Resume                                                                                        │
-│  P                     Pause all                                                                                     │
-│  R                     Resume all                                                                                    │
-│  d Del                 Remove from the list (keep files)                                                             │
-│  D                     Remove and DELETE the files from disk (asks first)                                            │
-│  x                     Clear finished/failed downloads from the list (keep files)                                    │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
- Connected to daemon 0.1.0
- j down  k up  PgDn pgdn  Esc back  : palette  ? close help
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
+ Downloads › Help
+╭ Keys ────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ⌕ / to search keys and commands                                                                                      ┃
+│                                                                                                                      ┃
+│ ── Downloads keys ──────────────────────────────────────   ── Search keys ─────────────────────────────────────────  ┃
+│    k ↑             Move up                                    k ↑             Move up                                ┃
+│    j ↓             Move down                                  j ↓             Move down                              ┃
+│    PgUp Ctrl-u     Page up                                    PgUp Ctrl-u     Page up                                ┃
+│    PgDn Ctrl-d     Page down                                  PgDn Ctrl-d     Page down                              ┃
+│    g Home          Go to top                                  g Home          Go to top                              ┃
+│    G End           Go to bottom                               G End           Go to bottom                           ┃
+│    Space           Toggle selection                           Space           Toggle selection                       ┃
+│    Ctrl-a          Select all                                 Ctrl-a          Select all                             │
+│    Esc             Clear selection                            u               Clear selection                        │
+│    u Ctrl-z        Undo the last remove from the list (…      s               Cycle sort key                         │
+│    1               Show all downloads                         S               Reverse sort order                     │
+│    2               Show only active downloads                 /               Filter by name (fuzzy)                 │
+│    3               Show only waiting and paused downloa…      Ctrl-l          Clear filter                           │
+│    4               Show only finished downloads               Ctrl-r r        Search: run the query                  │
+│    5               Show only failed downloads                 i f             Search: new search (edit the query)    │
+│    v               Select range (anchor to cursor)            Tab             Search: next field                     │
+│    s               Cycle sort key                             Shift-Tab       Search: previous field                 │
+│    S               Reverse sort order                         Esc             Search: cancel the running search (l…  │
+│    /               Filter by name (fuzzy)                     Enter A         Search: download result(s) now with …  │
+│    Ctrl-l          Clear filter                               e o a           Search: open result(s) in the Add vi…  │
+│    ]               Next page of stopped downloads             h F3            Search: history                        │
+│    [               Previous page of stopped downloads         x               Search: clear the history              │
+│    p               Pause                                      p F2            Search providers                       │
+│    r               Resume                                     m               Search: minimum seeders                │
+│    P               Pause all                                  z               Search: size range                     │
+│    R               Resume all                                 O               Search: filter by source provider      │
+│    d Del           Remove from the list (keep files)          q               Back / close                           │
+│    D               Remove and DELETE the files from dis…                                                             │
+│    x               Clear finished/failed downloads from…   ── Search providers keys ───────────────────────────────  │
+│    n               Rename (not while active; file under…      k ↑             Move up                                │
+│    C               Delete unselected partial files of a…      j ↓             Move down                              │
+│    w               Show / hide the global speed graph         PgUp Ctrl-u     Page up                                │
+╰ Keys can be changed in config.toml [keys] pause = ["p"] ─────────────────────────────────────────────────────────────╯
+ HELP   j  down  k  up  PgDn  page down  Esc  back  :  palette  ?  close help

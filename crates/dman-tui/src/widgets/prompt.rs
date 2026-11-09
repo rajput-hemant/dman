@@ -2,13 +2,13 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::theme::Theme;
 use crate::widgets::input::LineInput;
-use crate::widgets::{ModalOutcome, centered};
+use crate::widgets::{ModalOutcome, centered, modal_frame};
 
 /// What the prompt's value is for; interpreted by `update` on submit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,17 +88,49 @@ impl PromptState {
 
     /// Draw the prompt.
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-        let rect = centered(area, 50, 5);
-        frame.render_widget(Clear, rect);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(theme.border)
-            .title(Span::styled(format!(" {} ", self.title), theme.accent));
-        let lines = vec![
-            Line::from(self.label.as_str()),
-            Line::default(),
-            self.input.line(theme, true),
-        ];
-        frame.render_widget(Paragraph::new(lines).block(block), rect);
+        let width = area.width.saturating_sub(4).min(64);
+        let inner_w = usize::from(width.saturating_sub(4)).max(1);
+        let label_rows =
+            u16::try_from(self.label.chars().count().div_ceil(inner_w).max(1)).unwrap_or(1);
+        let rect = centered(area, width, 6 + label_rows);
+        let inner = modal_frame(
+            frame,
+            rect,
+            theme,
+            Line::from(Span::styled(
+                format!(" {} ", self.title),
+                theme.accent.patch(theme.surface_bg()),
+            )),
+            theme.border_focus,
+        );
+        let inner = inner.inner(Margin::new(1, 0));
+        let [label, _, input, _, keys] = Layout::vertical([
+            Constraint::Length(label_rows),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .areas(inner);
+        frame.render_widget(
+            Paragraph::new(Line::styled(self.label.as_str(), theme.surface))
+                .wrap(Wrap { trim: false }),
+            label,
+        );
+        let mut line = vec![Span::styled("› ", theme.accent.patch(theme.surface_bg()))];
+        line.extend(self.input.line(theme, true).spans);
+        let field = theme.cursor;
+        frame.buffer_mut().set_style(input, field);
+        frame.render_widget(Paragraph::new(Line::from(line)), input);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(" Enter ", theme.pill),
+                Span::styled(" apply   ", theme.dim.patch(theme.surface_bg())),
+                Span::styled(" Esc ", theme.pill),
+                Span::styled(" cancel", theme.dim.patch(theme.surface_bg())),
+            ]))
+            .alignment(Alignment::Right),
+            keys,
+        );
     }
 }

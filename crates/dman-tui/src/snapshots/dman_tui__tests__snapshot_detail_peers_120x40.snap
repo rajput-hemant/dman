@@ -2,18 +2,15 @@
 source: crates/dman-tui/src/tests.rs
 expression: "detail_snapshot('2', 1, 120, 40)"
 ---
- dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
-┌ Download #1 ─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│     Name  ubuntu-24.04.1-desktop-amd64.iso                                                                           │
-│      Now  Downloading · 42 peers · 12.0 MiB/s · ETA 2m51s                                                            │
-│   Status  active  ██████████░░░░░░  66%  4.0 GiB / 6.0 GiB                                                           │
-│    Speed  ▼ 12.0 MiB/s  ▲ 800.0 KiB/s  ETA 2m51s  peers 42/118  ratio 0.25                                           │
-│      Dir  /home/me/Downloads                                                                                         │
-│   Source  https://example.org/ubuntu-24.04.1-desktop-amd64.iso                                                       │
-│Info hash  0123456789abcdef0123456789abcdef01234567                                                                   │
-│  Comment  Official image                                                                                             │
-│ 1 Files │ 2 Peers │ 3 Trackers │ 4 Pieces │ 5 Speed │ 6 Options                                                      │
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
+ Downloads › ↓ ubuntu-24.04.1-desktop-amd64.iso
+╭ ubuntu-24.04.1-desktop-amd64.iso ──────────────────────────────────────────────────────────────────────── #1 · aria2 ╮
+│ ↓ Downloading · 42 peers · 12.0 MiB/s · ETA 2m51s                                                                    │
+│ ████████████████████████████████████████████████████████████▋                                66%  4.0 GiB / 6.0 GiB  │
+│ ▼ 12.0 MiB/s                ▲ 800.0 KiB/s   peers 42/118   ratio 0.25                                                │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  1 Files 4   2 Peers 3   3 Trackers 2   4 Pieces   5 Speed   6 Options   7 Info
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │Peer                                                                               Has   Down        Up               │
 │198.51.100.23:6881                                                                 42%   9.0 MiB/s   128.0 KiB/s      │
 │203.0.113.7:51413                                                                  100%  2.0 MiB/s   -           seed │
@@ -39,6 +36,9 @@ expression: "detail_snapshot('2', 1, 120, 40)"
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
- Connected to daemon 0.1.0
- Esc back  p pause  Tab next tab  d remove  D delete files  n rename  : palette  ? help
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ DETAIL   Esc  back  p  pause  Tab  next tab  d  remove  :  palette  ?  help

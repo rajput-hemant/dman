@@ -19,13 +19,18 @@ pub mod providers;
 pub mod rename;
 pub mod search;
 
-use crossterm::event::{KeyEvent, MouseEvent, MouseEventKind};
+use crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Frame;
+use ratatui::layout::Alignment;
+use ratatui::text::Line;
+use ratatui::widgets::Paragraph;
 
 use crate::action::Action;
 use crate::app::{Cmd, State};
 use crate::keymap::Context;
-use crate::widgets::{footer, graph, status};
+use crate::layout::{Hit, MIN_SIZE};
+use crate::widgets::toast::ToastAction;
+use crate::widgets::{Modal, ModalOutcome, footer, graph, status, toast, whichkey};
 
 /// A full-screen view. `State::views[0]` is always [`View::Downloads`].
 #[derive(Debug, Clone, PartialEq)]
@@ -75,7 +80,8 @@ pub fn handle_raw_key(state: &mut State, key: KeyEvent) -> Option<Vec<Cmd>> {
     match state.view() {
         View::Add(_) => add::handle_raw_key(state, key),
         View::Search => search::handle_raw_key(state, key),
-        View::Downloads | View::Detail(_) | View::Help(_) | View::Providers => None,
+        View::Help(_) => help::handle_raw_key(state, key),
+        View::Downloads | View::Detail(_) | View::Providers => None,
     }
 }
 
@@ -91,26 +97,112 @@ pub fn apply_action(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
     }
 }
 
-/// Mouse input (only delivered when mouse support is on).
+/// Mouse input (only delivered when mouse support is on). Clicks are looked
+/// up in the hit map of the last frame.
 pub fn on_mouse(state: &mut State, m: MouseEvent) -> Vec<Cmd> {
-    if !state.mouse || state.modal.is_some() {
+    if !state.mouse {
         state.dirty = false;
         return Vec::new();
     }
+    let hit = state.hit_at(m.column, m.row);
+    let left = m.kind == MouseEventKind::Down(MouseButton::Left);
+    if left && let Some((_, Hit::Toast(id))) = &hit {
+        return click_toast(state, *id);
+    }
+    if let Some(modal) = state.modal.take() {
+        return on_modal_mouse(state, modal, m, hit);
+    }
+    state.whichkey = None;
+    if left {
+        match &hit {
+            Some((_, Hit::Chip(c))) => return downloads::show_chip(state, *c),
+            Some((_, Hit::Action(a))) => return crate::app::apply_action(state, *a),
+            Some((_, Hit::Mouse)) => return crate::app::toggle_mouse(state),
+            Some((_, Hit::DetailTab(t))) => return detail::select_tab(state, *t),
+            _ => {}
+        }
+    }
     match state.view() {
-        View::Downloads => downloads::on_mouse(state, m),
+        View::Downloads => return downloads::on_mouse(state, m, hit),
         View::Help(_) => {
             let delta = match m.kind {
                 MouseEventKind::ScrollDown => 3,
                 MouseEventKind::ScrollUp => -3,
-                _ => return Vec::new(),
+                _ => {
+                    state.dirty = false;
+                    return Vec::new();
+                }
             };
             help::scroll(state, delta);
         }
-        View::Search => search::on_mouse(state, m),
-        View::Detail(_) | View::Add(_) | View::Providers => {}
+        View::Search => search::on_mouse(state, m, hit),
+        View::Detail(_) => {
+            let action = match m.kind {
+                MouseEventKind::ScrollDown => Action::Down,
+                MouseEventKind::ScrollUp => Action::Up,
+                _ => {
+                    state.dirty = false;
+                    return Vec::new();
+                }
+            };
+            return detail::apply(state, action).unwrap_or_default();
+        }
+        View::Add(_) | View::Providers => state.dirty = false,
     }
     Vec::new()
+}
+
+fn click_toast(state: &mut State, id: u64) -> Vec<Cmd> {
+    let undo = state
+        .status
+        .toasts
+        .items
+        .iter()
+        .find(|t| t.id == id)
+        .and_then(|t| t.action.clone());
+    state.status.toasts.dismiss(id);
+    match undo {
+        Some(ToastAction::Undo(ids)) => state.call(crate::api::ApiCall::Restore(ids)),
+        None => Vec::new(),
+    }
+}
+
+fn on_modal_mouse(
+    state: &mut State,
+    mut modal: Modal,
+    m: MouseEvent,
+    hit: Option<(ratatui::layout::Rect, Hit)>,
+) -> Vec<Cmd> {
+    let left = m.kind == MouseEventKind::Down(MouseButton::Left);
+    let outcome = match (&mut modal, &hit, m.kind) {
+        (Modal::Confirm(c), Some((_, Hit::Button(i))), _) if left => c.press(*i == 1),
+        (Modal::Palette(p), Some((_, Hit::PaletteItem(i))), _) if left => {
+            p.selected = *i;
+            match p.items.get(*i) {
+                Some(a) => ModalOutcome::Run(*a),
+                None => ModalOutcome::Stay,
+            }
+        }
+        (Modal::Palette(p), _, MouseEventKind::ScrollDown) => {
+            p.step(3);
+            ModalOutcome::Stay
+        }
+        (Modal::Palette(p), _, MouseEventKind::ScrollUp) => {
+            p.step(-3);
+            ModalOutcome::Stay
+        }
+        // A click outside a palette or prompt closes it; confirmations need
+        // an explicit button.
+        (Modal::Palette(_) | Modal::Prompt(_) | Modal::Welcome(_), None, _) if left => {
+            ModalOutcome::Close
+        }
+        _ => {
+            state.dirty = false;
+            ModalOutcome::Stay
+        }
+    };
+    state.modal = Some(modal);
+    crate::app::on_modal_outcome(state, outcome)
 }
 
 /// Bracketed paste outside a modal.
@@ -127,11 +219,33 @@ pub fn on_paste(state: &mut State, text: &str) -> Vec<Cmd> {
     Vec::new()
 }
 
-/// Draw the whole screen: chrome, top view, then the modal on top.
+/// Draw the whole screen: chrome, top view, toasts, then the modal on top.
 pub fn render(state: &State, frame: &mut Frame<'_>) {
+    state.hits.borrow_mut().clear();
+    let area = frame.area();
+    if area.width < MIN_SIZE.0 || area.height < MIN_SIZE.1 {
+        let msg = vec![
+            Line::styled("Terminal too small", state.theme.warn),
+            Line::styled(
+                format!("need {}×{}", MIN_SIZE.0, MIN_SIZE.1),
+                state.theme.dim,
+            ),
+        ];
+        let y = area.height / 2;
+        let rect = ratatui::layout::Rect {
+            y: y.saturating_sub(1),
+            height: 2.min(area.height),
+            ..area
+        };
+        frame.render_widget(Paragraph::new(msg).alignment(Alignment::Center), rect);
+        return;
+    }
     let l = state.layout();
     status::render_header(frame, l.header, state);
-    status::render_info(frame, l.info, state);
+    if l.card.height > 0 {
+        status::render_card(frame, l.card, state);
+    }
+    status::render_context(frame, l.context, state);
     status::render_banners(frame, l.banner, state);
     match state.view() {
         View::Downloads => downloads::render(frame, l.body, state),
@@ -144,8 +258,18 @@ pub fn render(state: &State, frame: &mut Frame<'_>) {
     if l.graph.height > 0 {
         graph::render_panel(frame, l.graph, state);
     }
-    status::render_status(frame, l.status, state);
     footer::render(frame, l.footer, state);
+    whichkey::render(frame, l.body, state);
+    let toast_area = ratatui::layout::Rect {
+        height: (l.body.height + l.graph.height).saturating_sub(if state.whichkey.is_some() {
+            5
+        } else {
+            1
+        }),
+        width: l.body.width.saturating_sub(1),
+        ..l.body
+    };
+    toast::render(frame, toast_area, state);
     if let Some(m) = &state.modal {
         m.render(frame, frame.area(), state);
     }

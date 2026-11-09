@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman [local]  ▼ 0 B/s ▲ 0 B/s  0 active · 0 waiting · 0 stopped       ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5
-  Name                       Status  Progress             Down    ETA       Size
-
-      ┌ Welcome to dman ─────────────────────────────────────────────────┐
-      │dman downloads links, magnets, torrents and videos in the         │
-      │background: downloads keep going after you close this screen.     │
-      │                                                                  │
-      │  a        add a link, magnet or .torrent file                    │
-      │  f        search for torrents                                    │
-      │  Enter    details of the selected download                       │
-      │  p / r    pause / resume                                         │
-      │  d        remove a download (asks first; files are kept)         │
-      │                                                                  │
-      │Web UI  run dman serve in a terminal and open the address it shows│
-      │Help    ? lists every key; : finds any command by name            │
-      │                                                                  │
-      │ a  add your first download   Enter / Esc close                   │
-      └──────────────────────────────────────────────────────────────────┘
-
-
-
- Connected to daemon 0.1.0
- a add a link  f search torrents  Enter/Esc close
+ dman ▸ local  ▼ 0 ▲ 0                                      mouse off  ● online
+  All 0                                                            sort queue ▼
+╭ Downloads ───────────────────────────────────────────────────────────────────╮
+│   ╭ Welcome to dman ─────────────────────────────────────────────────────╮   │
+│   │ ▼ dman  the download manager for your terminal                       │   │
+│   │                                                                      │   │
+│   │ dman downloads links, magnets, torrents and videos in the            │   │
+│   │ background: downloads keep going after you close this screen.        │   │
+│   │                                                                      │   │
+│   │   a        add a link, magnet or .torrent file                       │   │
+│   │   f        search for torrents                                       │   │
+│   │   Enter    details of the selected download                          │   │
+│   │   p / r    pause / resume                                            │   │
+│   │   d        remove a download (asks first; files are kept)            │   │
+│   │                                                                      │   │
+│   │ Web UI  run dman serve in a terminal and open the address it shows   │   │
+│   │ Help    ? lists every key; : finds any command by name               │   │
+│   │ Mouse   m turns mouse support on (clicks, wheel, buttons)            │   │
+│   │                                                                      │   │
+│   │  a  Add a download     Enter  Close                                  │   │
+│   ╰──────────────────────────────────────────────────────────────────────╯   │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ WELCOME   a  add a link  f  search torrents  m  mouse  Enter/Esc  close

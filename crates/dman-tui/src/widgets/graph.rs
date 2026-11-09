@@ -8,7 +8,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph};
+use ratatui::widgets::{Axis, Chart, Dataset, GraphType, Paragraph};
 
 use crate::api::ApiCall;
 use crate::api::ApiReply;
@@ -112,17 +112,14 @@ pub fn render_panel(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
     let title = Line::from(vec![
         Span::styled(" Speed ", t.accent),
-        Span::styled("↓ ", t.ok),
+        Span::styled(format!("{} ", t.icons.down), t.graph_down),
         Span::raw(format::speed(state.stats.download_speed)),
         Span::raw("  "),
-        Span::styled("↑ ", t.warn),
+        Span::styled(format!("{} ", t.icons.up), t.graph_up),
         Span::raw(format::speed(state.stats.upload_speed)),
         Span::styled("  last 2 min ", t.dim),
     ]);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(t.border)
-        .title(title);
+    let block = t.block().title(title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let from = state.graph.history.len().saturating_sub(SHOWN);
@@ -172,13 +169,13 @@ pub fn speed_chart(
             .name("down")
             .marker(Marker::Braille)
             .graph_type(GraphType::Line)
-            .style(t.ok)
+            .style(t.graph_down)
             .data(&down),
         Dataset::default()
             .name("up")
             .marker(Marker::Braille)
             .graph_type(GraphType::Line)
-            .style(t.warn)
+            .style(t.graph_up)
             .data(&up),
     ];
     let chart = Chart::new(datasets)

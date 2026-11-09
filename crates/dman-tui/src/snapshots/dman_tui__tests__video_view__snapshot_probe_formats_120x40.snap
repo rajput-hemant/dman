@@ -2,43 +2,43 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 120, 40)"
 ---
- dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
-┌ Sources · 1 item ────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│https://w┌ Review — nothing is added until you press Enter ─────────────────────────────────────────────────┐    video│
-│         │Add 1 download to your default folder                                                             │         │
-│         │                                                                                                  │         │
-│         │1. [video] Big Buck Bunny                                                                         │         │
-│         │     by Blender Foundation · 9:56 · ffmpeg missing                                                │         │
-│         │     subtitles: en de · automatic: none                                                           │         │
-│         │     Selected: format 137 (mp4 1920x1080)                                                         │         │
-│         │                                                                                                  │         │
-│         │   Quality plans                                                                                  │         │
-│         │     ( ) best        single    best single-file format                                            │         │
-│         │     ( ) 1080p       single    ffmpeg missing: best single-file format 720p; separate 1080p strea…│         │
-│         │     ( ) ↳ 1080p     separate  1080p video and audio as two files                                 │         │
-│         │     ( ) audio:m4a   audio     audio only (m4a)                                                   │         │
-│         │                                                                                                  │         │
-└─────────│   Formats · 3                                                                                    │─────────┘
-  ⏎ Enter │          id       ext   size       fps  vcodec/acodec          bytes kind                        │
- ffmpeg mi│     ( ) 18       mp4   640x360    30   avc1/mp4a           34.3 MiB video+audio                  │.
-┌ Options │   ▸ (•) 137      mp4   1920x1080  30   avc1/-             103.0 MiB video                        │─────────┐
-│  Downloa│     ( ) 140      m4a   audio      -    -/mp4a              97.7 KiB audio                        │         │
-│  Start p│                                                                                                  │         │
-│  Downloa│Enter add & start   Space choose   Tab next list   Esc back                                       │         │
-│  Video q│                                                                                                  │         │
-│  ▸ Advan│                                                                                                  │         │
-└─────────│                                                                                                  │─────────┘
-          │                                                                                                  │
-          │                                                                                                  │
-          │                                                                                                  │
-          │                                                                                                  │
-          │                                                                                                  │
-          │                                                                                                  │
-          │                                                                                                  │
-          │                                                                                                  │
-          │                                                                                                  │
-          └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-
- Connected to daemon 0.1.0
- Enter add & start  Space choose  Tab next list  Esc change options  ↑↓ scroll  Ctrl-p palette  F1 help
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
+ Downloads › Add downloads
+╭ Review — nothing is added until you press Enter ─────────────────────────────────────────────────────────────────────╮
+│ Add 1 download to your default folder                                                                                │
+│                                                                                                                      │
+│ 1. [video] Big Buck Bunny                                                                                            │
+│      by Blender Foundation · 9:56 · ffmpeg missing                                                                   │
+│      subtitles: en de · automatic: none                                                                              │
+│      Selected: format 137 (mp4 1920x1080)                                                                            │
+│                                                                                                                      │
+│    Quality plans                                                                                                     │
+│      ( ) best        single    best single-file format                                                               │
+│      ( ) 1080p       single    ffmpeg missing: best single-file format 720p; separate 1080p streams available with … │
+│      ( ) ↳ 1080p     separate  1080p video and audio as two files                                                    │
+│      ( ) audio:m4a   audio     audio only (m4a)                                                                      │
+│                                                                                                                      │
+│    Formats · 3                                                                                                       │
+│           id       ext   size       fps  vcodec/acodec          bytes kind                                           │
+│      ( ) 18       mp4   640x360    30   avc1/mp4a           34.3 MiB video+audio                                     │
+│    ▸ (•) 137      mp4   1920x1080  30   avc1/-             103.0 MiB video                                           │
+│      ( ) 140      m4a   audio      -    -/mp4a              97.7 KiB audio                                           │
+│                                                                                                                      │
+│ Enter add & start   Space choose   Tab next list   Esc back                                                          │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ ADD   Enter  add & start  Space  choose  Tab  next list  Esc  change options  Ctrl-p  palette  F1  help

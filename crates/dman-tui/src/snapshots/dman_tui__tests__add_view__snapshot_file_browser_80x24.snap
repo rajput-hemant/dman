@@ -2,10 +2,10 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
-┌ Sources ─────────────────────────────────────────────────────────────────────┐
-│  ┌ Add local file · 2 marked ─────────────────────────────────────────────┐  │
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › Add downloads
+╭ Sources ─────────────────────────────────────────────────────────────────────╮
+│  ╭ Add local file · 2 marked ─────────────────────────────────────────────╮  │
 │Pa│/home/me/torrents                                                       │  │
 │On│                                                                        │  │
 │Ct│    archive/                                                            │  │
@@ -16,13 +16,13 @@ expression: "render(&mut s, 80, 24)"
 │  │                                                                        │  │
 │  │                                                                        │  │
 │  │                                                                        │  │
-└──│                                                                        │──┘
+│  │                                                                        │  │
+╰──│                                                                        │──╯
  ⏎ │                                                                        │
-┌ O│                                                                        │──┐
+╭ O│                                                                        │──╮
 │  │                                                                        │l…│
 │  │                                                                        │  │
 │  │                                                                        │  │
-│  └────────────────────────────────────────────────────────────────────────┘m…│
-└──────────────────────────────────────────────────────────────────────────────┘
- Connected to daemon 0.1.0
- Enter open/pick  Space mark  ⌫/h up  . all files  Ctrl-p palette  F1 help
+│  ╰────────────────────────────────────────────────────────────────────────╯m…│
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ADD   Enter  open/pick  Space  mark  ⌫/h  up  Ctrl-p  palette  F1  help

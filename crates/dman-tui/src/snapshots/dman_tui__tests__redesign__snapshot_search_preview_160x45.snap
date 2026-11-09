@@ -1,0 +1,49 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 160, 45)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed                                                250.0 GiB free  mouse off  ● online
+ Downloads › Search
+╭ ⌕ Search torrents ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  Query     ubuntu                                                                                                                                            │
+│  Category  (optional, e.g. movies, tv, software)                                                                                                             │
+│  Providers ● 1337x ✓ 3  ● nyaa ✗                                                                                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ 1337x ✓ 3 in 340 ms   nyaa ✗ failed: timed out after 15s
+ sort seeders▼  3 results
+╭ Results for 'ubuntu' ────────────────────────────────────────────────────────────────────────╮╭ Result ──────────────────────────────────────────────────────╮
+│  #   Title                                       Size     S     L Sources          Date      ││ Ubuntu 24.04.1 Desktop amd64                                 │
+│    1 Ubuntu 24.04.1 Desktop amd64             6.0 GiB  1204    31 1337x,tpb        2024-08-29││                                                              │
+│    2 Ubuntu 24.04 Server                      2.0 GiB   310     8 nyaa             2024-04-25││ Size     6.0 GiB                                             │
+│    3 ubuntu-24.04-live-server               900.0 MiB    12     1 1337x            2024-05-02││ Seeders  1204                                                │
+│                                                                                              ││ Leechers 31                                                  │
+│                                                                                              ││ Sources  1337x, tpb                                          │
+│                                                                                              ││ Date     2024-08-29                                          │
+│                                                                                              ││ Hash     aaaa                                                │
+│                                                                                              ││                                                              │
+│                                                                                              ││  Enter  download now   e  options first                      │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+│                                                                                              ││                                                              │
+╰──────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────╯
+ SEARCH   Enter  download  e  change options first  Space  mark  i  new search  :  palette  ?  help

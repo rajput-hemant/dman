@@ -2,9 +2,9 @@
 source: crates/dman-tui/src/tests.rs
 expression: "snap_form(80, 24, Field::VQuality)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
-┌ Sources · 3 items ───────────────────────────────────────────────────────────┐
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › Add downloads
+╭ Sources · 3 items ───────────────────────────────────────────────────────────╮
 │https://www.youtube.com/watch?v=abc123                                   video│
 │https://media.example.org/clip/42                 https · Ctrl-g: try as video│
 │https://example.org/a.iso                                                video│
@@ -14,15 +14,15 @@ expression: "snap_form(80, 24, Field::VQuality)"
 │                                                                              │
 │                                                                              │
 │                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
   ⏎ Enter  Add 3 downloads  you get a summary, then Enter again starts it
  ffmpeg missing (ffmpeg not found in PATH): no merging, conversion or embedding…
-┌ Options · empty fields use your defaults ────────────────────────────────────┐
+╭ Options · empty fields use your defaults ────────────────────────────────────╮
 │  Download folder        your default folder (Ctrl-f browses the daemon's fol…│
 │  Start paused           [ ] add now, start later (r in the list)             │
 │  Download limit         no extra limit (e.g. 2MiB; 0 = unlimited)            │
 │▸ Video quality          1080p                                                │
 │  ▸ Advanced options — 1 set: Subtitles (F2 shows them)                       │
-└──────────────────────────────────────────────────────────────────────────────┘
- Connected to daemon 0.1.0
- Enter review & add  Tab next  Esc back  Ctrl-v paste  Ctrl-p palette  F1 help
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ADD   Enter  review & add  Tab  next  Esc  back  Ctrl-p  palette  F1  help

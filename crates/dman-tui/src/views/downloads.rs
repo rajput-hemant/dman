@@ -1,20 +1,21 @@
-//! The downloads view: sectioned table, list actions and confirmations.
+//! The downloads view: list actions, confirmations and mouse handling; the
+//! drawing lives in [`render`].
 
-use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+mod render;
+
+pub use render::{chip_counts, render};
+
+use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use dman_proto::method::{LimitsUpdate, Reorder};
 use dman_proto::{Job, JobId, JobState};
-use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Rect};
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Cell, Paragraph, Row as TableRow, Table};
+use ratatui::layout::Rect;
 
 use crate::action::Action;
 use crate::api::ApiCall;
 use crate::app::{Cmd, State};
 use crate::format;
-use crate::list::{Row, Section};
-use crate::theme::Theme;
+use crate::layout::Hit;
+use crate::list::{Chip, Row};
 use crate::views::View;
 use crate::widgets::Modal;
 use crate::widgets::confirm::ConfirmState;
@@ -129,8 +130,7 @@ const MAX_LISTED: usize = 5;
 /// Apply a downloads-view action; `None` when not handled here.
 pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
     if let Some(()) = navigate(state, action) {
-        let h = state.list_height();
-        state.list.ensure_visible(h);
+        state.fit_list();
         return Some(Vec::new());
     }
     let cmds = match action {
@@ -144,6 +144,11 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::Rename => rename_cursor(state),
         Action::CleanupUnselected => cleanup_cursor(state),
         Action::ReloadConfig => state.call(ApiCall::ReloadConfig),
+        Action::ShowAll => show_chip(state, Chip::All),
+        Action::ShowActive => show_chip(state, Chip::Active),
+        Action::ShowWaiting => show_chip(state, Chip::Waiting),
+        Action::ShowDone => show_chip(state, Chip::Done),
+        Action::ShowFailed => show_chip(state, Chip::Failed),
         Action::ToggleGraph => crate::widgets::graph::toggle(state),
         Action::ToggleRemoved => {
             state.list.show_removed = !state.list.show_removed;
@@ -188,9 +193,21 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
     Some(cmds)
 }
 
+/// Show only the downloads of `chip` (a second press of a chip shows all).
+pub fn show_chip(state: &mut State, chip: Chip) -> Vec<Cmd> {
+    state.list.chip = if state.list.chip == chip && chip != Chip::All {
+        Chip::All
+    } else {
+        chip
+    };
+    state.list.offset = 0;
+    state.refresh_list();
+    Vec::new()
+}
+
 /// List navigation, selection, sort and paging. `None` when not one of those.
 fn navigate(state: &mut State, action: Action) -> Option<()> {
-    let page = isize::try_from(state.list_height().max(1)).unwrap_or(1);
+    let page = isize::try_from(state.list_page()).unwrap_or(1);
     let l = &mut state.list;
     match action {
         Action::Up => l.move_by(-1),
@@ -223,6 +240,9 @@ fn navigate(state: &mut State, action: Action) -> Option<()> {
             let text = format!("Sorted by {}{rev}", l.sort.label());
             state.status.info(text);
             state.refresh_list();
+            if action == Action::SortNext {
+                crate::widgets::whichkey::open(state, crate::widgets::whichkey::Prefix::Sort);
+            }
         }
         Action::ClearFilter => {
             l.filter.clear();
@@ -294,6 +314,8 @@ pub fn confirm_remove_ids(state: &mut State, ids: Vec<JobId>, delete_files: bool
         lines.push(String::new());
         lines.push("This permanently deletes the files. It cannot be undone.".into());
         ConfirmState::yes_no(format!("Remove and DELETE files of {what}?"), lines, call)
+            .label("Delete files")
+            .destructive()
     } else {
         lines.push(String::new());
         let d = state
@@ -302,10 +324,21 @@ pub fn confirm_remove_ids(state: &mut State, ids: Vec<JobId>, delete_files: bool
         lines.push(format!(
             "Files on disk are kept ({d} removes and deletes them)."
         ));
-        ConfirmState::yes_no(format!("Remove {what} from the list?"), lines, call)
+        ConfirmState::yes_no(format!("Remove {what} from the list?"), lines, call).label("Remove")
     };
     state.modal = Some(Modal::Confirm(dialog));
     Vec::new()
+}
+
+/// Message after a successful undo of a remove.
+pub fn restored_message(state: &State, ids: &[JobId]) -> String {
+    match ids {
+        [id] => match state.jobs.get(id) {
+            Some(j) => format!("Restored '{}'", format::middle(&j.name, 50)),
+            None => format!("Restored download #{id}"),
+        },
+        _ => format!("Restored {}", format::plural(ids.len(), "download")),
+    }
 }
 
 /// Status line after a successful remove: what happened to the files.
@@ -371,6 +404,8 @@ pub fn cleanup_confirm(id: JobId, name: &str, files: &[(String, u64)]) -> Confir
         lines,
         ApiCall::Cleanup { id, dry_run: false },
     )
+    .label("Delete")
+    .destructive()
 }
 
 fn confirm_purge(state: &mut State) -> Vec<Cmd> {
@@ -397,11 +432,9 @@ fn confirm_purge(state: &mut State) -> Vec<Cmd> {
     let mut lines = names(state, &ids);
     lines.push(String::new());
     lines.push("They are dropped from the list; files on disk are kept.".into());
-    state.modal = Some(Modal::Confirm(ConfirmState::yes_no(
-        format!("Purge {what}?"),
-        lines,
-        ApiCall::Purge(ids),
-    )));
+    state.modal = Some(Modal::Confirm(
+        ConfirmState::yes_no(format!("Purge {what}?"), lines, ApiCall::Purge(ids)).label("Purge"),
+    ));
     Vec::new()
 }
 
@@ -415,6 +448,8 @@ pub fn shutdown_confirm() -> ConfirmState {
         ],
         ApiCall::Shutdown,
     )
+    .label("Shut down")
+    .destructive()
 }
 
 fn reorder(state: &mut State, to: Reorder) -> Vec<Cmd> {
@@ -475,347 +510,60 @@ fn change_limit(state: &mut State, up: bool) -> Vec<Cmd> {
     }
 }
 
-/// Mouse: click moves the cursor, wheel scrolls.
-pub fn on_mouse(state: &mut State, m: MouseEvent) {
-    let body = state.layout().body;
+/// Mouse: click a row to move the cursor (again on the cursor row opens the
+/// detail), click the scrollbar to jump, wheel scrolls.
+pub fn on_mouse(state: &mut State, m: MouseEvent, hit: Option<(Rect, Hit)>) -> Vec<Cmd> {
     match m.kind {
         MouseEventKind::ScrollDown => state.list.move_by(3),
         MouseEventKind::ScrollUp => state.list.move_by(-3),
-        MouseEventKind::Down(MouseButton::Left) => {
-            let first = body.y + 1; // below the header row
-            if m.row < first || m.row >= body.y + body.height {
-                state.dirty = false;
-                return;
+        MouseEventKind::Down(MouseButton::Left) => match hit {
+            Some((_, Hit::ListRow(row))) => {
+                let again = matches!(state.list.rows.get(row), Some(Row::Job(id)) if state.list.cursor == Some(*id));
+                if m.modifiers.contains(KeyModifiers::CONTROL) {
+                    if state.list.click_row(row) {
+                        state.list.toggle_cursor();
+                    }
+                } else if m.modifiers.contains(KeyModifiers::SHIFT) {
+                    if state.list.click_row(row) {
+                        state.list.select_range();
+                    }
+                } else if again {
+                    return apply(state, Action::OpenDetail).unwrap_or_default();
+                } else {
+                    state.list.click_row(row);
+                }
             }
-            let row = state.list.offset + usize::from(m.row - first);
-            state.list.click_row(row);
-        }
+            Some((r, Hit::ListScroll)) => {
+                let n = state.list.order.len();
+                if n > 0 {
+                    let frac = f64::from(m.row.saturating_sub(r.y)) / f64::from(r.height.max(1));
+                    // Rounded index within 0..n.
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        clippy::cast_precision_loss
+                    )]
+                    let i = ((frac * n as f64) as usize).min(n - 1);
+                    state.list.cursor = Some(state.list.order[i]);
+                }
+            }
+            _ => {
+                state.dirty = false;
+                return Vec::new();
+            }
+        },
         _ => {
             state.dirty = false;
-            return;
+            return Vec::new();
         }
     }
-    let h = state.list_height();
-    state.list.ensure_visible(h);
-}
-
-/// Table columns.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Col {
-    Mark,
-    Name,
-    Status,
-    Progress,
-    Down,
-    Up,
-    Eta,
-    Size,
-    Peers,
-    Ratio,
-}
-
-/// Display order with width; Name takes the rest.
-const DISPLAY: &[(Col, &str, u16)] = &[
-    (Col::Mark, "", 1),
-    (Col::Name, "Name", 0),
-    (Col::Status, "Status", 7),
-    (Col::Progress, "Progress", 13),
-    (Col::Down, "Down", 11),
-    (Col::Up, "Up", 11),
-    (Col::Eta, "ETA", 6),
-    (Col::Size, "Size", 10),
-    (Col::Peers, "Peers", 7),
-    (Col::Ratio, "Ratio", 5),
-];
-
-/// Optional columns, most important first.
-const PRIORITY: &[Col] = &[
-    Col::Status,
-    Col::Progress,
-    Col::Down,
-    Col::Eta,
-    Col::Size,
-    Col::Up,
-    Col::Peers,
-    Col::Ratio,
-];
-
-const MIN_NAME: u16 = 22;
-
-fn width_of(c: Col) -> u16 {
-    DISPLAY.iter().find(|d| d.0 == c).map_or(0, |d| d.2)
-}
-
-/// Columns that fit in `width`, in display order.
-fn columns(width: u16) -> Vec<Col> {
-    let mut chosen = vec![Col::Mark, Col::Name];
-    // Mark + its gap.
-    let mut used: u16 = width_of(Col::Mark) + 1;
-    for c in PRIORITY {
-        let need = width_of(*c) + 1;
-        if width.saturating_sub(used + need) >= MIN_NAME {
-            used += need;
-            chosen.push(*c);
-        }
-    }
-    DISPLAY
-        .iter()
-        .map(|d| d.0)
-        .filter(|c| chosen.contains(c))
-        .collect()
-}
-
-fn state_style(t: &Theme, s: JobState) -> Style {
-    match s {
-        JobState::Active | JobState::Seeding => t.ok,
-        JobState::Paused => t.warn,
-        JobState::Error => t.error,
-        JobState::Waiting | JobState::Removed => t.dim,
-        JobState::Complete => t.text,
-    }
-}
-
-fn name_cell(j: &Job, t: &Theme, width: usize) -> Cell<'static> {
-    let video = j.kind == dman_proto::SourceKind::Video || j.engine == dman_proto::Engine::YtDlp;
-    let marker = if video { "▶ " } else { "" };
-    let name = format::truncate(&j.name, width.saturating_sub(marker.chars().count()));
-    let used = name.chars().count() + marker.chars().count();
-    let mut spans = Vec::new();
-    if video {
-        spans.push(Span::styled(marker, t.accent));
-    }
-    spans.push(Span::raw(name));
-    if let Some(e) = &j.error
-        && used + 4 < width
-    {
-        let err = format::truncate(&format!(" ({e})"), width - used);
-        spans.push(Span::styled(err, t.error));
-    }
-    Cell::from(Line::from(spans))
-}
-
-/// Width left for the Name column.
-fn name_width(cols: &[Col], total: u16) -> usize {
-    let others: u16 = cols.iter().map(|c| width_of(*c)).sum();
-    let gaps = u16::try_from(cols.len().saturating_sub(1)).unwrap_or(0);
-    usize::from(total.saturating_sub(others + gaps))
-}
-
-fn job_cell(c: Col, j: &Job, t: &Theme, marked: bool, name_w: usize) -> Cell<'static> {
-    match c {
-        Col::Mark => Cell::from(if marked { "●" } else { " " }).style(t.marked),
-        Col::Name => name_cell(j, t, name_w),
-        Col::Status => Cell::from(format::state(j.state)).style(state_style(t, j.state)),
-        Col::Progress => Cell::from(format::progress_bar(j, 8)),
-        Col::Down => Cell::from(right(format::speed_or_dash(j.download_speed))),
-        Col::Up => Cell::from(right(format::speed_or_dash(j.upload_speed))),
-        Col::Eta => Cell::from(right(eta(j))),
-        Col::Size => Cell::from(right(format::size_or_dash(j.total_bytes))),
-        Col::Peers => Cell::from(right(format::peers(j))),
-        Col::Ratio => Cell::from(right(format::ratio(j))),
-    }
-}
-
-fn eta(j: &Job) -> String {
-    match j.state {
-        JobState::Active => format::eta(j.eta_secs()),
-        _ => "-".into(),
-    }
-}
-
-fn right(s: String) -> Line<'static> {
-    Line::from(s).alignment(Alignment::Right)
-}
-
-fn section_label(section: Section, total: usize, page: usize, pages: usize) -> String {
-    if pages > 1 {
-        format!(
-            "{} ({total}) · page {}/{pages} · [ ] to page",
-            section.title(),
-            page + 1
-        )
-    } else {
-        format!("{} ({total})", section.title())
-    }
-}
-
-/// Draw the table into `area`.
-pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
-    let t = &state.theme;
-    let cols = columns(area.width);
-    let header = TableRow::new(cols.iter().map(|c| {
-        let name = DISPLAY.iter().find(|d| d.0 == *c).map_or("", |d| d.1);
-        let w = usize::from(width_of(*c));
-        match c {
-            Col::Mark | Col::Name | Col::Status | Col::Progress => Cell::from(name),
-            _ => Cell::from(format!("{name:>w$}")),
-        }
-    }))
-    .style(t.header);
-    let widths: Vec<Constraint> = cols
-        .iter()
-        .map(|c| match c {
-            Col::Name => Constraint::Fill(1),
-            other => Constraint::Length(width_of(*other)),
-        })
-        .collect();
-    let height = usize::from(area.height.saturating_sub(1));
-    let offline = !state.connected();
-    let name_w = name_width(&cols, area.width);
-    let l = &state.list;
-    let rows = l.rows.iter().skip(l.offset).take(height).map(|r| match *r {
-        Row::Section {
-            section,
-            total,
-            page,
-            pages,
-        } => {
-            let mut cells = vec![Cell::from(""); cols.len()];
-            cells[1] = Cell::from(section_label(section, total, page, pages));
-            TableRow::new(cells).style(t.section)
-        }
-        Row::Job(id) => job_row(state, &cols, id, offline, name_w),
-        // Drawn over the whole width below (a cell would truncate it).
-        Row::HiddenRemoved(_) => TableRow::new(vec![Cell::from(""); cols.len()]),
-    });
-    let table = Table::new(rows, widths).header(header).column_spacing(1);
-    frame.render_widget(table, area);
-    if let Some(i) = l
-        .rows
-        .iter()
-        .position(|r| matches!(r, Row::HiddenRemoved(_)))
-        && i >= l.offset
-        && i - l.offset < height
-    {
-        let toggle = state
-            .keymap
-            .label(crate::keymap::Context::Downloads, Action::ToggleRemoved);
-        let purge = state
-            .keymap
-            .label(crate::keymap::Context::Downloads, Action::Purge);
-        let y = area.y + 1 + u16::try_from(i - l.offset).unwrap_or(0);
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                format!(
-                    "  Removed ({}) hidden — {toggle} shows, {purge} clears",
-                    l.hidden_removed
-                ),
-                t.dim,
-            )),
-            Rect {
-                y,
-                height: 1,
-                ..area
-            },
-        );
-    }
-    if l.order.is_empty() {
-        render_empty(frame, area, state);
-    }
-}
-
-fn job_row(
-    state: &State,
-    cols: &[Col],
-    id: JobId,
-    offline: bool,
-    name_w: usize,
-) -> TableRow<'static> {
-    let t = &state.theme;
-    let Some(j) = state.jobs.get(&id) else {
-        return TableRow::new(Vec::<Cell<'_>>::new());
-    };
-    let marked = state.list.selected.contains(&id);
-    let row = if offline {
-        let plain = Theme {
-            ok: t.dim,
-            warn: t.dim,
-            error: t.dim,
-            marked: t.dim,
-            ..t.clone()
-        };
-        TableRow::new(cols.iter().map(|c| job_cell(*c, j, &plain, marked, name_w))).style(t.dim)
-    } else {
-        let row = TableRow::new(cols.iter().map(|c| job_cell(*c, j, t, marked, name_w)));
-        if marked { row.style(t.marked) } else { row }
-    };
-    if state.list.cursor == Some(id) {
-        row.style(if offline {
-            t.dim.patch(t.cursor)
-        } else {
-            t.cursor
-        })
-    } else {
-        row
-    }
-}
-
-fn render_empty(frame: &mut Frame<'_>, area: Rect, state: &State) {
-    let t = &state.theme;
-    let key = |a: Action| {
-        state
-            .keymap
-            .keys_with_global(crate::keymap::Context::Downloads, a)
-            .first()
-            .map(|k| crate::keymap::key_label(*k))
-            .unwrap_or_default()
-    };
-    let lines: Vec<Line<'static>> = if !state.list.filter.is_empty() {
-        vec![Line::from(vec![
-            Span::styled(
-                format!("No downloads match '{}' — ", state.list.filter),
-                t.dim,
-            ),
-            Span::styled(key(Action::SelectNone), t.key),
-            Span::styled(" clears", t.dim),
-        ])]
-    } else if state.connected() {
-        let mut keys = Vec::new();
-        for (a, what) in [
-            (Action::Add, "add a link or torrent"),
-            (Action::Search, "search torrents"),
-            (Action::Help, "all keys"),
-        ] {
-            if !keys.is_empty() {
-                keys.push(Span::raw("   "));
-            }
-            keys.push(Span::styled(key(a), t.key));
-            keys.push(Span::styled(format!("  {what}"), t.dim));
-        }
-        vec![
-            Line::styled("No downloads yet", t.accent),
-            Line::default(),
-            Line::from(keys),
-        ]
-    } else {
-        vec![Line::styled("No data — waiting for the daemon", t.dim)]
-    };
-    if area.height < 3 {
-        return;
-    }
-    let h = u16::try_from(lines.len()).unwrap_or(1).min(area.height - 1);
-    let msg = Rect {
-        y: area.y + 1 + (area.height - 1).saturating_sub(h) / 2,
-        height: h,
-        ..area
-    };
-    frame.render_widget(Paragraph::new(lines).alignment(Alignment::Center), msg);
+    state.fit_list();
+    Vec::new()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn narrow_terminals_hide_low_priority_columns() {
-        let c80 = columns(80);
-        assert!(c80.contains(&Col::Eta) && c80.contains(&Col::Size));
-        assert!(!c80.contains(&Col::Ratio) && !c80.contains(&Col::Up));
-        let c120 = columns(120);
-        assert_eq!(c120.len(), DISPLAY.len());
-        let c40 = columns(40);
-        assert!(c40.contains(&Col::Name) && c40.len() <= 4);
-    }
 
     #[test]
     fn limit_ladder() {

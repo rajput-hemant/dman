@@ -1,0 +1,44 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 120, 40)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
+ Downloads › ✗ missing-file.zip
+╭ missing-file.zip ──────────────────────────────────────────────────────────────────────────────────────── #7 · aria2 ╮
+│ ✗ Failed — press r to retry (partial files are kept)                                                                 │
+│                                                                                                             0 B / ?  │
+│ ▼ 0 B/s                ▲ 0 B/s                                                                                       │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  1 Files 4   5 Speed   6 Options   7 Info
+╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│Name       missing-file.zip                                                                                           │
+│Folder     /home/me/Downloads                                                                                         │
+│Source     https://example.org/missing-file.zip                                                                       │
+│Engine     aria2                                                                                                      │
+│Added      23h ago                                                                                                    │
+│Finished   23h ago                                                                                                    │
+│Info hash  0123456789abcdef0123456789abcdef01234567                                                                   │
+│Comment    Official image                                                                                             │
+│Error      404 Not Found                                                                                              │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ DETAIL   Esc  back  r  retry  Tab  next tab  d  remove  :  palette  ?  help

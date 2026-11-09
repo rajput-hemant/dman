@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
-  Name                       Status  Progress             Down    ETA       Size
-  Active (3)
-  ubuntu-24.04.1-desktop-am… active  █████░░░  66%  12.0 MiB/s  2m51s    6.0 GiB
-  big-dataset-2026.tar.zst   active  ░░░░░░░░  10%   3.0 MiB/s  1h42m   20.0 GiB
-  debian-13.2.0-amd64-netin… seeding ████████ 100%           -      -  700.0 MiB
-  Waitin┌ Command palette ─────────────────────────────────────────────┐
-  ▶ Big │> pause                                                       │       -
-  archli│Pause                                           p             │ 1.2 GiB
-  Stoppe│Pause all                                       P             │
-  report│Detail: toggle the file under the cursor (wait… Space         │ 3.0 MiB
-  missin│Detail: select / deselect all files (waiting/p… a             │       -
-        │Video quality picker: ask every time / use def… F6            │
-        │Providers: remove a custom provider             D, Del        │
-        │Delete unselected partial files of a finished … C             │
-        └──────────────────────────────────────────────────────────────┘
-
-
-
-
-
- Connected to daemon 0.1.0
- Enter run  ↑↓ choose  Esc close
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+  All 7   Active 3   Waiting 2   Done 1   Failed 1                 sort queue ▼
+╭ Downloads ───────────────────────────────────────────────────────────────────╮
+│─╭ Commands ───────────────────────────────────────────────────────── 8/92 ─╮─│
+│▌│ › pause                                                                  │G│
+│ │──────────────────────────────────────────────────────────────────────────│G│
+│ │▌ Pause                                            Downloads           p  │M│
+│─│  Pause all                                        Downloads           P  │─│
+│ │  Show only waiting and paused downloads                View           3  │–│
+│ │  Toggle the file under the cursor (waiting/paused only)           Space  │G│
+│─│  Select / deselect all files (waiting/paused only)   Detail           a  │─│
+│ │  Video quality picker: ask every time / use defaults                 F6  │M│
+│ │  Remove a custom provider                         Providers           D  │–│
+│ │  Delete unselected partial files of a finished torrent                C  │ │
+│ ╰──────────────────────────────────────────────────────────────────────────╯ │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ COMMAND   Enter  run  ↑↓  choose  Esc  close

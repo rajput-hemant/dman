@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
-┌ Sources · 1 item ────────────────────────────────────────────────────────────┐
-│h┌ Review — nothing is added until you press Enter ─────────────────────────┐o│
-│ │Add 1 download to your default folder                                     │ │
-│ │                                                                          │ │
-│ │1. [video] Conference talks                                               │ │
-│ │     ffmpeg available                                                     │ │
-│ │     Selected: nothing (form / daemon defaults apply)                     │ │
-│ │                                                                          │ │
-│ │   Playlist · 4 of 5 entries selected                                     │ │
-│ │     [x]   1  Talk number 1  10:00                                        │ │
-│ │     [ ]   2  Talk number 2  20:00                                        │ │
-└─│   ▸ [x]   3  Talk number 3  30:00                                        │─┘
-  │     [x]   4  Talk number 4  40:00                                        │
-┌ │     [x]   5  Talk number 5  50:00                                        │─┐
-│ │                                                                          │…│
-│ │Enter add & start   Space choose   Tab next list   Esc back               │ │
-│ │                                                                          │ │
-│ │                                                                          │…│
-│ └──────────────────────────────────────────────────────────────────────────┘…│
-└──────────────────────────────────────────────────────────────────────────────┘
- Connected to daemon 0.1.0
- Enter add & start  Space choose  a all/none  Ctrl-p palette  F1 help
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › Add downloads
+╭ Review — nothing is added until you press Enter ─────────────────────────────╮
+│ Add 1 download to your default folder                                        │
+│                                                                              │
+│ 1. [video] Conference talks                                                  │
+│      ffmpeg available                                                        │
+│      Selected: nothing (form / daemon defaults apply)                        │
+│                                                                              │
+│    Playlist · 4 of 5 entries selected                                        │
+│      [x]   1  Talk number 1  10:00                                           │
+│      [ ]   2  Talk number 2  20:00                                           │
+│    ▸ [x]   3  Talk number 3  30:00                                           │
+│      [x]   4  Talk number 4  40:00                                           │
+│      [x]   5  Talk number 5  50:00                                           │
+│                                                                              │
+│ Enter add & start   Space choose   Tab next list   Esc back                  │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ADD   Enter  add & start  Space  choose  Ctrl-p  palette  F1  help

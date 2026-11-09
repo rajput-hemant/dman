@@ -177,23 +177,52 @@ impl Default for Aria2 {
 }
 
 /// Terminal UI settings.
+///
+/// The look-and-feel keys are plain strings so that an unknown value never
+/// stops dman from starting: the TUI falls back to the default and shows a
+/// warning instead.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Ui {
-    /// Theme name.
+    /// Theme: `dman-dark` (default; `default` is an alias), `dman-light`,
+    /// `high-contrast`, `tokyo-night` or `mono`.
     pub theme: String,
-    /// Enable mouse support.
+    /// Colour depth: `auto` (detect), `truecolor`, `256`, `16` or `never`.
+    /// `NO_COLOR` always wins.
+    pub color: String,
+    /// Glyphs: `unicode` (default), `nerd` (needs a Nerd Font) or `ascii`.
+    pub icons: String,
+    /// Pane and dialog borders: `rounded` (default), `plain`, `thick`, `ascii`.
+    pub borders: String,
+    /// Preview pane next to the downloads list: `auto` (wide terminals), `off`.
+    pub preview: String,
+    /// List rows: `auto` (two lines on tall terminals), `compact`, `comfortable`.
+    pub density: String,
+    /// Small animations (spinners, eased bars, row flashes; up to 30 fps only
+    /// while something moves). `DMAN_REDUCE_MOTION` also turns them off.
+    pub animations: bool,
+    /// Enable mouse support (toggled at runtime with `m`, which saves it here).
     pub mouse: bool,
     /// Redraw/refresh interval in milliseconds.
     pub refresh_ms: u64,
+    /// Per-token colour overrides (`accent = "#7aa2f7"` or an ANSI name such
+    /// as `"lightblue"`); unknown tokens are ignored with a warning.
+    pub colors: BTreeMap<String, String>,
 }
 
 impl Default for Ui {
     fn default() -> Self {
         Self {
-            theme: "default".into(),
+            theme: "dman-dark".into(),
+            color: "auto".into(),
+            icons: "unicode".into(),
+            borders: "rounded".into(),
+            preview: "auto".into(),
+            density: "auto".into(),
+            animations: true,
             mouse: false,
             refresh_ms: 250,
+            colors: BTreeMap::new(),
         }
     }
 }
@@ -297,9 +326,27 @@ extra_args = []
 tick_ms = 1000
 
 [ui]
-theme = "default"
+# dman-dark | dman-light | high-contrast | tokyo-night | mono
+theme = "dman-dark"
+# auto | truecolor | 256 | 16 | never (NO_COLOR always wins)
+color = "auto"
+# unicode | nerd (needs a Nerd Font) | ascii
+icons = "unicode"
+# rounded | plain | thick | ascii
+borders = "rounded"
+# Preview pane next to the list on wide terminals: auto | off
+preview = "auto"
+# List rows: auto (two lines on tall terminals) | compact | comfortable
+density = "auto"
+# Spinners, eased progress bars, row flashes (DMAN_REDUCE_MOTION also disables)
+animations = true
+# Mouse support; `m` in the TUI toggles it and saves the choice here.
 mouse = false
 refresh_ms = 250
+
+# Per-token colour overrides ('#rrggbb' or ANSI names such as 'lightblue'):
+# [ui.colors]
+# accent = '#7aa2f7'
 
 # Schedule windows (all times are local wall-clock time). Outside every window
 # [limits] applies; with no windows everything runs always. Windows may overlap:
@@ -646,6 +693,26 @@ mod tests {
         assert!(c.extra.contains_key("future"));
         assert!(parse("[video]\nengine = \"yt-dlp\"\n").is_err());
         assert!(parse("[ui]\nbogus = 1\n").is_err());
+    }
+
+    #[test]
+    fn old_ui_sections_still_load_and_new_keys_parse() {
+        let old = parse("[ui]\ntheme = \"default\"\nmouse = true\nrefresh_ms = 100\n").unwrap();
+        assert_eq!(old.ui.theme, "default");
+        assert!(old.ui.mouse && old.ui.animations);
+        assert_eq!(old.ui.icons, "unicode");
+        let new = parse(
+            "[ui]\ntheme = \"tokyo-night\"\ncolor = \"256\"\nicons = \"nerd\"\nborders = \"plain\"\n\
+             preview = \"off\"\ndensity = \"compact\"\nanimations = false\n\
+             [ui.colors]\naccent = \"#ff0000\"\n",
+        )
+        .unwrap();
+        assert_eq!(new.ui.color, "256");
+        assert!(!new.ui.animations);
+        assert_eq!(
+            new.ui.colors.get("accent").map(String::as_str),
+            Some("#ff0000")
+        );
     }
 
     #[test]

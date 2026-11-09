@@ -1,0 +1,47 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "styled(&mut s, themed(ColorDepth::Ansi16), 80, 24)"
+---
+.....___aaaaabbccbbbb_bddbbb_bbebbabbfbbgbbbaaaaaaaaa________________bbffffffffb
+bhhhhhhhbaaaaaaaaaabaaaaaaaaaaabaaaaaaaabaaaaaaaaaabbbbdddddddddddd_____aaaaaaaa
+c...........cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c___iiiiii_____________________________________________________________________c
+c.debbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbeeeeeee___bbbbbbbbeeee_bbbbbbbbbbbbbbb_c
+cjklmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmlnnnnnnnnnmmmmmmmmmlllnmmmmmmmmmmmmmmmnc
+c.dfbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbffffffffffbbbbbbbfffff_bfffffffbbbbbbb_c
+c___iiiiiii____________________________________________________________________c
+c.dabddbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb_______________bbbbbbbaaaaaaaaab_______c
+c.dobbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbooo_______bbbbbbbbbbbbbbboooooobbbbbbb_c
+c___iiiiiii____________________________________________________________________c
+c.dfbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbffffffffffbbbbbbbffffffffffffffbbbbbbb_c
+c.dgbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbgggggggggggggbbbbbbbbbbbbbbbbbbb_______c
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+hhhhhhbpppaaaaaaaaapppaaaaaaaaaapppaaaaaaaaaapppaaaaaaaaapppaaaaaabbbbbbbbbbbbbb
+
+. fg=LightBlue bg=Reset mod=BOLD
+_ fg=DarkGray bg=Reset mod=NONE
+a fg=Gray bg=Reset mod=NONE
+b fg=Reset bg=Reset mod=NONE
+c fg=LightBlue bg=Reset mod=NONE
+d fg=LightMagenta bg=Reset mod=NONE
+e fg=Cyan bg=Reset mod=NONE
+f fg=Green bg=Reset mod=NONE
+g fg=LightRed bg=Reset mod=NONE
+h fg=Black bg=LightBlue mod=BOLD
+i fg=Gray bg=Reset mod=BOLD
+j fg=LightBlue bg=Blue mod=BOLD
+k fg=LightMagenta bg=Blue mod=NONE
+l fg=Cyan bg=Blue mod=NONE
+m fg=White bg=Blue mod=NONE
+n fg=DarkGray bg=Blue mod=NONE
+o fg=Yellow bg=Reset mod=NONE
+p fg=LightBlue bg=Reset mod=BOLD | REVERSED

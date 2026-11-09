@@ -2,17 +2,15 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
-┌ Download #7 ─────────────────────────────────────────────────────────────────┐
-│     Name  missing-file.zip                                                   │
-│      Now  Failed — press r to retry (partial files are kept)                 │
-│   Status  error  ░░░░░░░░░░░░░░░░    -  0 B / -                              │
-│    Speed  ▼ 0 B/s  ▲ 0 B/s  ETA -  peers -  ratio -                          │
-│      Dir  /home/me/Downloads                                                 │
-│   Source  https://example.org/missing-file.zip                               │
-│    Error  404 Not Found                                                      │
-│ 1 Files │ 5 Speed │ 6 Options                                                │
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › ✗ missing-file.zip
+╭ missing-file.zip ──────────────────────────────────────────────── #7 · aria2 ╮
+│ ✗ Failed — press r to retry (partial files are kept)                         │
+│                                                                     0 B / ?  │
+│ ▼ 0 B/s                ▲ 0 B/s                                               │
+╰──────────────────────────────────────────────────────────────────────────────╯
+  1 Files   5 Speed   6 Options   7 Info
+╭──────────────────────────────────────────────────────────────────────────────╮
 │Loading…                                                                      │
 │                                                                              │
 │                                                                              │
@@ -23,6 +21,8 @@ expression: "render(&mut s, 80, 24)"
 │                                                                              │
 │                                                                              │
 │                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
- Connected to daemon 0.1.0
- Esc back  r retry  Tab next tab  d remove  D delete files  : palette  ? help
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ DETAIL   Esc  back  r  retry  Tab  next tab  d  remove  :  palette  ?  help

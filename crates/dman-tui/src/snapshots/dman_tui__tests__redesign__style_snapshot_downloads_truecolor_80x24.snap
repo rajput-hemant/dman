@@ -1,0 +1,53 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "styled(&mut s, themed(ColorDepth::TrueColor), 80, 24)"
+---
+.....___aaaaabbccdddd_beeddd_bbfddaddgddhddbaaaaaaaaa________________bbggggggggb
+biiiiiiibaaaaaaaaaabaaaaaaaaaaabaaaaaaaabaaaaaaaaaabbbbeeeeeeeeeeee_____aaaaaaaa
+c...........cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+c___jjjjjj_____________________________________________________________________c
+c.efbddddddddddddddddddddddddddddddddbbbkkkkkkkllldddddbbbffff_bdddddddbbbbddd_c
+cmnoppppppppppppppppppppppppppppppppppppkqqqqqqqqqpppppppppooorppppppppppppppprc
+c.egbdddddddddddddddddddddddddddddddbbbbssssssssssdddddbbggggg_bgggggggbbddddd_c
+c___jjjjjjj____________________________________________________________________c
+c.eabeeddddddddddddddddddddddddddbbbbbbbllllllllll_____bbbbbbbaaaaaaaaab_______c
+c.etbdddddddddddddddddddddddddddddddbbbbuuullllllldddddbbbbbbbbbbttttttbbbbddd_c
+c___jjjjjjj____________________________________________________________________c
+c.egbdddddddddddddbbbbbbbbbbbbbbbbbbbbbbssssssssssdddddbbggggggggggggggbbbbddd_c
+c.ehbddddddddddddddddbbbbbbbbbbbbbbbbbbbhhhhhhhhhhhhhbbbbbbbbbbbbbbbbbbb_______c
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
+cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+iiiiiibvvvaaaaaaaaavvvaaaaaaaaaavvvaaaaaaaaaavvvaaaaaaaaavvvaaaaaabbbbbbbbbbbbbb
+
+. fg=Rgb(140, 156, 248) bg=Reset mod=BOLD
+_ fg=Rgb(96, 102, 132) bg=Reset mod=NONE
+a fg=Rgb(154, 160, 189) bg=Reset mod=NONE
+b fg=Reset bg=Reset mod=NONE
+c fg=Rgb(140, 156, 248) bg=Reset mod=NONE
+d fg=Rgb(213, 217, 234) bg=Reset mod=NONE
+e fg=Rgb(192, 166, 247) bg=Reset mod=NONE
+f fg=Rgb(127, 200, 236) bg=Reset mod=NONE
+g fg=Rgb(147, 211, 140) bg=Reset mod=NONE
+h fg=Rgb(242, 136, 143) bg=Reset mod=NONE
+i fg=Rgb(22, 24, 38) bg=Rgb(140, 156, 248) mod=BOLD
+j fg=Rgb(154, 160, 189) bg=Reset mod=BOLD
+k fg=Rgb(127, 200, 236) bg=Rgb(44, 49, 72) mod=NONE
+l fg=Reset bg=Rgb(44, 49, 72) mod=NONE
+m fg=Rgb(140, 156, 248) bg=Rgb(47, 53, 86) mod=BOLD
+n fg=Rgb(192, 166, 247) bg=Rgb(47, 53, 86) mod=NONE
+o fg=Rgb(127, 200, 236) bg=Rgb(47, 53, 86) mod=NONE
+p fg=Rgb(213, 217, 234) bg=Rgb(47, 53, 86) mod=NONE
+q fg=Rgb(213, 217, 234) bg=Rgb(44, 49, 72) mod=NONE
+r fg=Rgb(96, 102, 132) bg=Rgb(47, 53, 86) mod=NONE
+s fg=Rgb(147, 211, 140) bg=Rgb(44, 49, 72) mod=NONE
+t fg=Rgb(232, 193, 114) bg=Reset mod=NONE
+u fg=Rgb(232, 193, 114) bg=Rgb(44, 49, 72) mod=NONE
+v fg=Rgb(140, 156, 248) bg=Rgb(36, 40, 60) mod=BOLD

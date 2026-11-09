@@ -129,6 +129,55 @@ impl Section {
     }
 }
 
+/// Quick state filter shown as chips above the list.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum Chip {
+    /// Everything.
+    #[default]
+    All,
+    /// Downloading or seeding.
+    Active,
+    /// Queued or paused.
+    Waiting,
+    /// Finished.
+    Done,
+    /// Failed.
+    Failed,
+}
+
+impl Chip {
+    /// All chips, in display order (keys `1` … `5`).
+    pub const ALL: [Chip; 5] = [
+        Chip::All,
+        Chip::Active,
+        Chip::Waiting,
+        Chip::Done,
+        Chip::Failed,
+    ];
+
+    /// Chip label.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Chip::All => "All",
+            Chip::Active => "Active",
+            Chip::Waiting => "Waiting",
+            Chip::Done => "Done",
+            Chip::Failed => "Failed",
+        }
+    }
+
+    /// Whether a job in `state` is shown under this chip.
+    pub const fn admits(self, state: JobState) -> bool {
+        match self {
+            Chip::All => true,
+            Chip::Active => matches!(state, JobState::Active | JobState::Seeding),
+            Chip::Waiting => matches!(state, JobState::Waiting | JobState::Paused),
+            Chip::Done => matches!(state, JobState::Complete),
+            Chip::Failed => matches!(state, JobState::Error),
+        }
+    }
+}
+
 /// A display row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Row {
@@ -180,6 +229,8 @@ pub struct DownloadsList {
     pub show_removed: bool,
     /// Removed downloads matching the filter that are hidden.
     pub hidden_removed: usize,
+    /// Quick state filter.
+    pub chip: Chip,
 }
 
 impl Default for DownloadsList {
@@ -199,6 +250,7 @@ impl Default for DownloadsList {
             pending_focus: None,
             show_removed: false,
             hidden_removed: 0,
+            chip: Chip::All,
         }
     }
 }
@@ -208,6 +260,8 @@ impl DownloadsList {
     pub fn recompute(&mut self, jobs: &HashMap<JobId, Job>) {
         let old_pos = self.cursor_pos();
         let mut matching = self.matching(jobs);
+        let chip = self.chip;
+        matching.retain(|j| chip.admits(j.state));
         let before = matching.len();
         if !self.show_removed {
             matching.retain(|j| j.state != JobState::Removed);
@@ -358,21 +412,77 @@ impl DownloadsList {
 
     /// Adjust [`Self::offset`] so the cursor is inside a viewport of `height` rows.
     pub fn ensure_visible(&mut self, height: usize) {
-        let height = height.max(1);
+        self.ensure_visible_lines(height, false, 0);
+    }
+
+    /// Screen lines of display row `i` (job rows take two lines when `tall`).
+    pub fn row_lines(&self, i: usize, tall: bool) -> usize {
+        match self.rows.get(i) {
+            Some(Row::Job(_)) if tall => 2,
+            _ => 1,
+        }
+    }
+
+    /// Adjust [`Self::offset`] so the cursor (plus `scrolloff` lines of
+    /// context where possible) is inside a viewport of `lines` screen lines.
+    pub fn ensure_visible_lines(&mut self, lines: usize, tall: bool, scrolloff: usize) {
+        let lines = lines.max(1);
+        let so = scrolloff.min(lines.saturating_sub(2) / 2);
+        let n = self.rows.len();
+        // Largest offset that still fills the viewport.
+        let mut max_off = n;
+        let mut used = 0;
+        while max_off > 0 {
+            let h = self.row_lines(max_off - 1, tall);
+            if used + h > lines {
+                break;
+            }
+            used += h;
+            max_off -= 1;
+        }
         if let Some(r) = self.cursor_row() {
-            // Keep the section header above the first job of a section visible.
-            let top = if r > 0 && matches!(self.rows[r - 1], Row::Section { .. }) {
-                r - 1
-            } else {
-                r
-            };
+            // Rows above the cursor that must stay visible: the section
+            // header of its section's first job, plus scrolloff.
+            let mut top = r;
+            if top > 0 && matches!(self.rows[top - 1], Row::Section { .. }) {
+                top -= 1;
+            }
+            let mut ctx = 0;
+            while top > 0 && ctx < so {
+                top -= 1;
+                ctx += self.row_lines(top, tall);
+            }
             if top < self.offset {
                 self.offset = top;
-            } else if r >= self.offset + height {
-                self.offset = r + 1 - height;
+            }
+            let mut bottom = r;
+            let mut ctx = 0;
+            while bottom + 1 < n && ctx < so {
+                bottom += 1;
+                ctx += self.row_lines(bottom, tall);
+            }
+            let heights: Vec<usize> = (0..n).map(|i| self.row_lines(i, tall)).collect();
+            let span = |from: usize, to: usize| -> usize { heights[from..=to].iter().sum() };
+            while self.offset < r && span(self.offset, bottom) > lines {
+                self.offset += 1;
             }
         }
-        self.offset = self.offset.min(self.rows.len().saturating_sub(height));
+        self.offset = self.offset.min(max_off);
+    }
+
+    /// Display rows from [`Self::offset`] that fit in `lines` screen lines.
+    pub fn visible_rows(&self, lines: usize, tall: bool) -> usize {
+        let mut used = 0;
+        let mut count = 0;
+        for i in self.offset..self.rows.len() {
+            let h = self.row_lines(i, tall);
+            if used + h > lines {
+                break;
+            }
+            used += h;
+            count += 1;
+        }
+        count
     }
 
     /// Jobs an action applies to: the selection, else the cursor job.
@@ -579,6 +689,41 @@ mod tests {
         l.stopped_page = 9;
         l.recompute(&jobs);
         assert_eq!(l.stopped_page, 2);
+    }
+
+    #[test]
+    fn chips_filter_by_state() {
+        let jobs = jobs_map(vec![
+            job(1, "a", JobState::Active),
+            job(2, "b", JobState::Error),
+            job(3, "c", JobState::Complete),
+        ]);
+        let mut l = list(&jobs);
+        l.chip = Chip::Failed;
+        l.recompute(&jobs);
+        assert_eq!(l.order, vec![JobId(2)]);
+        l.chip = Chip::All;
+        l.recompute(&jobs);
+        assert_eq!(l.order.len(), 3);
+    }
+
+    #[test]
+    fn tall_rows_and_scrolloff() {
+        let jobs = jobs_map((1..=20).map(|i| job(i, "x", JobState::Active)).collect());
+        let mut l = list(&jobs);
+        // 21 rows (section + 20 jobs); 10 lines hold 4 tall jobs + header.
+        l.move_by(6);
+        l.ensure_visible_lines(10, true, 3);
+        let r = l.cursor_row().unwrap_or(0);
+        assert!(r >= l.offset && r < l.offset + l.visible_rows(10, true));
+        // Context below the cursor stays visible.
+        assert!(r + 1 < l.offset + l.visible_rows(10, true));
+        l.to_top();
+        l.ensure_visible_lines(10, true, 3);
+        assert_eq!(l.offset, 0);
+        l.to_bottom();
+        l.ensure_visible_lines(10, true, 3);
+        assert_eq!(l.offset + l.visible_rows(10, true), 21);
     }
 
     #[test]

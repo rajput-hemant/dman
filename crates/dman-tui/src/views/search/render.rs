@@ -1,16 +1,18 @@
 //! Drawing of the search view.
 
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row as TableRow, Table};
+use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row as TableRow, Table, Wrap};
 
 use super::filter::SortKey;
 use super::{Focus, Prov, result_key};
 use crate::action::Action;
 use crate::app::State;
 use crate::format::{self, truncate};
+use crate::layout::{Hit, split_preview};
+use crate::widgets::scrollbar;
 
 /// Braille spinner frames.
 pub const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -115,9 +117,10 @@ fn areas(area: Rect, state: &State) -> Areas {
     }
 }
 
-/// Table body rows that fit below the form (the header row is not counted).
+/// Table body rows that fit below the form (the borders and the header row
+/// are not counted).
 pub fn table_rows(body: Rect, state: &State) -> usize {
-    usize::from(areas(body, state).table.height.saturating_sub(1))
+    usize::from(areas(body, state).table.height.saturating_sub(3))
 }
 
 fn provider_line(state: &State, focused: bool, width: usize) -> Line<'static> {
@@ -137,9 +140,28 @@ fn provider_line(state: &State, focused: bool, width: usize) -> Line<'static> {
         };
         return Line::styled(hint, t.dim);
     }
+    let spin = state.anim_ms().map_or_else(
+        || super::render::SPINNER[s.spin % SPINNER.len()],
+        |ms| t.icons.spin(ms),
+    );
     let items: Vec<String> = enabled
         .iter()
-        .map(|n| format!("[{}] {n}", if s.off.contains(*n) { " " } else { "x" }))
+        .map(|n| {
+            let on = !s.off.contains(*n);
+            let dot = if on { t.icons.online } else { t.icons.offline };
+            let status = s.run.as_ref().and_then(|r| {
+                r.providers
+                    .iter()
+                    .find(|(name, _)| name == n)
+                    .map(|(_, p)| match p {
+                        Prov::Running => format!(" {spin}"),
+                        Prov::Done { count, .. } => format!(" {} {count}", t.icons.done),
+                        Prov::Failed(_) => format!(" {}", t.icons.error),
+                        Prov::Cancelled => " –".to_owned(),
+                    })
+            });
+            format!("{dot} {n}{}", status.unwrap_or_default())
+        })
         .collect();
     let cursor = s.sel_cursor.min(items.len() - 1);
     let widths: Vec<usize> = items.iter().map(|i| i.chars().count() + 2).collect();
@@ -161,7 +183,7 @@ fn provider_line(state: &State, focused: bool, width: usize) -> Line<'static> {
         let style = if focused && i == cursor {
             t.cursor
         } else if s.off.contains(enabled[i]) {
-            t.dim
+            t.faint
         } else {
             t.text
         };
@@ -176,10 +198,10 @@ fn render_form(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
     let s = &state.search;
     let form_focus = s.focus != Focus::Results && !s.history_open;
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(if form_focus { t.accent } else { t.border })
-        .title(Span::styled(" Search torrents ", t.accent));
+    let block = t.block_focus(form_focus).title(Span::styled(
+        format!(" {} Search torrents ", t.icons.search),
+        t.accent,
+    ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let width = usize::from(inner.width).saturating_sub(LABEL_W + 2);
@@ -343,6 +365,114 @@ fn date_text(state: &State, secs: Option<i64>) -> String {
         )
 }
 
+fn render_results(frame: &mut Frame<'_>, area: Rect, state: &State) {
+    let t = &state.theme;
+    let (list, preview) = split_preview(area, state.ui.preview && state.search.run.is_some());
+    let focused = state.search.focus == Focus::Results;
+    let title = match &state.search.run {
+        Some(run) if !run.query.is_empty() => {
+            format!(" Results for '{}' ", truncate(&run.query, 40))
+        }
+        _ => " Results ".to_owned(),
+    };
+    let block = t.block_focus(focused).title(Span::styled(title, t.accent));
+    let inner = block.inner(list);
+    frame.render_widget(block, list);
+    render_table(frame, inner, state);
+    let s = &state.search;
+    let height = usize::from(inner.height.saturating_sub(1));
+    if let Some(r) = scrollbar(
+        frame,
+        list.inner(Margin::new(0, 1)),
+        t,
+        s.rows.len(),
+        s.offset,
+        height,
+    ) {
+        state.hit(r, Hit::SearchScroll);
+    }
+    if let Some(p) = preview {
+        render_preview(frame, p, state);
+    }
+}
+
+fn health(t: &crate::theme::Theme, seeders: Option<u32>) -> Style {
+    match seeders {
+        Some(n) if n > 50 => t.ok,
+        Some(n) if n > 5 => t.warn,
+        Some(_) => t.error,
+        None => t.faint,
+    }
+}
+
+fn render_preview(frame: &mut Frame<'_>, area: Rect, state: &State) {
+    let t = &state.theme;
+    let s = &state.search;
+    let block = t.block().title(Span::styled(" Result ", t.accent));
+    let inner = block.inner(area).inner(Margin::new(1, 0));
+    frame.render_widget(block, area);
+    let result = s
+        .run
+        .as_ref()
+        .and_then(|run| s.rows.get(s.cursor).and_then(|i| run.results.get(*i)));
+    let Some(r) = result else {
+        frame.render_widget(
+            Paragraph::new(Line::styled("No result selected.", t.dim)),
+            inner,
+        );
+        return;
+    };
+    let kv = |k: &str, v: String, style: Style| {
+        Line::from(vec![
+            Span::styled(format!("{k:<9}"), t.faint),
+            Span::styled(v, style),
+        ])
+    };
+    let mut lines = vec![
+        Line::styled(
+            r.title.clone(),
+            t.text.add_modifier(ratatui::style::Modifier::BOLD),
+        ),
+        Line::default(),
+    ];
+    lines.push(kv(
+        "Size",
+        r.size.map_or("unknown".into(), format::size),
+        t.text,
+    ));
+    lines.push(kv(
+        "Seeders",
+        r.seeders.map_or("unknown".into(), |n| n.to_string()),
+        health(t, r.seeders),
+    ));
+    lines.push(kv(
+        "Leechers",
+        r.leechers.map_or("unknown".into(), |n| n.to_string()),
+        t.dim,
+    ));
+    lines.push(kv("Sources", r.sources.join(", "), t.dim));
+    lines.push(kv("Date", date_text(state, r.date), t.dim));
+    if let Some(c) = &r.category {
+        lines.push(kv("Category", c.clone(), t.dim));
+    }
+    if let Some(h) = &r.info_hash {
+        lines.push(kv(
+            "Hash",
+            format::middle(h, usize::from(inner.width).saturating_sub(9)),
+            t.faint,
+        ));
+    }
+    lines.push(Line::default());
+    let key = |a: Action| super::key_hint(state, a);
+    lines.push(Line::from(vec![
+        Span::styled(format!(" {} ", key(Action::SearchAddDirect)), t.pill),
+        Span::styled(" download now  ", t.dim),
+        Span::styled(format!(" {} ", key(Action::SearchAdd)), t.pill),
+        Span::styled(" options first", t.dim),
+    ]));
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
 fn render_table(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
     let s = &state.search;
@@ -400,12 +530,8 @@ fn render_table(frame: &mut Frame<'_>, area: Rect, state: &State) {
                 Col::Num => Cell::from(right((pos + 1).to_string())),
                 Col::Title => Cell::from(truncate(&r.title, title_w)),
                 Col::Size => Cell::from(right(r.size.map_or("-".into(), format::size))),
-                Col::Seeders => Cell::from(right(r.seeders.map_or("-".into(), |n| n.to_string())))
-                    .style(if r.seeders.unwrap_or(0) > 0 {
-                        t.ok
-                    } else {
-                        t.dim
-                    }),
+                Col::Seeders => Cell::from(right(r.seeders.map_or("–".into(), |n| n.to_string())))
+                    .style(health(t, r.seeders)),
                 Col::Leechers => {
                     Cell::from(right(r.leechers.map_or("-".into(), |n| n.to_string())))
                 }
@@ -414,6 +540,8 @@ fn render_table(frame: &mut Frame<'_>, area: Rect, state: &State) {
             });
             let row = TableRow::new(cells);
             let row = if marked { row.style(t.marked) } else { row };
+            let y = area.y + 1 + u16::try_from(pos - s.offset).unwrap_or(0);
+            state.hit(Rect::new(area.x, y, area.width, 1), Hit::SearchRow(pos));
             if pos == s.cursor && s.focus == Focus::Results {
                 row.style(t.cursor)
             } else {
@@ -520,6 +648,6 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
     if state.search.history_open {
         render_history(frame, a.table, state);
     } else {
-        render_table(frame, a.table, state);
+        render_results(frame, a.table, state);
     }
 }

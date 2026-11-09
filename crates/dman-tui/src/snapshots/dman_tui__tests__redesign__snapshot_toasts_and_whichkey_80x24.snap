@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+  All 7   Active 3   Waiting 2   Done 1   Failed 1                  sort name ▼
+╭ Downloads ───────────────────────────────────────────────────────────────────╮
+│── Active 3 ──────────────────────────────────────────────────────────────────│
+│  ↓ big-dataset-2026.tar.zst           █           10%    3.0M   1h42m   20.0G│
+│  ↑ debian-13.2.0-amd64-netinst.iso    ██████████ 100%  256.0K   r1.50  700.0M│
+│▌ ↓ ubuntu-24.04.1-desktop-amd64.iso   ██████▋     66%   12.0M   2m51s    6.0G│
+│── Waiting 2 ─────────────────────────────────────────────────────────────────│
+│  ⏸ archlinux-2026.11.01-x86_64.iso    ██▌         25%          paused    1.2G│
+│  ◔ ▶ Big Buck Bunny (1080p).mp4                     –       queued #1       –│
+│── Stopped 2 ─────────────────────────────────────────────────────────────────│
+│  ✗ missing-file.zip                   404 Not Found                         –│
+│  ✓ report-q3.pdf                      ██████████ 100%  done · 23h ago    3.0M│
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                            ▌✓ Removed 'report-q3.pdf' (files kept)   u  undo │
+│                                                            ▌✓ Sorted by name │
+│                                                                              │
+│  ╭ sort by — or keep going ──────────────────────────────────────────────╮   │
+│  │  q  queue      n  name       z  size       p  progress   d  speed     │   │
+│  │  e  eta        a  added      r  ratio      s  next                    │   │
+╰──╰───────────────────────────────────────────────────────────────────────╯───╯
+ LIST   Enter  details  p  pause  d  remove  :  palette  ?  help

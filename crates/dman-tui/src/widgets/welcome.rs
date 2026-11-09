@@ -7,16 +7,16 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
-use ratatui::layout::Rect;
+use ratatui::layout::{Margin, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Paragraph, Wrap};
 
 use crate::action::Action;
 use crate::app::{Cmd, State};
 use crate::keymap::{Context, Keymap, key_label};
 use crate::theme::Theme;
 use crate::views::View;
-use crate::widgets::{Modal, ModalOutcome, centered};
+use crate::widgets::{Modal, ModalOutcome, centered, modal_frame};
 
 /// The welcome dialog (no state of its own).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -58,8 +58,13 @@ impl WelcomeState {
     /// Handle a key: the shortcuts listed in the dialog work right away, any
     /// of Enter / Esc / Space / q closes it.
     pub fn handle_key(self, key: KeyEvent, state: &State) -> ModalOutcome {
-        if let Some(a @ (Action::Add | Action::Search | Action::Help | Action::Palette)) =
-            state.keymap.resolve_event(Context::Downloads, key)
+        if let Some(
+            a @ (Action::Add
+            | Action::Search
+            | Action::Help
+            | Action::Palette
+            | Action::ToggleMouse),
+        ) = state.keymap.resolve_event(Context::Downloads, key)
         {
             return ModalOutcome::Run(a);
         }
@@ -74,6 +79,7 @@ impl WelcomeState {
         vec![
             (key(keymap, Action::Add), "add a link".into()),
             (key(keymap, Action::Search), "search torrents".into()),
+            (key(keymap, Action::ToggleMouse), "mouse".into()),
             ("Enter/Esc".into(), "close".into()),
         ]
     }
@@ -116,31 +122,54 @@ impl WelcomeState {
                 Span::styled(k(Action::Palette), theme.key),
                 Span::raw(" finds any command by name"),
             ]),
+            Line::from(vec![
+                Span::styled("Mouse   ", theme.accent),
+                Span::styled(k(Action::ToggleMouse), theme.key),
+                Span::raw(" turns mouse support on (clicks, wheel, buttons)"),
+            ]),
             Line::default(),
             Line::from(vec![
-                Span::styled(format!(" {} ", k(Action::Add)), theme.action),
-                Span::raw(" add your first download   "),
-                Span::styled("Enter", theme.key),
-                Span::raw(" / "),
-                Span::styled("Esc", theme.key),
-                Span::raw(" close"),
+                Span::styled(
+                    format!(" {}  Add a download ", k(Action::Add)),
+                    theme.action,
+                ),
+                Span::raw("   "),
+                Span::styled(" Enter  Close ", theme.pill),
             ]),
         ];
-        let width = area.width.min(68);
-        let inner = usize::from(width.saturating_sub(2)).max(1);
+        let mut lines = lines;
+        let logo = [
+            Line::from(vec![
+                Span::styled(format!("{} dman", theme.icons.down), theme.accent),
+                Span::styled("  the download manager for your terminal", theme.dim),
+            ]),
+            Line::default(),
+        ];
+        let width = area.width.saturating_sub(2).min(72);
+        let inner = usize::from(width.saturating_sub(4)).max(1);
+        if area.height >= 24 {
+            for (i, l) in logo.into_iter().enumerate() {
+                lines.insert(i, l);
+            }
+        }
         let rows: usize = lines.iter().map(|l| l.width().div_ceil(inner).max(1)).sum();
         let height = u16::try_from(rows).unwrap_or(u16::MAX).saturating_add(2);
         let rect = centered(area, width, height);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(theme.border)
-            .title(Span::styled(" Welcome to dman ", theme.accent));
-        frame.render_widget(Clear, rect);
+        let inner_rect = modal_frame(
+            frame,
+            rect,
+            theme,
+            Line::from(Span::styled(
+                " Welcome to dman ",
+                theme.accent.patch(theme.surface_bg()),
+            )),
+            theme.border_focus,
+        );
         frame.render_widget(
             Paragraph::new(lines)
-                .block(block)
+                .style(theme.surface)
                 .wrap(Wrap { trim: false }),
-            rect,
+            inner_rect.inner(Margin::new(1, 0)),
         );
     }
 }

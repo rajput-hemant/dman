@@ -2,9 +2,9 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 120, 40)"
 ---
- dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
-┌ Search providers · 3 enabled of 4 ───────────────────────────────────────────────────────────────────────────────────┐
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
+ Downloads › Search › Search providers
+╭ Search providers · 3 enabled of 4 ───────────────────────────────────────────────────────────────────────────────────╮
 │On  Name                                                                      Kind    Verified   Origin  Order Timeout│
 │[x] 1337x                                                                     html    verified   builtin    10     15s│
 │[x] nyaa                                                                      html    unverified builtin    20     15s│
@@ -32,13 +32,13 @@ expression: "render(&mut s, 120, 40)"
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
+│                                                                                                                      │
 │──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
 │mine https://mine.example/search                                                                                      │
 │mine test provider                                                                                                    │
 │max 100 results · rate limit 30/min                                                                                   │
 │⚠ enabled — definition not verified against the live site                                                             │
-│Not tested yet — press t to test mine                                                                                 │
-│                                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
- 1337x: ok, 25 results
- Space toggle  t test  K queue up  J queue down  i import  e export  D remove  Esc back  : palette  ? help
+│Not tested yet — press t to test mine                                             ▌● Testing 1337x in the background… │
+│                                                                                             ▌✓ 1337x: ok, 25 results │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ PROVIDERS   Space  toggle  t  test  K  queue up  J  queue down  :  palette  ?  help

@@ -12,6 +12,7 @@
 //!
 //! Modals are drawn after the view, so live data keeps rendering underneath.
 
+pub mod bar;
 pub mod confirm;
 pub mod editor;
 pub mod footer;
@@ -20,15 +21,21 @@ pub mod input;
 pub mod palette;
 pub mod prompt;
 pub mod status;
+pub mod toast;
 pub mod welcome;
+pub mod whichkey;
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
+use ratatui::text::Line;
+use ratatui::widgets::{Clear, Scrollbar, ScrollbarOrientation, ScrollbarState};
 
 use crate::action::Action;
 use crate::api::ApiCall;
 use crate::app::State;
+use crate::theme::{ColorDepth, Theme};
 use confirm::ConfirmState;
 use input::LineInput;
 use palette::PaletteState;
@@ -164,15 +171,9 @@ impl Modal {
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, state: &State) {
         match self {
             Modal::Palette(p) => {
-                p.render(
-                    frame,
-                    area,
-                    &state.theme,
-                    &state.keymap,
-                    state.video_prefs.as_ref(),
-                );
+                p.render(frame, area, state);
             }
-            Modal::Confirm(c) => c.render(frame, area, &state.theme),
+            Modal::Confirm(c) => c.render(frame, area, state),
             Modal::Prompt(p) => p.render(frame, area, &state.theme),
             // Drawn inline by the info bar.
             Modal::Filter(_) => {}
@@ -191,4 +192,93 @@ pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
         width: w,
         height: h,
     }
+}
+
+/// Dim everything outside `keep` (the backdrop of a modal).
+pub fn dim_backdrop(frame: &mut Frame<'_>, keep: Rect, theme: &Theme) {
+    let area = frame.area();
+    let buf = frame.buffer_mut();
+    // The footer stays readable: it shows the dialog's keys.
+    for y in area.top()..area.bottom().saturating_sub(1) {
+        for x in area.left()..area.right() {
+            let inside = x >= keep.x && x < keep.right() && y >= keep.y && y < keep.bottom();
+            if !inside {
+                buf[(x, y)].set_style(theme.backdrop);
+            }
+        }
+    }
+}
+
+/// A one-cell drop shadow right of and below `rect`.
+pub fn shadow(frame: &mut Frame<'_>, rect: Rect, theme: &Theme) {
+    if theme.depth == ColorDepth::Mono || theme.shadow == Style::new() {
+        return;
+    }
+    let area = frame.area();
+    let buf = frame.buffer_mut();
+    let right = rect.right();
+    let bottom = rect.bottom();
+    for y in rect.y + 1..=bottom {
+        if right < area.right() && y < area.bottom() {
+            buf[(right, y)].set_style(theme.shadow);
+        }
+    }
+    for x in rect.x + 1..=right {
+        if x < area.right() && bottom < area.bottom() {
+            buf[(x, bottom)].set_style(theme.shadow);
+        }
+    }
+}
+
+/// Draw the frame of a modal at `rect`: dimmed backdrop, shadow, raised
+/// surface and a border in `border` with `title`. Returns the inner area.
+pub fn modal_frame(
+    frame: &mut Frame<'_>,
+    rect: Rect,
+    theme: &Theme,
+    title: Line<'static>,
+    border: Style,
+) -> Rect {
+    dim_backdrop(frame, rect, theme);
+    shadow(frame, rect, theme);
+    frame.render_widget(Clear, rect);
+    let block = theme
+        .popup()
+        .border_style(border.patch(theme.surface_bg()))
+        .title(title);
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    inner
+}
+
+/// A vertical scrollbar on the right edge of `area` (drawn over a border)
+/// when `total` rows do not fit in `shown`; returns where it was drawn.
+pub fn scrollbar(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    theme: &Theme,
+    total: usize,
+    offset: usize,
+    shown: usize,
+) -> Option<Rect> {
+    if total <= shown || area.height < 3 || area.width == 0 {
+        return None;
+    }
+    let ascii = theme.icons.set == crate::theme::IconSet::Ascii;
+    let mut sb_state = ScrollbarState::new(total.saturating_sub(shown))
+        .position(offset)
+        .viewport_content_length(shown);
+    let bar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+        .begin_symbol(None)
+        .end_symbol(None)
+        .track_symbol(Some(if ascii { "|" } else { "│" }))
+        .thumb_symbol(if ascii { "#" } else { "┃" })
+        .track_style(theme.border)
+        .thumb_style(theme.border_focus);
+    frame.render_stateful_widget(bar, area, &mut sb_state);
+    Some(Rect {
+        x: area.right().saturating_sub(1),
+        width: 1,
+        ..area
+    })
 }

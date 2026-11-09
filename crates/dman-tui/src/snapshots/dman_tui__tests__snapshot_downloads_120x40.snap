@@ -2,43 +2,43 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 120, 40)"
 ---
- dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
-  Name                                     Status  Progress             Down          Up    ETA       Size   Peers Ratio
-  Active (3)
-  ubuntu-24.04.1-desktop-amd64.iso         active  █████░░░  66%  12.0 MiB/s 800.0 KiB/s  2m51s    6.0 GiB  42/118  0.25
-  big-dataset-2026.tar.zst                 active  ░░░░░░░░  10%   3.0 MiB/s           -  1h42m   20.0 GiB       8     -
-  debian-13.2.0-amd64-netinst.iso          seeding ████████ 100%           - 256.0 KiB/s      -  700.0 MiB    5/40  1.50
-  Waiting (2)
-  ▶ Big Buck Bunny (1080p).mp4             waiting ░░░░░░░░    -           -           -      -          -       -     -
-  archlinux-2026.11.01-x86_64.iso          paused  ██░░░░░░  25%           -           -      -    1.2 GiB     0/0     -
-  Stopped (2)
-  report-q3.pdf                            done    ████████ 100%           -           -      -    3.0 MiB       -     -
-  missing-file.zip (404 Not Found)         error   ░░░░░░░░    -           -           -      -          -       -     -
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- Connected to daemon 0.1.0
- Enter details  p pause  d remove  D delete files  a add  f search  / filter  Space mark  q quit  : palette  ? help
+ dman ▸ local  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed                        250.0 GiB free  mouse off  ● online
+╭ Throughput ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ▼   15.0 MiB/s   peak      –   ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀                 no limit │
+│ ▲    1.0 MiB/s   peak      –   ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀          limit 2.0 MiB/s │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  All 7   Active 3   Waiting 2   Done 1   Failed 1                                                         sort queue ▼
+╭ Downloads ───────────────────────────────────────────────────────────╮╭ ubuntu-24.04.1-desktop-amd64.iso ────────────╮
+│── Active 3 ──────────────────────────────────────────────────────────││ ↓ Downloading · 42 peers · 12.0 MiB/s · ETA  │
+│▌ ↓ ubuntu-24.04.…op-amd64.iso ██████▋     66%   12.0M   2m51s    6.0G││ 2m51s                                        │
+│    4.0 GiB of 6.0 GiB · 42 peers · torrent · added 23h ago           ││                                              │
+│  ↓ big-dataset-2026.tar.zst   █           10%    3.0M   1h42m   20.0G││ █████████████████████████▎              66%  │
+│    2.0 GiB of 20.0 GiB · 8 connections · example.org · added 23h ago ││ 4.0 GiB of 6.0 GiB   ETA 2m51s               │
+│  ↑ debian-13.2.0…-netinst.iso ██████████ 100%  256.0K   r1.50  700.0M││                                              │
+│    700.0 MiB of 700.0 MiB · ratio 1.50 · torrent · added 23h ago     ││ ▼   12.0 MiB/s                               │
+│── Waiting 2 ─────────────────────────────────────────────────────────││ ▲  800.0 KiB/s                               │
+│  ◔ ▶ Big Buck Bun…(1080p).mp4               –       queued #1       –││                                              │
+│    video · added 23h ago                                             ││ Peers   42/118                               │
+│  ⏸ archlinux-202…1-x86_64.iso ██▌         25%          paused    1.2G││ Ratio   0.25                                 │
+│    300.0 MiB of 1.2 GiB · torrent · added 23h ago                    ││ Engine  aria2                                │
+│── Stopped 2 ─────────────────────────────────────────────────────────││ Folder  /home/me/Downloads                   │
+│  ✓ report-q3.pdf              ██████████ 100%  done · 23h ago    3.0M││ Source  https://example.or…desktop-amd64.iso │
+│    3.0 MiB · example.org                                             ││ Added   23h ago                              │
+│  ✗ missing-file.zip           404 Not Found                         –││                                              │
+│    example.org · added 23h ago                                       ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││  Enter  details   p  pause   n  rename       │
+╰──────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────╯
+ LIST   Enter  details  p  pause  d  remove  D  delete files  :  palette  ?  help

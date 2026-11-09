@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "detail_snapshot('1', 5, 80, 24)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
-┌ Download #5 ─────────────────────────────────────────────────────────────────┐
-│     Name  archlinux-2026.11.01-x86_64.iso                                    │
-│      Now  Paused — press r to resume                                         │
-│   Status  paused  ████░░░░░░░░░░░░  25%  300.0 MiB / 1.2 GiB                 │
-│    Speed  ▼ 0 B/s  ▲ 0 B/s  ETA -  peers 0/0  ratio -                        │
-│      Dir  /home/me/Downloads                                                 │
-│   Source  https://example.org/archlinux-2026.11.01-x86_64.iso                │
-│Info hash  0123456789abcdef0123456789abcdef01234567                           │
-│  Comment  Official image                                                     │
-│ 1 Files │ 2 Peers │ 3 Trackers │ 4 Pieces │ 5 Speed │ 6 Options              │
-│    #    Path                                                 Size       Done │
-│[x] 1    archlinux-2026.11.01-x86_64.iso/part-1.bin           100.0 MiB  50%  │
-│[x] 2    archlinux-2026.11.01-x86_64.iso/part-2.bin           200.0 MiB  50%  │
-│[ ] 3    archlinux-2026.11.01-x86_64.iso/part-3.bin           300.0 MiB  50%  │
-│[x] 4    archlinux-2026.11.01-x86_64.iso/part-4.bin           400.0 MiB  50%  │
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › ⏸ archlinux-2026.11.01-x86_64.iso
+╭ archlinux-2026.11.01-x86_64.iso ───────────────────────────────── #5 · aria2 ╮
+│ ⏸ Paused — press r to resume                                                 │
+│ ████████████▎                                      25%  300.0 MiB / 1.2 GiB  │
+│ ▼ 0 B/s                ▲ 0 B/s   peers 0/0                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+  1 Files 4   2 Peers 3   3 Trackers 2   4 Pieces   5 Speed   6 Options
+╭──────────────────────────────────────────────────────────────────────────────╮
+│  #    Path                                                 Size Done         │
+│☑ 1    archlinux-2026.11.01-x86_64.iso/part-1.bin      100.0 MiB ████      50%│
+│☑ 2    archlinux-2026.11.01-x86_64.iso/part-2.bin      200.0 MiB ████      50%│
+│☐ 3    archlinux-2026.11.01-x86_64.iso/part-3.bin      300.0 MiB skipped      │
+│☑ 4    archlinux-2026.11.01-x86_64.iso/part-4.bin      400.0 MiB ████      50%│
 │                                                                              │
 │                                                                              │
 │                                                                              │
 │                                                                              │
-└──────────────────────────────────────────────────────────────────────────────┘
- Connected to daemon 0.1.0
- Esc back  r resume  Space toggle file  a all files  : palette  ? help
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ DETAIL   Esc  back  r  resume  Space  toggle file  :  palette  ?  help

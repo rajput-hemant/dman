@@ -14,7 +14,7 @@ use dman_proto::{AddParams, AddSource, VideoOptions, VideoPreferencesUpdate, Vid
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::widgets::{Clear, Paragraph, Wrap};
 
 use super::preview::Preview;
 use super::video::{self, ProbeFetch, ProbeUi};
@@ -734,12 +734,13 @@ impl Picker {
             &format!(" Choose quality · {}{of} ", self.title),
             usize::from(rect.width).saturating_sub(4),
         );
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(theme.border)
-            .title(Span::styled(title, theme.accent));
-        let inner = block.inner(rect);
-        frame.render_widget(block, rect);
+        let inner = crate::widgets::modal_frame(
+            frame,
+            rect,
+            theme,
+            Line::from(Span::styled(title, theme.accent.patch(theme.surface_bg()))),
+            theme.border_focus,
+        );
         self.render_body(frame, inner, theme);
     }
 }
@@ -928,16 +929,14 @@ impl QualityFlow {
         };
         let rect = centered(area, area.width.saturating_sub(4).min(64), 7);
         frame.render_widget(Clear, rect);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(theme.border)
-            .title(Span::styled(title, theme.accent));
-        frame.render_widget(
-            Paragraph::new(lines)
-                .block(block)
-                .wrap(Wrap { trim: false }),
+        let inner = crate::widgets::modal_frame(
+            frame,
             rect,
+            theme,
+            Line::from(Span::styled(title, theme.accent.patch(theme.surface_bg()))),
+            theme.border_focus,
         );
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
     }
 }
 

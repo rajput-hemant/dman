@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
-┌ Search torrents ─────────────────────────────────────────────────────────────┐
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › Search
+╭ ⌕ Search torrents ───────────────────────────────────────────────────────────╮
 │▸ Query                                                                       │
 │  Category  (optional, e.g. movies, tv, software)                             │
 │  Providers none enabled — press F2 to open the providers settings            │
-└──────────────────────────────────────────────────────────────────────────────┘
- sort seed┌ Choose search providers first? ──────────────────────────┐
-          │No search site is switched on yet (they are all off until │
-          │you choose), so a search would find nothing.              │
-          │                                                          │
-          │Yes opens the provider list: Space switches one on, Esc   │
-          │comes back here to search.                                │
-          │                                                          │
-          │y / Enter yes     n / Esc no                              │
-          └──────────────────────────────────────────────────────────┘
-
-
-
-
-
-
- Connected to daemon 0.1.0
- y/Enter yes  n/Esc no, cancel
+╰──────────────────────────────────────────────────────────────────────────────╯
+ sort se╭ Choose search providers first? ──────────────────────────────╮
+╭ Result│ No search site is switched on yet (they are all off until    │───────╮
+│       │ you choose), so a search would find nothing.                 │       │
+│       │                                                              │       │
+│       │ Yes opens the provider list: Space switches one on, Esc      │       │
+│       │ comes back here to search.                                   │       │
+│       │                                                              │       │
+│       │ y / n                       [ Cancel ]  [ Choose providers ] │       │
+│       ╰──────────────────────────────────────────────────────────────╯       │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ CONFIRM   y  choose providers  n/Esc  cancel  Enter  choose providers

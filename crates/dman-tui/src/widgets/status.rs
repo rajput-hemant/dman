@@ -1,18 +1,20 @@
-//! Header (speeds, counts, disk, connection), info bar (sort, filter,
-//! selection, limits), banners (disconnected, engine unavailable) and the status
-//! line (last result, last error).
+//! Header (speeds, counts, disk, connection), throughput card, context row
+//! (filter chips or breadcrumb) and banners (disconnected, engine unavailable).
+//! Transient messages are toasts ([`crate::widgets::toast`]).
 
 use dman_client::ConnState;
-use dman_proto::method::Level;
+use dman_proto::JobState;
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::app::State;
-use crate::format::{limit, plural, size, speed, truncate};
-use crate::list::Section;
+use crate::format::truncate;
+use crate::layout::Hit;
+use crate::list::Chip;
+use crate::views::View;
 use crate::widgets::Modal;
 
 /// Severity of a banner line.
@@ -81,30 +83,6 @@ pub fn render_banners(frame: &mut Frame<'_>, area: Rect, state: &State) {
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-fn conn_label(state: &State) -> (String, Style) {
-    let t = &state.theme;
-    match &state.conn {
-        ConnState::Connected { .. } => ("● online".into(), t.ok),
-        ConnState::Connecting => ("◌ connecting".into(), t.warn),
-        ConnState::Disconnected { .. } => ("○ offline".into(), t.error),
-        ConnState::Failed { .. } => ("✖ failed".into(), t.error),
-    }
-}
-
-fn counts(state: &State) -> [usize; 3] {
-    let mut c = [0; 3];
-    let shown =
-        |j: &&dman_proto::Job| state.list.show_removed || j.state != dman_proto::JobState::Removed;
-    for j in state.jobs.values().filter(shown) {
-        match Section::of(j.state) {
-            Section::Active => c[0] += 1,
-            Section::Waiting => c[1] += 1,
-            Section::Stopped => c[2] += 1,
-        }
-    }
-    c
-}
-
 /// Global (down, up) speeds for the header. The daemon's figures can lag
 /// behind the job states (the last sample of a finished download), so with no
 /// transferring job the speed shown is 0.
@@ -124,32 +102,116 @@ pub fn shown_speeds(state: &State) -> (u64, u64) {
     (down, up)
 }
 
-/// Draw the one-line header.
+fn conn_label(state: &State) -> (String, Style) {
+    let t = &state.theme;
+    let i = &t.icons;
+    match &state.conn {
+        ConnState::Connected { .. } => (format!("{} online", i.online), t.ok),
+        ConnState::Connecting => {
+            let spin = state.anim_ms().map_or(i.offline, |ms| i.spin(ms));
+            (format!("{spin} connecting"), t.warn)
+        }
+        ConnState::Disconnected { .. } => (format!("{} offline", i.offline), t.error),
+        ConnState::Failed { .. } => (format!("{} failed", i.error), t.error),
+    }
+}
+
+/// (active, waiting, done, failed) counts of the listed jobs.
+fn counts(state: &State) -> [usize; 4] {
+    let mut c = [0; 4];
+    for j in state.jobs.values() {
+        match j.state {
+            JobState::Active | JobState::Seeding => c[0] += 1,
+            JobState::Waiting | JobState::Paused => c[1] += 1,
+            JobState::Complete => c[2] += 1,
+            JobState::Error => c[3] += 1,
+            JobState::Removed => {}
+        }
+    }
+    c
+}
+
+/// A segment of the header: priority (lower = kept longer) and spans.
+type Segment = (u8, Vec<Span<'static>>);
+
+fn speed_spans(
+    state: &State,
+    icon: &'static str,
+    bps: u64,
+    style: Style,
+    compact: bool,
+) -> Vec<Span<'static>> {
+    let t = &state.theme;
+    let (n, u) = if bps == 0 {
+        ("0".to_owned(), String::new())
+    } else {
+        crate::format::split_size(bps, true, compact)
+    };
+    vec![
+        Span::styled(format!("{icon} "), style),
+        Span::styled(n, if bps == 0 { t.dim } else { t.text }),
+        Span::styled(u, t.faint),
+    ]
+}
+
+/// Draw the one-line header: brand, (compact) throughput, counters, disk,
+/// limits, mouse and connection.
 pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
-    let [a, w, s] = counts(state);
-    let mut segments: Vec<(u8, Vec<Span<'_>>)> = vec![
-        (0, vec![Span::styled(" dman", t.accent)]),
-        (
-            3,
-            vec![Span::styled(format!(" [{}]", state.profile), t.dim)],
-        ),
-        (
-            0,
-            vec![
-                Span::raw("  ▼ "),
-                Span::styled(speed(shown_speeds(state).0), t.ok),
-                Span::raw(" ▲ "),
-                Span::styled(speed(shown_speeds(state).1), t.ok),
-            ],
-        ),
-        (
-            1,
-            vec![Span::raw(format!(
-                "  {a} active · {w} waiting · {s} stopped"
-            ))],
-        ),
-    ];
+    let width = usize::from(area.width);
+    let card = crate::layout::card_shown(state.size, state);
+    let (down, up) = shown_speeds(state);
+    let mut left: Vec<Segment> = vec![(
+        0,
+        vec![
+            Span::styled(" dman", t.accent),
+            Span::styled(" ▸ ", t.faint),
+            Span::styled(state.profile.clone(), t.dim),
+        ],
+    )];
+    if !card {
+        let mut s = vec![Span::raw("  ")];
+        s.extend(speed_spans(state, t.icons.down, down, t.graph_down, true));
+        left.push((0, s));
+        let history: Vec<u64> = state.graph.history.iter().map(|x| x.down).collect();
+        if history.iter().any(|v| *v > 0) {
+            left.push((
+                4,
+                vec![
+                    Span::raw(" "),
+                    Span::styled(
+                        crate::widgets::bar::sparkline(&history, 12, 0),
+                        t.graph_down,
+                    ),
+                ],
+            ));
+        }
+        let mut s = vec![Span::raw(" ")];
+        s.extend(speed_spans(state, t.icons.up, up, t.graph_up, true));
+        left.push((1, s));
+    }
+    let [a, w, d, f] = counts(state);
+    let any = a + w + d + f > 0;
+    let mut c = vec![Span::raw("  ")];
+    let short = width < 100;
+    let mut counter = |n: usize, icon: &'static str, style: Style, label: &str| {
+        if n == 0 && (label != "active" || !any) {
+            return;
+        }
+        if short {
+            c.push(Span::styled(icon, style));
+            c.push(Span::styled(format!("{n} "), t.text));
+        } else {
+            c.push(Span::styled(format!("{icon} "), style));
+            c.push(Span::styled(n.to_string(), t.text));
+            c.push(Span::styled(format!(" {label}  "), t.faint));
+        }
+    };
+    counter(a, t.icons.active, t.info, "active");
+    counter(w, t.icons.waiting, t.dim, "waiting");
+    counter(d, t.icons.done, t.ok, "done");
+    counter(f, t.icons.error, t.error, "failed");
+    left.push((2, c));
     if let Some(text) = state
         .stats
         .schedule
@@ -161,29 +223,250 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
         } else {
             t.dim
         };
-        segments.push((2, vec![Span::styled(format!("  {text}"), style)]));
+        left.push((3, vec![Span::styled(text, style), Span::raw("  ")]));
     }
     let (conn, conn_style) = conn_label(state);
-    let right = conn.chars().count() + 1;
-    let width = usize::from(area.width);
-    // Drop segments by priority (3 first) until everything fits.
-    let len = |segs: &[(u8, Vec<Span<'_>>)]| -> usize {
+    let mut right: Vec<Segment> = Vec::new();
+    if let Some(free) = state.stats.disk_free {
+        right.push((
+            5,
+            vec![
+                Span::styled(crate::format::size(free), t.dim),
+                Span::styled(" free  ", t.faint),
+            ],
+        ));
+    }
+    let mouse = if state.mouse { "mouse on" } else { "mouse off" };
+    right.push((
+        6,
+        vec![
+            Span::styled(mouse, if state.mouse { t.dim } else { t.faint }),
+            Span::raw("  "),
+        ],
+    ));
+    right.push((0, vec![Span::styled(conn, conn_style), Span::raw(" ")]));
+    // Drop segments by priority (highest number first) until it all fits.
+    let mut segs: Vec<(bool, Segment)> = left.into_iter().map(|x| (false, x)).collect();
+    segs.extend(right.into_iter().map(|x| (true, x)));
+    let total = |segs: &[(bool, Segment)]| -> usize {
         segs.iter()
-            .flat_map(|(_, s)| s.iter())
-            .map(|s| s.content.chars().count())
+            .flat_map(|(_, (_, s))| s.iter())
+            .map(Span::width)
             .sum()
     };
-    for prio in [3, 1, 2] {
-        if len(&segments) + right < width {
+    let mut prios: Vec<u8> = segs.iter().map(|(_, s)| s.0).collect();
+    prios.sort_unstable();
+    prios.dedup();
+    while total(&segs) + 1 > width {
+        let Some(p) = prios.pop() else { break };
+        if p == 0 {
             break;
         }
-        segments.retain(|(p, _)| *p != prio);
+        segs.retain(|(_, s)| s.0 != p);
     }
-    let mut spans: Vec<Span<'_>> = segments.into_iter().flat_map(|(_, s)| s).collect();
-    let pad = width.saturating_sub(len_spans(&spans) + right);
-    spans.push(Span::raw(" ".repeat(pad)));
-    spans.push(Span::styled(conn, conn_style));
+    let side = |right: bool| -> Vec<Span<'static>> {
+        segs.iter()
+            .filter(|(r, _)| *r == right)
+            .flat_map(|(_, (_, s))| s.iter().cloned())
+            .collect()
+    };
+    let mut spans = side(false);
+    let spans_right = side(true);
+    let used: usize = spans.iter().map(Span::width).sum();
+    let fitted_right_w: usize = spans_right.iter().map(Span::width).sum();
+    spans.push(Span::raw(
+        " ".repeat(width.saturating_sub(used + fitted_right_w)),
+    ));
+    // The mouse indicator is clickable.
+    let before: usize = spans_right
+        .iter()
+        .take_while(|s| s.content != mouse)
+        .map(Span::width)
+        .sum();
+    if spans_right.iter().any(|s| s.content == mouse) {
+        let x = area.x + u16::try_from(width.saturating_sub(fitted_right_w) + before).unwrap_or(0);
+        state.hit(
+            Rect::new(x, area.y, u16::try_from(mouse.len()).unwrap_or(0), 1),
+            Hit::Mouse,
+        );
+    }
+    spans.extend(spans_right);
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// The throughput card: big numbers, peaks and braille graphs of the last
+/// minutes, plus the limits.
+pub fn render_card(frame: &mut Frame<'_>, area: Rect, state: &State) {
+    let t = &state.theme;
+    let block = t.block().title(Span::styled(" Throughput ", t.accent));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let (down, up) = shown_speeds(state);
+    let hist = &state.graph.history;
+    let downs: Vec<u64> = hist.iter().map(|s| s.down).collect();
+    let ups: Vec<u64> = hist.iter().map(|s| s.up).collect();
+    let width = usize::from(inner.width);
+    let right_w = 26usize;
+    let left_w = 30usize;
+    let graph_w = width.saturating_sub(left_w + right_w + 2);
+    let shown = graph_w * 2;
+    let peak = |v: &[u64]| {
+        v[v.len().saturating_sub(shown)..]
+            .iter()
+            .copied()
+            .max()
+            .unwrap_or(0)
+    };
+    let max = peak(&downs).max(peak(&ups));
+    let row = |icon: &'static str, now: u64, series: &[u64], style: Style, limit: u64| {
+        let (n, u) = crate::format::split_size(now, true, false);
+        let (pn, pu) = match peak(series) {
+            0 => ("–".to_owned(), String::new()),
+            p => crate::format::split_size(p, true, true),
+        };
+        let mut spans = vec![
+            Span::styled(format!(" {icon} "), style),
+            Span::styled(
+                format!("{n:>6}"),
+                if now == 0 {
+                    t.dim
+                } else {
+                    t.text.add_modifier(Modifier::BOLD)
+                },
+            ),
+            Span::styled(format!("{u:<7}"), t.faint),
+            Span::styled(format!("  peak {pn:>6}{pu:<2}"), t.faint),
+        ];
+        let used: usize = spans.iter().map(Span::width).sum();
+        spans.push(Span::raw(" ".repeat(left_w.saturating_sub(used) + 1)));
+        if graph_w > 0 {
+            spans.push(Span::styled(
+                crate::widgets::bar::braille(series, graph_w, max),
+                style,
+            ));
+        }
+        spans.push(Span::raw(" "));
+        let lim = if limit == 0 {
+            vec![Span::styled("no limit", t.faint)]
+        } else {
+            vec![
+                Span::styled("limit ", t.faint),
+                Span::styled(crate::format::speed(limit), t.warn),
+            ]
+        };
+        let lim_w: usize = lim.iter().map(Span::width).sum();
+        let used: usize = spans.iter().map(Span::width).sum();
+        spans.push(Span::raw(
+            " ".repeat(width.saturating_sub(used + lim_w + 1)),
+        ));
+        spans.extend(lim);
+        Line::from(spans)
+    };
+    let lines = vec![
+        row(
+            t.icons.down,
+            down,
+            &downs,
+            t.graph_down,
+            state.limits.download,
+        ),
+        row(t.icons.up, up, &ups, t.graph_up, state.limits.upload),
+    ];
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// The context row: filter chips, filter, sort and selection in the list;
+/// a breadcrumb in other views.
+pub fn render_context(frame: &mut Frame<'_>, area: Rect, state: &State) {
+    let t = &state.theme;
+    if !matches!(state.view(), View::Downloads) {
+        let mut spans = vec![Span::raw(" ")];
+        let crumbs = breadcrumb(state);
+        let n = crumbs.len();
+        for (i, c) in crumbs.into_iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled(" › ", t.faint));
+            }
+            spans.push(Span::styled(c, if i + 1 == n { t.accent } else { t.dim }));
+        }
+        frame.render_widget(Paragraph::new(Line::from(spans)), area);
+        return;
+    }
+    let l = &state.list;
+    let counts = crate::views::downloads::chip_counts(state);
+    let mut spans = vec![Span::raw(" ")];
+    let mut x = area.x + 1;
+    let compact = area.width < 100;
+    for (i, chip) in Chip::ALL.iter().enumerate() {
+        let label = if compact && *chip != Chip::All && counts[i] == 0 {
+            continue;
+        } else {
+            format!(" {} {} ", chip.label(), counts[i])
+        };
+        let style = if l.chip == *chip { t.mode } else { t.dim };
+        let w = u16::try_from(label.chars().count()).unwrap_or(0);
+        state.hit(Rect::new(x, area.y, w + 1, 1), Hit::Chip(*chip));
+        spans.push(Span::styled(label, style));
+        spans.push(Span::raw(" "));
+        x += w + 1;
+    }
+    let mut right: Vec<Span<'static>> = Vec::new();
+    let editing = match &state.modal {
+        Some(Modal::Filter(f)) => Some(f),
+        _ => None,
+    };
+    if let Some(f) = editing {
+        right.push(Span::styled(format!("{} /", t.icons.search), t.accent));
+        right.extend(f.input.line(t, true).spans);
+        right.push(Span::raw("  "));
+    } else if !l.filter.is_empty() {
+        right.push(Span::styled("filter ", t.faint));
+        right.push(Span::styled(l.filter.clone(), t.marked));
+        right.push(Span::raw("  "));
+    }
+    if !l.selected.is_empty() {
+        right.push(Span::styled(
+            format!("{} {} marked  ", t.icons.marked, l.selected.len()),
+            t.marked,
+        ));
+    }
+    let dir = if l.reverse { "▲" } else { "▼" };
+    right.push(Span::styled("sort ", t.faint));
+    right.push(Span::styled(format!("{} {dir} ", l.sort.label()), t.dim));
+    let used: usize = spans.iter().map(Span::width).sum();
+    let rw: usize = right.iter().map(Span::width).sum();
+    let width = usize::from(area.width);
+    if used + rw < width {
+        spans.push(Span::raw(" ".repeat(width - used - rw)));
+        spans.extend(right);
+    } else if editing.is_some() {
+        // While typing the filter it wins over the chips.
+        spans = vec![Span::raw(" ")];
+        spans.extend(right);
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+fn breadcrumb(state: &State) -> Vec<String> {
+    let mut out = Vec::new();
+    for v in &state.views {
+        out.push(match v {
+            View::Downloads => "Downloads".to_owned(),
+            View::Detail(d) => match state.jobs.get(&d.id) {
+                Some(j) => format!(
+                    "{} {}",
+                    state.theme.icons.state(j.state),
+                    crate::format::middle(j.name.trim_start_matches("[METADATA]"), 48)
+                ),
+                None => format!("Download #{}", d.id),
+            },
+            View::Help(_) => "Help".to_owned(),
+            View::Add(_) => "Add downloads".to_owned(),
+            View::Search => "Search".to_owned(),
+            View::Providers => "Search providers".to_owned(),
+        });
+    }
+    out
 }
 
 /// `HH:MM`, prefixed with the weekday when `at` is not today (in `tz`).
@@ -219,90 +502,4 @@ pub fn brief_text(
         (None, Some(w)) => b.next_window.as_ref().map(|n| format!("next {n} {w}")),
         (None, None) => None,
     }
-}
-
-fn len_spans(spans: &[Span<'_>]) -> usize {
-    spans.iter().map(|s| s.content.chars().count()).sum()
-}
-
-/// Draw the info bar: sort, filter, selection, limits.
-pub fn render_info(frame: &mut Frame<'_>, area: Rect, state: &State) {
-    let t = &state.theme;
-    let l = &state.list;
-    let dir = if l.reverse { " (rev)" } else { "" };
-    let mut spans = vec![
-        Span::styled(" sort ", t.dim),
-        Span::raw(format!("{}{dir}", l.sort.label())),
-    ];
-    let editing = match &state.modal {
-        Some(Modal::Filter(f)) => Some(f),
-        _ => None,
-    };
-    if let Some(f) = editing {
-        spans.push(Span::styled("  filter /", t.accent));
-        spans.extend(f.input.line(t, true).spans);
-    } else if !l.filter.is_empty() {
-        spans.push(Span::styled("  filter ", t.dim));
-        spans.push(Span::styled(l.filter.clone(), t.marked));
-    }
-    if !l.selected.is_empty() {
-        spans.push(Span::styled(
-            format!("  {} selected", l.selected.len()),
-            t.marked,
-        ));
-    }
-    spans.push(Span::styled("  limit ", t.dim));
-    spans.push(Span::raw(format!(
-        "▼ {} ▲ {}",
-        limit(state.limits.download),
-        limit(state.limits.upload)
-    )));
-    spans.push(Span::styled("  max ", t.dim));
-    spans.push(Span::raw(state.limits.max_concurrent.to_string()));
-    if state.pending > 0 {
-        spans.push(Span::styled(format!("  ⧗ {}", state.pending), t.warn));
-    }
-    if let Some(free) = state.stats.disk_free {
-        let disk = format!("{} free ", size(free));
-        let used = len_spans(&spans);
-        let width = usize::from(area.width);
-        if used + disk.chars().count() < width {
-            let pad = width - used - disk.chars().count();
-            spans.push(Span::raw(" ".repeat(pad)));
-            spans.push(Span::styled(disk, t.dim));
-        }
-    }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
-}
-
-/// Draw the status line: last message, plus the last error when the message
-/// is not that error.
-pub fn render_status(frame: &mut Frame<'_>, area: Rect, state: &State) {
-    let t = &state.theme;
-    let st = &state.status;
-    let mut spans = Vec::new();
-    match &st.last {
-        Some(m) => {
-            let style = match m.level {
-                Level::Info => t.text,
-                Level::Warn => t.warn,
-                Level::Error => t.error,
-            };
-            spans.push(Span::styled(format!(" {}", m.text), style));
-            if let Some(e) = &st.last_error
-                && m.level == Level::Info
-            {
-                spans.push(Span::styled("  last error: ", t.dim));
-                spans.push(Span::styled(e.clone(), t.error));
-            }
-        }
-        None => spans.push(Span::styled(
-            format!(
-                " {} · press ? for help",
-                plural(state.jobs.len(), "download")
-            ),
-            t.dim,
-        )),
-    }
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }

@@ -18,6 +18,7 @@
 //! docs of [`views`] and [`widgets`] for how to add a view or a modal.
 
 pub mod action;
+pub mod anim;
 pub mod api;
 pub mod app;
 pub mod format;
@@ -38,17 +39,34 @@ use std::time::Duration;
 
 use dman_client::ReconnectingClient;
 
-use crate::app::{State, StateOptions};
+use crate::app::{Density, State, StateOptions, UiPrefs};
 use crate::keymap::Keymap;
-use crate::theme::Theme;
+use crate::theme::{BorderKind, ColorDepth, IconSet, Theme, ThemeOptions};
 
 /// Options for [`run`], usually built with [`TuiOptions::from_config`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct TuiOptions {
-    /// Theme name (`default` or `mono`); `NO_COLOR` forces `mono`.
+    /// Theme name (`dman-dark`, `dman-light`, `high-contrast`, `tokyo-night`,
+    /// `mono`; `default` = `dman-dark`); `NO_COLOR` forces `mono`.
     pub theme: String,
+    /// Colour depth: `auto`, `truecolor`, `256`, `16`, `never`.
+    pub color: String,
+    /// Glyphs: `unicode`, `nerd`, `ascii`.
+    pub icons: String,
+    /// Borders: `rounded`, `plain`, `thick`, `ascii`.
+    pub borders: String,
+    /// `[ui.colors]` overrides.
+    pub colors: Vec<(String, String)>,
+    /// Preview pane: `auto` or `off`.
+    pub preview: String,
+    /// Row density: `auto`, `compact`, `comfortable`.
+    pub density: String,
+    /// Animations (also off with `DMAN_REDUCE_MOTION`).
+    pub animations: bool,
     /// Enable mouse support.
     pub mouse: bool,
+    /// Save mouse toggles to `[ui] mouse` in config.toml.
+    pub persist_mouse: bool,
     /// Tick interval in milliseconds (status countdowns); clamped to 50..=5000.
     pub refresh_ms: u64,
     /// The `[keys]` table of `config.toml`, if any.
@@ -69,8 +87,16 @@ pub const WELCOME_MARKER: &str = "welcome-shown";
 impl Default for TuiOptions {
     fn default() -> Self {
         Self {
-            theme: "default".into(),
+            theme: "dman-dark".into(),
+            color: "auto".into(),
+            icons: "unicode".into(),
+            borders: "rounded".into(),
+            colors: Vec::new(),
+            preview: "auto".into(),
+            density: "auto".into(),
+            animations: true,
             mouse: false,
+            persist_mouse: false,
             refresh_ms: 250,
             keys: None,
             profile: "local".into(),
@@ -85,7 +111,20 @@ impl TuiOptions {
     pub fn from_config(config: &dman_config::Config, profile: &str) -> Self {
         Self {
             theme: config.ui.theme.clone(),
+            color: config.ui.color.clone(),
+            icons: config.ui.icons.clone(),
+            borders: config.ui.borders.clone(),
+            colors: config
+                .ui
+                .colors
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            preview: config.ui.preview.clone(),
+            density: config.ui.density.clone(),
+            animations: config.ui.animations,
             mouse: config.ui.mouse,
+            persist_mouse: true,
             refresh_ms: config.ui.refresh_ms,
             keys: config
                 .extra
@@ -104,10 +143,69 @@ impl TuiOptions {
     /// The initial UI state for these options; key-binding problems are shown
     /// as a warning on the status line.
     pub fn initial_state(&self) -> State {
-        let (keymap, warnings) = Keymap::from_config(self.keys.as_ref());
+        self.initial_state_with_env(&|k| std::env::var(k).ok())
+    }
+
+    /// [`TuiOptions::initial_state`] with the environment passed explicitly.
+    pub fn initial_state_with_env(&self, env: &dyn Fn(&str) -> Option<String>) -> State {
+        let (keymap, mut warnings) = Keymap::from_config(self.keys.as_ref());
         let marker = self.state_dir.as_ref().map(|d| d.join(WELCOME_MARKER));
+        let mut warn = |w: String| warnings.push(w);
+        let icons = match self.icons.as_str() {
+            "unicode" | "" | "auto" => IconSet::Unicode,
+            "nerd" => IconSet::Nerd,
+            "ascii" => IconSet::Ascii,
+            other => {
+                warn(format!(
+                    "[ui] icons: unknown '{other}' (unicode, nerd, ascii)"
+                ));
+                IconSet::Unicode
+            }
+        };
+        let borders = match self.borders.as_str() {
+            "rounded" | "" => BorderKind::Rounded,
+            "plain" => BorderKind::Plain,
+            "thick" => BorderKind::Thick,
+            "ascii" => BorderKind::Ascii,
+            other => {
+                warn(format!(
+                    "[ui] borders: unknown '{other}' (rounded, plain, thick, ascii)"
+                ));
+                BorderKind::Rounded
+            }
+        };
+        if !matches!(
+            self.color.as_str(),
+            "auto" | "" | "truecolor" | "24bit" | "256" | "16" | "never" | "mono"
+        ) {
+            warn(format!(
+                "[ui] color: unknown '{}' (auto, truecolor, 256, 16, never)",
+                self.color
+            ));
+        }
+        let depth = ColorDepth::detect(&self.color, env);
+        let density = match self.density.as_str() {
+            "auto" | "" => Density::Auto,
+            "compact" => Density::Compact,
+            "comfortable" => Density::Comfortable,
+            other => {
+                warn(format!(
+                    "[ui] density: unknown '{other}' (auto, compact, comfortable)"
+                ));
+                Density::Auto
+            }
+        };
+        let (theme, theme_warnings) = Theme::build_with_warnings(&ThemeOptions {
+            name: self.theme.clone(),
+            depth,
+            icons,
+            borders,
+            colors: self.colors.clone(),
+        });
+        warnings.extend(theme_warnings);
+        let reduce_motion = env("DMAN_REDUCE_MOTION").is_some_and(|v| !v.is_empty() && v != "0");
         let mut state = State::new(StateOptions {
-            theme: Theme::resolve(&self.theme, Theme::no_color_env()),
+            theme,
             keymap,
             mouse: self.mouse,
             profile: self.profile.clone(),
@@ -116,6 +214,12 @@ impl TuiOptions {
             desktop: self.desktop,
             welcome: !marker.as_ref().is_some_and(|m| m.exists()),
             welcome_marker: marker,
+            ui: UiPrefs {
+                animations: self.animations && !reduce_motion,
+                preview: self.preview != "off",
+                density,
+                persist_mouse: self.persist_mouse,
+            },
         });
         if !warnings.is_empty() {
             state.status.warn(warnings.join("; "));

@@ -35,6 +35,16 @@ use crate::views;
 /// Minimum time between two frames (20 fps).
 pub const MIN_FRAME: Duration = Duration::from_millis(50);
 
+/// Minimum time between two frames while something animates (30 fps).
+pub const ANIM_FRAME: Duration = Duration::from_millis(33);
+
+async fn sleep_until_opt(at: Option<Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
+    }
+}
+
 const CHANNEL_CAPACITY: usize = 512;
 
 /// Whether the terminal is currently in TUI mode (checked by the panic hook).
@@ -142,19 +152,32 @@ pub async fn run_loop(client: ReconnectingClient, mut state: State) -> anyhow::R
     state.refresh_list();
     draw(&mut terminal, &mut state)?;
     let mut last_draw = Instant::now();
+    let mut last_frame = Instant::now();
+    let mut animating = false;
 
     loop {
-        let msg = if state.dirty {
-            tokio::select! {
-                m = rx.recv() => m,
-                () = tokio::time::sleep_until(last_draw + MIN_FRAME) => {
-                    draw(&mut terminal, &mut state)?;
-                    last_draw = Instant::now();
-                    continue;
-                }
+        let interval = state.frame_interval();
+        if interval.is_some() && !animating {
+            // Animation (re)starts: measure from now, not from the last run.
+            last_frame = Instant::now();
+        }
+        animating = interval.is_some();
+        let min_frame = if animating { ANIM_FRAME } else { MIN_FRAME };
+        let draw_due = state.dirty.then(|| last_draw + min_frame);
+        let frame_due = interval.map(|d| last_frame + d);
+        let msg = tokio::select! {
+            m = rx.recv() => m,
+            () = sleep_until_opt(draw_due) => {
+                draw(&mut terminal, &mut state)?;
+                last_draw = Instant::now();
+                continue;
             }
-        } else {
-            rx.recv().await
+            () = sleep_until_opt(frame_due) => {
+                let now = Instant::now();
+                let dt = now - last_frame;
+                last_frame = now;
+                Some(Msg::Frame(dt))
+            }
         };
         let Some(msg) = msg else { break };
         let was_dirty = state.dirty;
@@ -162,10 +185,20 @@ pub async fn run_loop(client: ReconnectingClient, mut state: State) -> anyhow::R
         state.dirty |= was_dirty;
         let mut quit = false;
         for cmd in cmds {
-            if cmd == Cmd::Quit {
-                quit = true;
-            } else {
-                spawn_cmd(cmd, &client, &tx);
+            match cmd {
+                Cmd::Quit => quit = true,
+                Cmd::SetMouseCapture(on) => {
+                    let mut out = stdout();
+                    let r = if on {
+                        execute!(out, EnableMouseCapture)
+                    } else {
+                        execute!(out, DisableMouseCapture)
+                    };
+                    if let Err(e) = r {
+                        tracing::warn!("cannot switch mouse capture: {e}");
+                    }
+                }
+                cmd => spawn_cmd(cmd, &client, &tx),
             }
         }
         if quit {
@@ -266,10 +299,28 @@ fn spawn_cmd(cmd: Cmd, client: &ReconnectingClient, tx: &mpsc::Sender<Msg>) {
                 .await;
                 return;
             }
-            Cmd::Quit => return,
+            Cmd::SaveMouse(on) => {
+                let _ = blocking(move || {
+                    if let Err(e) = save_mouse(on) {
+                        tracing::debug!("cannot save [ui] mouse: {e}");
+                    }
+                })
+                .await;
+                return;
+            }
+            Cmd::Quit | Cmd::SetMouseCapture(_) => return,
         };
         let _ = tx.send(msg).await;
     });
+}
+
+/// Write `[ui] mouse = on` to config.toml (comments are kept).
+fn save_mouse(on: bool) -> anyhow::Result<()> {
+    let paths = dman_config::Paths::discover()?;
+    let mut doc = dman_config::ConfigDoc::open(&paths)?;
+    doc.set(&["ui", "mouse"], on)?;
+    doc.save()?;
+    Ok(())
 }
 
 /// Run blocking work off the async threads.

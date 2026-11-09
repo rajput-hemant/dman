@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman [local]  ▼ 0 B/s ▲ 0 B/s  0 active · 0 waiting · 0 stopped   ◌ connecting
- sort queue  limit ▼ unlimited ▲ unlimited  max 0
+ dman ▸ local  ▼ 0 ▲ 0                                  mouse off  ○ connecting
+  All 0                                                            sort queue ▼
  Connecting to the daemon…
-  Name                       Status  Progress             Down    ETA       Size
-
-
-
-
-
-
-
-
-                        No data — waiting for the daemon
-
-
-
-
-
-
-
-
-
- 0 downloads · press ? for help
- a add a link or torrent  f search torrents  q quit  : palette  ? help
+╭ Downloads ───────────────────────────────────────────────────────────────────╮
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                      ⠋ No data — waiting for the daemon                      │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ LIST   a  add a link or torrent  f  search torrents  :  palette  ?  help

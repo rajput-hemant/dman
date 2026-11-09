@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
-┌ Sources · 3 items (1 local) ─────────────────────────────────────────────────┐
-│h┌ Review — nothing is added until you press Enter ─────────────────────────┐s│
-│m│Add 3 downloads to your default folder                                    │t│
-│/│                                                                          │…│
-└─│1. [https] a.iso  size unknown                                            │─┘
-  │     https://example.org/a.iso                                            │
-┌ │2. [magnet] Some Movie  size unknown                                      │─┐
-│ │     metadata will be fetched after adding                                │…│
-│ │3. [torrent] dir  7 B                                                     │ │
-│ │     info-hash 21e7f7434d48f160bd729e70246fa7758a8bbd6f                   │ │
-│ │     [x]   1  a/x  (3 B)                                                  │ │
-│ │     [x]   2  b  (4 B)                                                    │…│
-│ │                                                                          │ │
-│ │Enter add & start   Esc back                                              │ │
-│ │                                                                          │ │
-│ │                                                                          │ │
-│ │                                                                          │…│
-│ │                                                                          │ │
-│ └──────────────────────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────────────┘
- Connected to daemon 0.1.0
- Enter add & start  Esc change options  ↑↓ scroll  Ctrl-p palette  F1 help
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › Add downloads
+╭ Review — nothing is added until you press Enter ─────────────────────────────╮
+│ Add 3 downloads to your default folder                                       │
+│                                                                              │
+│ 1. [https] a.iso  size unknown                                               │
+│      https://example.org/a.iso                                               │
+│ 2. [magnet] Some Movie  size unknown                                         │
+│      metadata will be fetched after adding                                   │
+│ 3. [torrent] dir  7 B                                                        │
+│      info-hash 21e7f7434d48f160bd729e70246fa7758a8bbd6f                      │
+│      [x]   1  a/x  (3 B)                                                     │
+│      [x]   2  b  (4 B)                                                       │
+│                                                                              │
+│ Enter add & start   Esc back                                                 │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ADD   Enter  add & start  Esc  change options  Ctrl-p  palette  F1  help

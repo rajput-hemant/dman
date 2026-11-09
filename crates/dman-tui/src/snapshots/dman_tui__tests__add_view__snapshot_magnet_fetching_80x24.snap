@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5  ⧗ 1           250.0 GiB free
-┌ Sources · 1 item ────────────────────────────────────────────────────────────┐
-│m┌ Review — nothing is added until you press Enter ─────────────────────────┐t│
-│ │Add 1 download to your default folder                                     │ │
-│ │                                                                          │ │
-│ │1. [magnet] Some Movie  size unknown                                      │ │
-│ │     metadata will be fetched after adding                                │ │
-│ │     ⠋ fetching metadata… 0s (Esc to cancel)                              │ │
-│ │                                                                          │ │
-│ │Esc cancel fetch                                                          │ │
-│ │                                                                          │ │
-│ │                                                                          │ │
-│ │                                                                          │ │
-└─│                                                                          │─┘
-  │                                                                          │
-┌ │                                                                          │─┐
-│ │                                                                          │…│
-│ │                                                                          │ │
-│ │                                                                          │ │
-│ └──────────────────────────────────────────────────────────────────────────┘…│
-└──────────────────────────────────────────────────────────────────────────────┘
- Connected to daemon 0.1.0
- Esc cancel fetch  Ctrl-p palette  F1 help
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ Downloads › Add downloads
+╭ Review — nothing is added until you press Enter ─────────────────────────────╮
+│ Add 1 download to your default folder                                        │
+│                                                                              │
+│ 1. [magnet] Some Movie  size unknown                                         │
+│      metadata will be fetched after adding                                   │
+│      ⠋ fetching metadata… 0s (Esc to cancel)                                 │
+│                                                                              │
+│ Esc cancel fetch                                                             │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+╰──────────────────────────────────────────────────────────────────────────────╯
+ ADD   Esc  cancel fetch  Ctrl-p  palette  F1  help                   ⠋ working

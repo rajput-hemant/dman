@@ -2,43 +2,43 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 120, 40)"
 ---
- dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
- sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
-┌ Search torrents ─────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
+ Downloads › Search
+╭ ⌕ Search torrents ───────────────────────────────────────────────────────────────────────────────────────────────────╮
 │  Query     ubuntu 24.04                                                                                              │
 │  Category  (optional, e.g. movies, tv, software)                                                                     │
-│  Providers [x] 1337x  [x] nyaa                                                                                       │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+│  Providers ● 1337x ✓ 3  ● nyaa ✗                                                                                     │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
  1337x ✓ 3 in 340 ms   nyaa ✗ failed: timed out after 15s   tpb ⠋
  sort seeders▼  seeders ≥ 5  3/4 shown  1 marked
-  #   Title                                                                 Size     S     L Sources          Date
-●   1 Ubuntu 24.04.1 Desktop amd64                                       6.0 GiB  1204    31 1337x,tpb        2024-08-29
-    2 Ubuntu 24.04 Server                                                2.0 GiB   310     8 nyaa             2024-04-25
-    3 ubuntu-24.04-live-server                                         900.0 MiB    12     1 1337x            2024-05-02
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
- Minimum seeders: 5
- Enter download 1 marked  e change options first  Space mark  i new search  / filter  s sort  : palette  ? help
+╭ Results for 'ubuntu 24.04' ──────────────────────────────────────────╮╭ Result ──────────────────────────────────────╮
+│  #   Title                                Size     S     L Date      ││ ubuntu-24.04-live-server                     │
+│●   1 Ubuntu 24.04.1 Desktop amd64      6.0 GiB  1204    31 2024-08-29││                                              │
+│    2 Ubuntu 24.04 Server               2.0 GiB   310     8 2024-04-25││ Size     900.0 MiB                           │
+│    3 ubuntu-24.04-live-server        900.0 MiB    12     1 2024-05-02││ Seeders  12                                  │
+│                                                                      ││ Leechers 1                                   │
+│                                                                      ││ Sources  1337x                               │
+│                                                                      ││ Date     2024-05-02                          │
+│                                                                      ││                                              │
+│                                                                      ││  Enter  download now   e  options first      │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                                              │
+│                                                                      ││                        ▌✓ Minimum seeders: 5 │
+╰──────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────╯
+ SEARCH   Enter  download 1 marked  e  change options first  Space  mark  i  new search  :  palette  ?  help

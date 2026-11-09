@@ -110,3 +110,92 @@ pub fn sample_limits() -> Limits {
         max_concurrent: 5,
     }
 }
+
+/// A detail reply for `job`: four files, peers, trackers, a piece map, a speed
+/// history and a few options.
+pub fn sample_detail(job: &Job) -> dman_proto::JobDetail {
+    use dman_proto::{
+        FileInfo, JobDetail, JobOptions, PeerInfo, PieceMap, SpeedSample, TrackerInfo,
+        TrackerStatus,
+    };
+    let files = (1..=4u32)
+        .map(|i| FileInfo {
+            index: i,
+            path: format!("{}/part-{i}.bin", job.name),
+            length: u64::from(i) * 100 * MIB,
+            completed: u64::from(i) * 50 * MIB,
+            selected: i != 3,
+        })
+        .collect();
+    let peers = vec![
+        PeerInfo {
+            ip: "203.0.113.7".into(),
+            port: 51413,
+            download_speed: 2 * MIB,
+            upload_speed: 0,
+            seeder: true,
+            progress: 1.0,
+        },
+        PeerInfo {
+            ip: "198.51.100.23".into(),
+            port: 6881,
+            download_speed: 9 * MIB,
+            upload_speed: 128 * 1024,
+            seeder: false,
+            progress: 0.42,
+        },
+        PeerInfo {
+            ip: "192.0.2.99".into(),
+            port: 30000,
+            download_speed: 0,
+            upload_speed: 64 * 1024,
+            seeder: false,
+            progress: 0.05,
+        },
+    ];
+    let trackers = vec![
+        TrackerInfo {
+            url: "udp://tracker.example.org:6969/announce".into(),
+            tier: 0,
+            status: TrackerStatus::Unknown,
+        },
+        TrackerInfo {
+            url: "https://tracker.example.net/announce".into(),
+            tier: 1,
+            status: TrackerStatus::Unknown,
+        },
+    ];
+    // 100 pieces: first 60 present, then a patchy tail.
+    let mut hex = String::from("ffffffffffffff");
+    hex.push_str("f0a50000000000");
+    hex.truncate(25);
+    let speed_history = (0..60i64)
+        .map(|i| SpeedSample {
+            t: 1_700_000_000_000 + i * 1000,
+            down: 4 * MIB + u64::try_from(i % 10).unwrap_or(0) * MIB,
+            up: 256 * 1024 + u64::try_from(i % 7).unwrap_or(0) * 64 * 1024,
+        })
+        .collect();
+    JobDetail {
+        job: job.clone(),
+        files,
+        peers,
+        trackers,
+        pieces: Some(PieceMap {
+            num_pieces: 100,
+            piece_length: 2 * MIB,
+            bitfield_hex: hex,
+        }),
+        info_hash: Some("0123456789abcdef0123456789abcdef01234567".into()),
+        comment: Some("Official image".into()),
+        options: JobOptions {
+            dir: Some("/home/me/Downloads".into()),
+            max_download_limit: Some(2 * MIB),
+            seed_ratio: Some(1.5),
+            select_files: Some(vec![1, 2, 4]),
+            ..JobOptions::default()
+        },
+        speed_history,
+        renames: Vec::new(),
+    }
+}

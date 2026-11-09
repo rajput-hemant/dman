@@ -73,6 +73,28 @@ pub enum Action {
     SetMaxConcurrent,
     /// Open the detail view of the cursor download.
     OpenDetail,
+    /// Detail: next tab.
+    DetailNextTab,
+    /// Detail: previous tab.
+    DetailPrevTab,
+    /// Detail: Files tab.
+    DetailFiles,
+    /// Detail: Peers tab.
+    DetailPeers,
+    /// Detail: Trackers tab.
+    DetailTrackers,
+    /// Detail: Pieces tab.
+    DetailPieces,
+    /// Detail: Speed tab.
+    DetailSpeed,
+    /// Detail: Options tab.
+    DetailOptions,
+    /// Detail: toggle the file under the cursor (waiting/paused only).
+    DetailToggleFile,
+    /// Detail: select / deselect all files (waiting/paused only).
+    DetailToggleAllFiles,
+    /// Detail: edit the option under the cursor.
+    DetailEditOption,
     /// Open the add view.
     Add,
     /// Add view: preview what will be added, then confirm.
@@ -135,6 +157,17 @@ impl Action {
         Action::LimitDown,
         Action::SetMaxConcurrent,
         Action::OpenDetail,
+        Action::DetailNextTab,
+        Action::DetailPrevTab,
+        Action::DetailFiles,
+        Action::DetailPeers,
+        Action::DetailTrackers,
+        Action::DetailPieces,
+        Action::DetailSpeed,
+        Action::DetailOptions,
+        Action::DetailToggleFile,
+        Action::DetailToggleAllFiles,
+        Action::DetailEditOption,
         Action::Add,
         Action::AddSubmit,
         Action::AddNextField,
@@ -184,6 +217,17 @@ impl Action {
             Action::LimitDown => "limit_down",
             Action::SetMaxConcurrent => "max_concurrent",
             Action::OpenDetail => "detail",
+            Action::DetailNextTab => "detail_next_tab",
+            Action::DetailPrevTab => "detail_prev_tab",
+            Action::DetailFiles => "detail_files",
+            Action::DetailPeers => "detail_peers",
+            Action::DetailTrackers => "detail_trackers",
+            Action::DetailPieces => "detail_pieces",
+            Action::DetailSpeed => "detail_speed",
+            Action::DetailOptions => "detail_options",
+            Action::DetailToggleFile => "detail_toggle_file",
+            Action::DetailToggleAllFiles => "detail_toggle_all_files",
+            Action::DetailEditOption => "detail_edit_option",
             Action::Add => "add",
             Action::AddSubmit => "add_submit",
             Action::AddNextField => "add_next_field",
@@ -239,6 +283,21 @@ impl Action {
             Action::LimitDown => "Lower global download limit",
             Action::SetMaxConcurrent => "Set max concurrent downloads",
             Action::OpenDetail => "Open detail",
+            Action::DetailNextTab => "Detail: next tab",
+            Action::DetailPrevTab => "Detail: previous tab",
+            Action::DetailFiles => "Detail: Files tab",
+            Action::DetailPeers => "Detail: Peers tab",
+            Action::DetailTrackers => "Detail: Trackers tab",
+            Action::DetailPieces => "Detail: Pieces tab",
+            Action::DetailSpeed => "Detail: Speed tab",
+            Action::DetailOptions => "Detail: Options tab",
+            Action::DetailToggleFile => {
+                "Detail: toggle the file under the cursor (waiting/paused only)"
+            }
+            Action::DetailToggleAllFiles => {
+                "Detail: select / deselect all files (waiting/paused only)"
+            }
+            Action::DetailEditOption => "Detail: edit the option under the cursor",
             Action::Add => "Add downloads",
             Action::AddSubmit => "Add view: preview and confirm",
             Action::AddNextField => "Add view: next field",
@@ -289,6 +348,17 @@ impl Action {
             Action::LimitDown => "limit-",
             Action::SetMaxConcurrent => "max conc.",
             Action::OpenDetail => "detail",
+            Action::DetailNextTab => "next tab",
+            Action::DetailPrevTab => "prev tab",
+            Action::DetailFiles => "files",
+            Action::DetailPeers => "peers",
+            Action::DetailTrackers => "trackers",
+            Action::DetailPieces => "pieces",
+            Action::DetailSpeed => "speed",
+            Action::DetailOptions => "options",
+            Action::DetailToggleFile => "toggle file",
+            Action::DetailToggleAllFiles => "all files",
+            Action::DetailEditOption => "edit",
             Action::Add => "add",
             Action::AddSubmit => "preview",
             Action::AddNextField => "next field",
@@ -310,7 +380,18 @@ impl Action {
     pub const fn home_context(self) -> Context {
         match self {
             Action::Palette | Action::Help | Action::Quit | Action::Shutdown => Context::Global,
-            Action::Back => Context::Detail,
+            Action::Back
+            | Action::DetailNextTab
+            | Action::DetailPrevTab
+            | Action::DetailFiles
+            | Action::DetailPeers
+            | Action::DetailTrackers
+            | Action::DetailPieces
+            | Action::DetailSpeed
+            | Action::DetailOptions
+            | Action::DetailToggleFile
+            | Action::DetailToggleAllFiles
+            | Action::DetailEditOption => Context::Detail,
             Action::AddSubmit
             | Action::AddNextField
             | Action::AddPrevField
@@ -342,6 +423,9 @@ impl Action {
                 | Action::LimitDown
                 | Action::SetMaxConcurrent
                 | Action::Shutdown
+                | Action::DetailToggleFile
+                | Action::DetailToggleAllFiles
+                | Action::DetailEditOption
                 | Action::AddPickDir
         )
     }

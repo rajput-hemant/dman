@@ -341,20 +341,19 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Cmd> {
             state.status.warn("Missed some live updates; reloading");
             vec![Cmd::Resync]
         }
-        Msg::Tick => {
-            on_tick(state);
-            Vec::new()
-        }
+        Msg::Tick => on_tick(state),
         Msg::Terminate => vec![Cmd::Quit],
     }
 }
 
-fn on_tick(state: &mut State) {
+fn on_tick(state: &mut State) -> Vec<Cmd> {
+    let cmds = views::detail::on_tick(state);
     if matches!(state.conn, ConnState::Disconnected { .. }) && !state.retry_left.is_zero() {
         state.retry_left = state.retry_left.saturating_sub(state.tick);
-    } else {
+    } else if cmds.is_empty() {
         state.dirty = false;
     }
+    cmds
 }
 
 fn on_key(state: &mut State, key: KeyEvent) -> Vec<Cmd> {
@@ -417,6 +416,7 @@ pub fn on_modal_outcome(state: &mut State, outcome: ModalOutcome) -> Vec<Cmd> {
 
 fn on_submit(state: &mut State, kind: PromptKind, value: &str) -> Vec<Cmd> {
     match kind {
+        PromptKind::JobOption(field) => views::detail::submit_option(state, field, value),
         PromptKind::MaxConcurrent => match value.parse::<u32>() {
             Ok(n) if (1..=1000).contains(&n) => {
                 state.call(ApiCall::SetLimits(dman_proto::method::LimitsUpdate {
@@ -506,6 +506,7 @@ fn apply_event(state: &mut State, event: Event) {
             state.stats = stats;
             state.limits = limits;
             state.refresh_list();
+            views::detail::close_if_gone(state);
         }
         Event::JobsUpdated { jobs } => {
             for j in jobs {
@@ -518,6 +519,7 @@ fn apply_event(state: &mut State, event: Event) {
                 state.jobs.remove(&id);
             }
             state.refresh_list();
+            views::detail::close_if_gone(state);
         }
         Event::Stats { stats } => state.stats = stats,
         Event::Limits { limits } => state.limits = limits,
@@ -539,6 +541,7 @@ fn on_conn(state: &mut State, conn: ConnState) {
         ConnState::Disconnected { retry_in, .. } => {
             state.retry_left = *retry_in;
             state.pending = 0;
+            views::detail::on_disconnect(state);
         }
         ConnState::Failed { error } => {
             state.status.error(format!("Cannot connect: {error}"));
@@ -550,6 +553,10 @@ fn on_conn(state: &mut State, conn: ConnState) {
 }
 
 fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String>) -> Vec<Cmd> {
+    if let ApiCall::Detail(id) = call {
+        views::detail::on_detail_result(state, *id, result);
+        return Vec::new();
+    }
     state.pending = state.pending.saturating_sub(1);
     if matches!(call, ApiCall::FsList(_)) {
         views::add::on_fs_listing(state, result);
@@ -569,6 +576,10 @@ fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String
     }
     if *call == ApiCall::Shutdown && result.is_ok() {
         return vec![Cmd::Quit];
+    }
+    if let ApiCall::SetOptions { id, .. } = call {
+        // Success or refusal, re-read so the view shows what is really stored.
+        return views::detail::refetch(state, *id);
     }
     Vec::new()
 }

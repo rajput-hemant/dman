@@ -30,7 +30,7 @@ pub enum View {
     /// The downloads list (state lives in `State::list`).
     Downloads,
     /// Detail of one job.
-    Detail(detail::DetailState),
+    Detail(Box<detail::DetailState>),
     /// Key bindings.
     Help(help::HelpState),
     /// Add downloads.
@@ -52,7 +52,7 @@ impl View {
     pub fn footer_actions(&self) -> &'static [Action] {
         match self {
             View::Downloads => downloads::FOOTER,
-            View::Detail(_) => &[Action::Back, Action::Help, Action::Quit],
+            View::Detail(_) => detail::FOOTER,
             View::Help(_) => &[Action::Down, Action::Up, Action::PageDown, Action::Back],
             View::Add(_) => add::FOOTER,
         }

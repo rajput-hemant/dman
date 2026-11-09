@@ -12,7 +12,7 @@ use ratatui::backend::TestBackend;
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
 use crate::app::{Cmd, Msg, State, StateOptions, update};
-use crate::fixtures::{job, sample_jobs, sample_limits, sample_stats};
+use crate::fixtures::{job, sample_detail, sample_jobs, sample_limits, sample_stats};
 use crate::theme::Theme;
 use crate::views::{self, View};
 use crate::widgets::Modal;
@@ -1232,4 +1232,365 @@ mod add_view {
         let mut s = preview_state();
         insta::assert_snapshot!(render(&mut s, 120, 40));
     }
+}
+
+// ------------------------------------------------------------------- detail
+
+use dman_proto::JobOptions;
+
+/// Open the detail of `id` and deliver a fixture reply.
+fn open_detail(s: &mut State, id: u64) -> Vec<Cmd> {
+    s.list.cursor = Some(JobId(id));
+    let cmds = code(s, KeyCode::Enter);
+    let reply = sample_detail(&s.jobs[&JobId(id)]);
+    update(
+        s,
+        Msg::ActionResult {
+            call: ApiCall::Detail(JobId(id)),
+            result: Ok(ApiReply::Detail(Box::new(reply))),
+        },
+    );
+    cmds
+}
+
+fn detail_state(s: &State) -> &views::detail::DetailState {
+    match s.view() {
+        View::Detail(d) => d,
+        other => panic!("not the detail view: {other:?}"),
+    }
+}
+
+fn ticks(s: &mut State, n: usize) -> Vec<Cmd> {
+    (0..n).flat_map(|_| update(s, Msg::Tick)).collect()
+}
+
+fn set_options(id: u64, options: JobOptions) -> Cmd {
+    Cmd::Api(ApiCall::SetOptions {
+        id: JobId(id),
+        options: Box::new(options),
+    })
+}
+
+#[test]
+fn opening_detail_fetches_it_once() {
+    let mut s = state();
+    let cmds = open_detail(&mut s, 1);
+    assert_eq!(cmds, vec![Cmd::Api(ApiCall::Detail(JobId(1)))]);
+    assert!(detail_state(&s).detail.is_some());
+    assert!(!detail_state(&s).inflight);
+}
+
+#[test]
+fn tabs_switch_with_tab_and_digits() {
+    use views::detail::Tab;
+    let mut s = state();
+    open_detail(&mut s, 1);
+    code(&mut s, KeyCode::Tab);
+    assert_eq!(detail_state(&s).tab, Tab::Peers);
+    press(&mut s, KeyCode::BackTab, KeyModifiers::SHIFT);
+    assert_eq!(detail_state(&s).tab, Tab::Files);
+    press(&mut s, KeyCode::BackTab, KeyModifiers::SHIFT);
+    assert_eq!(detail_state(&s).tab, Tab::Options);
+    for (c, tab) in ['1', '2', '3', '4', '5', '6'].into_iter().zip(Tab::ALL) {
+        key(&mut s, c);
+        assert_eq!(detail_state(&s).tab, tab);
+    }
+    key(&mut s, 'h');
+    assert!(matches!(s.view(), View::Downloads));
+}
+
+#[test]
+fn refresh_is_requested_on_tick_only_while_open() {
+    let mut s = state();
+    assert!(ticks(&mut s, 8).is_empty(), "no refresh on the list");
+    open_detail(&mut s, 1);
+    assert!(ticks(&mut s, 3).is_empty());
+    assert_eq!(ticks(&mut s, 1), vec![Cmd::Api(ApiCall::Detail(JobId(1)))]);
+    // A call in flight is not doubled.
+    assert!(ticks(&mut s, 8).is_empty());
+    update(
+        &mut s,
+        Msg::ActionResult {
+            call: ApiCall::Detail(JobId(1)),
+            result: Err("timeout".into()),
+        },
+    );
+    assert!(detail_state(&s).error.is_some());
+    assert!(detail_state(&s).detail.is_some(), "stale data is kept");
+    assert_eq!(ticks(&mut s, 4).len(), 1);
+    code(&mut s, KeyCode::Esc);
+    assert!(ticks(&mut s, 8).is_empty());
+}
+
+#[test]
+fn no_refresh_while_disconnected() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    disconnect(&mut s);
+    assert!(ticks(&mut s, 8).is_empty());
+}
+
+#[test]
+fn file_toggle_refused_while_active() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    assert!(key(&mut s, ' ').is_empty());
+    let text = status_text(&s);
+    assert!(text.contains("pause the download first"), "{text}");
+    assert!(key(&mut s, 'a').is_empty());
+    assert!(detail_state(&s).detail.as_ref().unwrap().files[0].selected);
+}
+
+#[test]
+fn file_toggle_allowed_while_paused() {
+    let mut s = state();
+    open_detail(&mut s, 5);
+    // Deselect file 1: files 2 and 4 stay selected.
+    let cmds = key(&mut s, ' ');
+    assert_eq!(
+        cmds,
+        vec![set_options(
+            5,
+            JobOptions {
+                select_files: Some(vec![2, 4]),
+                ..JobOptions::default()
+            }
+        )]
+    );
+    // Select-all adds file 1 and 3 back.
+    let cmds = key(&mut s, 'a');
+    assert_eq!(
+        cmds,
+        vec![set_options(
+            5,
+            JobOptions {
+                select_files: Some(vec![1, 2, 3, 4]),
+                ..JobOptions::default()
+            }
+        )]
+    );
+    // All selected: nothing more to do.
+    assert!(key(&mut s, 'a').is_empty());
+}
+
+#[test]
+fn last_selected_file_cannot_be_deselected() {
+    let mut s = state();
+    open_detail(&mut s, 5);
+    if let View::Detail(d) = s.views.last_mut().unwrap() {
+        for f in &mut d.detail.as_mut().unwrap().files {
+            f.selected = f.index == 1;
+        }
+    }
+    assert!(key(&mut s, ' ').is_empty());
+    assert!(status_text(&s).contains("At least one file"));
+    assert!(detail_state(&s).detail.as_ref().unwrap().files[0].selected);
+}
+
+#[test]
+fn file_toggle_needs_a_connection() {
+    let mut s = state();
+    open_detail(&mut s, 5);
+    disconnect(&mut s);
+    assert!(key(&mut s, ' ').is_empty());
+    assert!(status_text(&s).contains("disabled"));
+}
+
+#[test]
+fn option_edit_sends_set_options() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    key(&mut s, '6');
+    // Row 2 is max_download_limit (prefilled "2M").
+    key(&mut s, 'j');
+    key(&mut s, 'j');
+    assert!(code(&mut s, KeyCode::Enter).is_empty());
+    let Some(Modal::Prompt(p)) = &s.modal else {
+        panic!("no prompt: {:?}", s.modal);
+    };
+    assert_eq!(p.input.text(), "2M");
+    for _ in 0..2 {
+        code(&mut s, KeyCode::Backspace);
+    }
+    typed(&mut s, "500K");
+    let cmds = code(&mut s, KeyCode::Enter);
+    assert_eq!(
+        cmds,
+        vec![set_options(
+            1,
+            JobOptions {
+                max_download_limit: Some(500 * 1024),
+                ..JobOptions::default()
+            }
+        )]
+    );
+    assert!(s.modal.is_none());
+}
+
+#[test]
+fn option_edit_rejects_bad_input_and_read_only_rows() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    key(&mut s, '6');
+    key(&mut s, 'j');
+    key(&mut s, 'j');
+    code(&mut s, KeyCode::Enter);
+    typed(&mut s, "x");
+    assert!(code(&mut s, KeyCode::Enter).is_empty());
+    assert!(status_text(&s).contains("not a size"));
+    // select_files (row 4) is read-only.
+    key(&mut s, 'j');
+    key(&mut s, 'j');
+    assert!(code(&mut s, KeyCode::Enter).is_empty());
+    assert!(s.modal.is_none());
+    assert!(status_text(&s).contains("Files tab"));
+}
+
+#[test]
+fn set_options_result_refetches_and_shows_refusals() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    let call = ApiCall::SetOptions {
+        id: JobId(1),
+        options: Box::new(JobOptions::default()),
+    };
+    let cmds = update(
+        &mut s,
+        Msg::ActionResult {
+            call,
+            result: Err(
+                "`dir` cannot be changed while the download runs; pause the download first".into(),
+            ),
+        },
+    );
+    assert!(status_text(&s).contains("pause the download first"));
+    assert_eq!(cmds, vec![Cmd::Api(ApiCall::Detail(JobId(1)))]);
+}
+
+#[test]
+fn pause_and_remove_target_the_detail_job() {
+    let mut s = state();
+    open_detail(&mut s, 2);
+    assert_eq!(
+        key(&mut s, 'p'),
+        vec![Cmd::Api(ApiCall::Pause(vec![JobId(2)]))]
+    );
+    assert_eq!(
+        key(&mut s, 'r'),
+        vec![Cmd::Api(ApiCall::Resume(vec![JobId(2)]))]
+    );
+    key(&mut s, 'd');
+    assert!(matches!(s.modal, Some(Modal::Confirm(_))));
+}
+
+#[test]
+fn job_removed_while_open_returns_to_the_list() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    update(
+        &mut s,
+        Msg::Event(Event::JobsRemoved {
+            ids: vec![JobId(1)],
+        }),
+    );
+    assert!(matches!(s.view(), View::Downloads));
+    assert!(status_text(&s).contains("#1 was removed"));
+    // Other removals leave the view alone.
+    open_detail(&mut s, 2);
+    update(
+        &mut s,
+        Msg::Event(Event::JobsRemoved {
+            ids: vec![JobId(3)],
+        }),
+    );
+    assert!(matches!(s.view(), View::Detail(_)));
+}
+
+#[test]
+fn live_job_updates_reach_the_detail_header() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    let mut j = s.jobs[&JobId(1)].clone();
+    j.download_speed = 7 * (1 << 20);
+    update(&mut s, Msg::Event(Event::JobsUpdated { jobs: vec![j] }));
+    assert!(render(&mut s, 80, 24).contains("▼ 7.0 MiB/s"));
+}
+
+#[test]
+fn peers_are_sorted_by_download_speed() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    let peers = &detail_state(&s).detail.as_ref().unwrap().peers;
+    let speeds: Vec<u64> = peers.iter().map(|p| p.download_speed).collect();
+    assert!(speeds.windows(2).all(|w| w[0] >= w[1]), "{speeds:?}");
+}
+
+fn detail_snapshot(tab: char, id: u64, w: u16, h: u16) -> String {
+    let mut s = state();
+    open_detail(&mut s, id);
+    key(&mut s, tab);
+    render(&mut s, w, h)
+}
+
+#[test]
+fn snapshot_detail_files_80x24() {
+    insta::assert_snapshot!(detail_snapshot('1', 5, 80, 24));
+}
+
+#[test]
+fn snapshot_detail_files_120x40() {
+    insta::assert_snapshot!(detail_snapshot('1', 1, 120, 40));
+}
+
+#[test]
+fn snapshot_detail_peers_80x24() {
+    insta::assert_snapshot!(detail_snapshot('2', 1, 80, 24));
+}
+
+#[test]
+fn snapshot_detail_peers_120x40() {
+    insta::assert_snapshot!(detail_snapshot('2', 1, 120, 40));
+}
+
+#[test]
+fn snapshot_detail_trackers_80x24() {
+    insta::assert_snapshot!(detail_snapshot('3', 1, 80, 24));
+}
+
+#[test]
+fn snapshot_detail_pieces_80x24() {
+    insta::assert_snapshot!(detail_snapshot('4', 1, 80, 24));
+}
+
+#[test]
+fn snapshot_detail_pieces_120x40() {
+    insta::assert_snapshot!(detail_snapshot('4', 1, 120, 40));
+}
+
+#[test]
+fn snapshot_detail_speed_80x24() {
+    insta::assert_snapshot!(detail_snapshot('5', 1, 80, 24));
+}
+
+#[test]
+fn snapshot_detail_speed_120x40() {
+    insta::assert_snapshot!(detail_snapshot('5', 1, 120, 40));
+}
+
+#[test]
+fn snapshot_detail_options_80x24() {
+    insta::assert_snapshot!(detail_snapshot('6', 1, 80, 24));
+}
+
+#[test]
+fn snapshot_detail_options_120x40() {
+    insta::assert_snapshot!(detail_snapshot('6', 1, 120, 40));
+}
+
+#[test]
+fn snapshot_detail_disconnected_80x24() {
+    let mut s = state();
+    open_detail(&mut s, 1);
+    disconnect(&mut s);
+    insta::assert_snapshot!(render(&mut s, 80, 24));
 }

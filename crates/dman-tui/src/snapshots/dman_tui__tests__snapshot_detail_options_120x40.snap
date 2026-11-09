@@ -1,0 +1,44 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "detail_snapshot('6', 1, 120, 40)"
+---
+ dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
+┌ Download #1 ─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│     Name  ubuntu-24.04.1-desktop-amd64.iso                                                                           │
+│   Status  active  ██████████░░░░░░  66%  4.0 GiB / 6.0 GiB                                                           │
+│    Speed  ▼ 12.0 MiB/s  ▲ 800.0 KiB/s  ETA 2m51s  peers 42/118  ratio 0.25                                           │
+│      Dir  /home/me/Downloads                                                                                         │
+│   Source  https://example.org/ubuntu-24.04.1-desktop-amd64.iso                                                       │
+│Info hash  0123456789abcdef0123456789abcdef01234567                                                                   │
+│  Comment  Official image                                                                                             │
+│ 1 Files │ 2 Peers │ 3 Trackers │ 4 Pieces │ 5 Speed │ 6 Options                                                      │
+│Option                  Value                                           Note                                          │
+│dir                     /home/me/Downloads                                                                            │
+│out                     (default)                                                                                     │
+│max_download_limit      2.0 MiB/s                                                                                     │
+│max_upload_limit        (default)                                                                                     │
+│select_files            1,2,4                                           use Space on the Files tab                    │
+│file_names              (default)                                       set when adding (rename comes later)          │
+│seed_ratio              1.5                                                                                           │
+│seed_time               (default)                                                                                     │
+│sequential              (default)                                                                                     │
+│headers                 (default)                                       set when adding                               │
+│user_agent              (default)                                                                                     │
+│referer                 (default)                                                                                     │
+│proxy                   (default)                                                                                     │
+│checksum                (default)                                                                                     │
+│connections_per_server  (default)                                                                                     │
+│split                   (default)                                                                                     │
+│engine_options          (default)                                       set when adding                               │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ Esc back  Tab next tab  Space toggle file  Enter edit  p pause  ? help  r resume  q quit

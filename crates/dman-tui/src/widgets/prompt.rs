@@ -15,6 +15,8 @@ use crate::widgets::{ModalOutcome, centered};
 pub enum PromptKind {
     /// Global max concurrent downloads.
     MaxConcurrent,
+    /// A per-download option of the detail view.
+    JobOption(crate::views::detail::OptField),
 }
 
 /// Prompt state.

@@ -6,7 +6,7 @@ use dman_client::ReconnectingClient;
 use dman_proto::method::{
     BatchResult, FsListParams, FsListing, LimitsUpdate, RemoveParams, Reorder,
 };
-use dman_proto::{AddOutcome, AddParams, JobId, Limits};
+use dman_proto::{AddOutcome, AddParams, JobDetail, JobId, JobOptions, Limits};
 
 use crate::format::{limit, plural};
 
@@ -43,6 +43,15 @@ pub enum ApiCall {
     Add(Box<AddParams>),
     /// `fs.list` (directory picker of the add view).
     FsList(FsListParams),
+    /// `jobs.detail` (detail view; polled while it is open).
+    Detail(JobId),
+    /// `jobs.set_options` with the changed fields only.
+    SetOptions {
+        /// Job to change.
+        id: JobId,
+        /// Fields to change; unset fields are left alone.
+        options: Box<JobOptions>,
+    },
     /// `daemon.shutdown`.
     Shutdown,
 }
@@ -69,6 +78,8 @@ impl ApiCall {
             ApiCall::SetLimits(_) => "Changing limits".into(),
             ApiCall::Add(p) => format!("Adding {}", plural(p.sources.len(), "source")),
             ApiCall::FsList(_) => "Listing directory".into(),
+            ApiCall::Detail(_) => "Loading detail".into(),
+            ApiCall::SetOptions { .. } => "Saving option".into(),
             ApiCall::Shutdown => "Shutting down the daemon".into(),
         }
     }
@@ -86,6 +97,8 @@ impl ApiCall {
             ApiCall::SetLimits(_) => "Set limits",
             ApiCall::Add(_) => "Add",
             ApiCall::FsList(_) => "List directory",
+            ApiCall::Detail(_) => "Load detail",
+            ApiCall::SetOptions { .. } => "Set option",
             ApiCall::Shutdown => "Shutdown",
         }
     }
@@ -113,6 +126,14 @@ impl ApiCall {
             ApiCall::SetLimits(u) => client.limits_set(u).await.map(ApiReply::Limits),
             ApiCall::Add(p) => client.add(*p).await.map(ApiReply::Added),
             ApiCall::FsList(p) => client.fs_list(p).await.map(ApiReply::Listing),
+            ApiCall::Detail(id) => client
+                .detail(id)
+                .await
+                .map(|d| ApiReply::Detail(Box::new(d))),
+            ApiCall::SetOptions { id, options } => client
+                .set_options(id, *options)
+                .await
+                .map(|()| ApiReply::Done),
             ApiCall::Shutdown => client.shutdown().await.map(|()| ApiReply::Done),
         };
         r.map_err(|e| e.to_string())
@@ -132,6 +153,8 @@ pub enum ApiReply {
     Added(Vec<AddOutcome>),
     /// A daemon directory listing.
     Listing(FsListing),
+    /// Files, peers, … of one job.
+    Detail(Box<JobDetail>),
 }
 
 /// Severity of a status message.
@@ -162,6 +185,10 @@ pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome,
         ),
         Ok(ApiReply::Added(outcomes)) => summarize_add(outcomes),
         Ok(ApiReply::Listing(l)) => (Outcome::Ok, format!("Listed {}", l.path)),
+        Ok(ApiReply::Detail(_)) => (Outcome::Ok, "Detail loaded".into()),
+        Ok(ApiReply::Done) if matches!(call, ApiCall::SetOptions { .. }) => {
+            (Outcome::Ok, "Option saved".into())
+        }
         Ok(ApiReply::Done) => (Outcome::Ok, format!("{verb}: done")),
     }
 }

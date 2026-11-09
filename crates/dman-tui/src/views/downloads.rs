@@ -86,15 +86,18 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
             )));
             Vec::new()
         }
-        Action::OpenDetail => {
-            match state.list.cursor {
-                Some(id) => state
+        Action::OpenDetail => match state.list.cursor {
+            Some(id) => {
+                state
                     .views
-                    .push(View::Detail(super::detail::DetailState { id })),
-                None => state.status.info("No download under the cursor"),
+                    .push(View::Detail(Box::new(super::detail::DetailState::new(id))));
+                super::detail::fetch(state)
             }
-            Vec::new()
-        }
+            None => {
+                state.status.info("No download under the cursor");
+                Vec::new()
+            }
+        },
         _ => return None,
     };
     Some(cmds)
@@ -176,6 +179,11 @@ fn names(state: &State, ids: &[JobId]) -> Vec<String> {
 
 fn confirm_remove(state: &mut State, delete_files: bool) -> Vec<Cmd> {
     let ids = state.list.targets();
+    confirm_remove_ids(state, ids, delete_files)
+}
+
+/// Open the remove confirmation for `ids` (also used by the detail view).
+pub fn confirm_remove_ids(state: &mut State, ids: Vec<JobId>, delete_files: bool) -> Vec<Cmd> {
     if ids.is_empty() {
         state.status.info("Nothing selected");
         return Vec::new();

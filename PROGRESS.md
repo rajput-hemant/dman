@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 32 %** · Current milestone: **M3 — detail and control** · Last updated: 2026-11-09
+**Overall: 37 %** · Current milestone: **M3 — detail and control** · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -56,9 +56,10 @@ commit this file together with the code it describes.
 
 ### M3 — Detail and control (10 %) — pulled-forward backend
 - [x] Backend: `jobs.detail` (files, peers, trackers [status unknown, D13], piece map, comment, options, per-job speed history), `stats.history`; CLI `dman get <id> --files --peers`
-- [ ] Detail view in TUI: tabs Files (progress, size, selection toggles while not started), Peers, Trackers (status unknown), Pieces (piece map), Speed (per-job graph), Options (editable while waiting/paused; refuse with reason when active)
-- [ ] Rename: waiting/paused → `out`/`index-out` (full mapping, spike); completed → move on disk + record in rename log; never for active (reason shown). API `jobs.rename`, TUI dialog, CLI `dman rename`
-- [ ] Magnet file selection before start: `jobs.preview`/metadata-only flow (spike: bt-metadata-only + bt-save-metadata, then addTorrent with select-file) in daemon + TUI Add preview
+- [x] Detail view in TUI: tabs Files (progress, size, selection toggles while not started), Peers, Trackers (status unknown), Pieces (piece map), Speed (per-job graph), Options (editable while waiting/paused; refuse with reason when active)
+- [x] Rename: waiting/paused → `out`/`index-out` (full mapping, spike); completed → move on disk + record in rename log; never for active (reason shown). API `jobs.rename`, TUI dialog, CLI `dman rename`
+- [x] Magnet preview backend: `jobs.preview_magnet` (metadata-only in a private dir, not a job, cleaned up), CLI `dman preview`; new crate dman-torrent
+- [ ] TUI: rename dialog (Downloads + Detail) and magnet preview with file selection in the Add preview (use dman-torrent instead of the TUI's own bencode copy)
 - [ ] Runtime limits: per-download limit changes from TUI; global limits/max-concurrent persisted to config (ConfigDoc), CLI already has `limit`/`max-concurrent`
 - [ ] Global speed graph in downloads view (toggle), engine shutdown from UI already exists — verify
 - [ ] Help screen lists popup keys; Esc in a non-empty Add form asks before discarding

@@ -212,7 +212,7 @@ mod tests {
         doc.set(&["profiles", "local", "download_dir"], "~/Stuff")
             .unwrap();
         doc.set(&["limits", "download"], "10MiB").unwrap();
-        doc.set(&["video", "engine"], "yt-dlp").unwrap();
+        doc.set(&["web", "port"], 8080).unwrap();
         doc.save().unwrap();
 
         let text = std::fs::read_to_string(paths.config_file()).unwrap();
@@ -226,7 +226,7 @@ mod tests {
         assert!(cfg.ui.mouse);
         assert_eq!(cfg.profiles["local"].download_dir, "~/Stuff");
         assert_eq!(cfg.limits.download.0, 10 << 20);
-        assert!(cfg.extra.contains_key("video"));
+        assert!(cfg.extra.contains_key("web"));
 
         // No stray temp files left behind.
         let leftovers: Vec<_> = std::fs::read_dir(dir.path())

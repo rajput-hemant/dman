@@ -42,6 +42,9 @@ impl Manager {
             .jobs
             .get(&id)
             .ok_or_else(|| RpcError::not_found(format!("job {id}")))?;
+        if e.rec.engine == dman_proto::Engine::YtDlp {
+            return self.remove_video(id, delete_files).await;
+        }
         let gid = e.rec.gid.clone().map(Gid::new);
         let in_engine = e.aria2.is_some();
         let was_running = e.running_in_engine() || e.aria2 == Some(DownloadStatus::Paused);

@@ -38,6 +38,19 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Command::Rename { id, name, file } => {
             control::rename(&Ctx::load(&cli)?, *id, name, *file).await
         }
+        Command::Probe {
+            url,
+            playlist,
+            cookies_from_browser,
+        } => {
+            add::probe(
+                &Ctx::load(&cli)?,
+                url,
+                *playlist,
+                cookies_from_browser.clone(),
+            )
+            .await
+        }
         Command::Preview { magnet, timeout } => {
             add::preview(&Ctx::load(&cli)?, magnet, *timeout).await
         }

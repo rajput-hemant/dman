@@ -2,7 +2,7 @@
 
 use dman_aria2::{DownloadStatus, Gid, PosHow, job_options_to_aria2, requires_pause};
 use dman_proto::method::{BatchFailure, BatchResult, ReorderParams, SetOptionsParams};
-use dman_proto::{ErrorCode, JobId, JobState, RpcError};
+use dman_proto::{Engine, ErrorCode, JobId, JobState, RpcError};
 use dman_store::{Desired, LiveFigures};
 
 use crate::queue;
@@ -38,6 +38,14 @@ impl Manager {
             return Err(RpcError::refused(format!(
                 "job {id} is finished and cannot be paused"
             )));
+        }
+        if e.rec.engine == Engine::YtDlp {
+            // D9: pause = stop yt-dlp; resume respawns it with --continue.
+            e.rec.desired = Desired::Paused;
+            e.dirty = true;
+            self.urgent = true;
+            self.stop_video(id, JobState::Paused);
+            return Ok(());
         }
         e.rec.desired = Desired::Paused;
         e.dirty = true;
@@ -84,6 +92,14 @@ impl Manager {
                 return Err(RpcError::refused(format!(
                     "job {id} is finished and cannot be resumed"
                 )));
+            }
+            JobState::Error if e.rec.engine == Engine::YtDlp => {
+                // Retry: queue again; yt-dlp continues partial files.
+                super::finish::clear_failed(&mut e.rec);
+                e.rec.error = None;
+                e.rec.desired = Desired::Queued;
+                e.rec.state = JobState::Waiting;
+                e.disk_blocked = false;
             }
             JobState::Error => {
                 // Retry: re-add from the stored source (aria2 continues partial files).
@@ -162,6 +178,12 @@ impl Manager {
             .ok_or_else(|| RpcError::not_found(format!("job {}", p.id)))?;
         if e.rec.state.is_stopped() {
             return Err(RpcError::refused(format!("job {} is finished", p.id)));
+        }
+        if e.rec.engine == Engine::YtDlp && (e.video.is_some() || e.rec.state == JobState::Active) {
+            return Err(RpcError::refused(format!(
+                "job {} is a running video download; pause it first (yt-dlp takes options when it starts)",
+                p.id
+            )));
         }
         let mut delta = p.options.clone();
         if let Some(d) = &delta.dir {

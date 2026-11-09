@@ -54,6 +54,17 @@ pub enum Command {
         #[arg(long, value_name = "N")]
         file: Option<u32>,
     },
+    /// Show the formats, subtitles and quality plans of a video URL (yt-dlp).
+    Probe {
+        /// Video page or stream URL.
+        url: String,
+        /// List the playlist entries instead of probing one video.
+        #[arg(long)]
+        playlist: bool,
+        /// Read cookies from this browser (firefox, chrome, ...).
+        #[arg(long, value_name = "BROWSER")]
+        cookies_from_browser: Option<String>,
+    },
     /// Show the files of a magnet link without downloading it.
     Preview {
         /// Magnet link.
@@ -264,6 +275,86 @@ pub struct AddArgs {
     /// Raw engine option (repeatable).
     #[arg(short = 'o', long = "option", value_name = "KEY=VALUE")]
     pub options: Vec<String>,
+    #[command(flatten)]
+    pub video: VideoArgs,
+}
+
+/// Video options of `dman add` (yt-dlp engine).
+#[derive(Args, Debug, Default)]
+#[command(next_help_heading = "Video (yt-dlp)")]
+pub struct VideoArgs {
+    /// Download the URL(s) with yt-dlp as video (detected automatically for known video sites).
+    #[arg(long, conflicts_with = "no_video")]
+    pub video: bool,
+    /// Never treat a URL as video; download the page or file itself.
+    #[arg(long)]
+    pub no_video: bool,
+    /// Quality: best, 2160p, 1440p, 1080p, 720p, 480p, audio:m4a|mp3|opus, or a yt-dlp selector.
+    #[arg(long, value_name = "Q")]
+    pub quality: Option<String>,
+    /// Exact format id(s) from `dman probe`, e.g. 137+140.
+    #[arg(long, value_name = "ID")]
+    pub format_id: Option<String>,
+    /// Container for merged video: mp4, mkv or webm.
+    #[arg(long, value_name = "C")]
+    pub container: Option<String>,
+    /// Download the whole playlist.
+    #[arg(long)]
+    pub playlist: bool,
+    /// Playlist items, e.g. 1-3,7 (implies --playlist).
+    #[arg(long, value_name = "LIST")]
+    pub playlist_items: Option<String>,
+    /// Subtitle languages, e.g. en,de.
+    #[arg(long, value_name = "LANGS", value_delimiter = ',')]
+    pub subs: Vec<String>,
+    /// Embed the subtitles into the video (needs ffmpeg).
+    #[arg(long)]
+    pub embed_subs: bool,
+    /// Also fetch automatic captions.
+    #[arg(long)]
+    pub auto_subs: bool,
+    /// Embed the thumbnail (needs ffmpeg).
+    #[arg(long)]
+    pub thumbnail: bool,
+    /// Do not embed metadata.
+    #[arg(long)]
+    pub no_metadata: bool,
+    /// Cut SponsorBlock segments, e.g. sponsor,intro (needs ffmpeg).
+    #[arg(long, value_name = "CATS", value_delimiter = ',')]
+    pub sponsorblock_remove: Vec<String>,
+    /// Read cookies from this browser (firefox, chrome, ...).
+    #[arg(long, value_name = "BROWSER")]
+    pub cookies_from_browser: Option<String>,
+    /// Without ffmpeg, accept video and audio as separate files instead of a lower quality.
+    #[arg(long)]
+    pub allow_separate_streams: bool,
+    /// Output template, e.g. "%(uploader)s/%(title)s.%(ext)s".
+    #[arg(long, value_name = "TEMPLATE")]
+    pub template: Option<String>,
+    /// Extra yt-dlp argument (repeatable; allow-listed by the daemon).
+    #[arg(long = "ytdlp-arg", value_name = "ARG", allow_hyphen_values = true)]
+    pub ytdlp_args: Vec<String>,
+}
+
+impl VideoArgs {
+    /// Any video-only option was given.
+    pub fn any(&self) -> bool {
+        self.quality.is_some()
+            || self.format_id.is_some()
+            || self.container.is_some()
+            || self.playlist
+            || self.playlist_items.is_some()
+            || !self.subs.is_empty()
+            || self.embed_subs
+            || self.auto_subs
+            || self.thumbnail
+            || self.no_metadata
+            || !self.sponsorblock_remove.is_empty()
+            || self.cookies_from_browser.is_some()
+            || self.allow_separate_streams
+            || self.template.is_some()
+            || !self.ytdlp_args.is_empty()
+    }
 }
 
 /// Parse a size such as `2MiB` or `500K` into bytes.

@@ -15,6 +15,7 @@ mod schema;
 mod search;
 mod secrets;
 mod units;
+mod video;
 
 pub use edit::ConfigDoc;
 pub use error::ConfigError;
@@ -28,6 +29,7 @@ pub use schema::{
 pub use search::{Search, TrackerList};
 pub use secrets::Secrets;
 pub use units::{ByteLimit, DiskThreshold, format_bytes, parse_bytes};
+pub use video::{Video, VideoSubtitles};
 
 #[cfg(test)]
 mod tests {

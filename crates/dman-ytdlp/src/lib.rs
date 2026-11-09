@@ -19,7 +19,9 @@ mod progress;
 mod run;
 mod tools;
 
-pub use args::{DownloadSpec, SponsorBlock, SubOpts, build_args, validate_extra_args};
+pub use args::{
+    DEFAULT_TEMPLATE, DownloadSpec, SponsorBlock, SubOpts, build_args, validate_extra_args,
+};
 pub use detect::is_probably_video_url;
 pub use error::{Error, Result};
 pub use format::{AudioCodec, Container, Plan, PlanKind, QualityPreset, fallback_plan, selector};

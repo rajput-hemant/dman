@@ -203,6 +203,12 @@ pub enum AddSource {
     Torrent { name: String, data_base64: String },
     /// Contents of a `.metalink`/`.meta4` file, base64-encoded.
     Metalink { name: String, data_base64: String },
+    /// A video page or stream for the yt-dlp engine.
+    Video {
+        url: String,
+        #[serde(default)]
+        video: Box<crate::video::VideoOptions>,
+    },
 }
 
 /// Parameters of `jobs.add`.

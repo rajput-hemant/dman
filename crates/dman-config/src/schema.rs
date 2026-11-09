@@ -183,7 +183,7 @@ impl Default for Ui {
 /// The whole `config.toml`.
 ///
 /// `deny_unknown_fields` cannot be combined with `#[serde(flatten)]`, so the
-/// top level is lenient: unknown tables (future `video`, `providers`, `web`,
+/// top level is lenient: unknown tables (future `web`, `providers`,
 /// `notify` sections) are captured in [`Config::extra`] and written
 /// back unchanged. All nested sections remain strict.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -205,6 +205,8 @@ pub struct Config {
     pub notify: crate::Notify,
     /// Search providers, tracker list and history.
     pub search: crate::Search,
+    /// The optional yt-dlp video engine and video defaults.
+    pub video: crate::Video,
     /// Sections not yet understood by this version.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -221,6 +223,7 @@ impl Default for Config {
             schedule: Vec::new(),
             notify: crate::Notify::default(),
             search: crate::Search::default(),
+            video: crate::Video::default(),
             extra: toml::Table::new(),
         }
     }
@@ -341,6 +344,28 @@ attach_to_new = true
 # url = "http://localhost:9696/api/v2.0/indexers/all/results/torznab/api"
 # api_key_ref = "prowlarr"      # name of the entry in secrets.toml
 # enabled = true
+
+# Video sites through yt-dlp (optional; ffmpeg is needed to merge separate
+# video/audio streams, convert audio, embed subtitles/metadata/thumbnails and
+# cut SponsorBlock segments). Without yt-dlp video downloads are unavailable.
+[video]
+# ytdlp_path = "/usr/local/bin/yt-dlp"     # default: yt-dlp on PATH
+# ffmpeg_path = "/usr/bin/ffmpeg"          # default: ffmpeg on PATH
+# best, 2160p, 1440p, 1080p, 720p, 480p, audio:m4a, audio:mp3, audio:opus
+default_quality = "best"
+# default_container = "mkv"                # mp4, mkv or webm
+# Relative to the download directory; see yt-dlp's OUTPUT TEMPLATE.
+output_template = "%(title)s [%(id)s].%(ext)s"
+# SponsorBlock categories to cut: sponsor, intro, outro, selfpromo, preview,
+# filler, interaction, music_offtopic, poi_highlight, chapter, all.
+sponsorblock_remove = []
+embed_metadata = true
+embed_thumbnail = false
+# cookies_from_browser = "firefox"
+
+[video.subtitles]
+langs = []                                 # e.g. ["en", "de"]
+embed = true
 "#;
 
 impl Config {
@@ -441,6 +466,7 @@ impl Config {
             return bad(m);
         }
         self.search.validate().map_err(ConfigError::Invalid)?;
+        self.video.validate().map_err(ConfigError::Invalid)?;
         if self.aria2.rpc_port == 0 {
             return bad("aria2.rpc_port must be non-zero".into());
         }
@@ -514,8 +540,9 @@ mod tests {
 
     #[test]
     fn unknown_top_level_tables_kept_but_nested_unknowns_rejected() {
-        let c = parse("[video]\nengine = \"yt-dlp\"\n").unwrap();
-        assert!(c.extra.contains_key("video"));
+        let c = parse("[web]\nport = 8080\n").unwrap();
+        assert!(c.extra.contains_key("web"));
+        assert!(parse("[video]\nengine = \"yt-dlp\"\n").is_err());
         assert!(parse("[ui]\nbogus = 1\n").is_err());
     }
 

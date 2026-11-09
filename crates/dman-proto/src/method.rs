@@ -29,6 +29,8 @@ pub const STATS_GET: &str = "stats.get";
 pub const STATS_HISTORY: &str = "stats.history";
 pub const FS_LIST: &str = "fs.list";
 pub const ENGINE_STATUS: &str = "engine.status";
+/// `video.probe`: [`crate::VideoProbeParams`] -> [`crate::VideoProbe`].
+pub const VIDEO_PROBE: &str = "video.probe";
 pub const ENGINE_RESTART: &str = "engine.restart";
 pub const DAEMON_SHUTDOWN: &str = "daemon.shutdown";
 
@@ -253,7 +255,10 @@ pub struct FsListing {
     pub truncated: bool,
 }
 
-/// State of an engine process.
+/// State of an engine. `engine.status` returns aria2 first, then yt-dlp. For
+/// yt-dlp, ffmpeg is reported as features (`"ffmpeg <version>"`, `"merge"`);
+/// when it is missing (or yt-dlp is old) `reason` explains it while
+/// `available` stays true. Unavailable yt-dlp = video downloads disabled.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EngineStatus {
     pub engine: crate::Engine,

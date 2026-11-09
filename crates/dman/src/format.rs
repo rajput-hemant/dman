@@ -173,6 +173,101 @@ fn table<const N: usize>(headers: [&str; N], rows: &[[String; N]], left: &[usize
     out
 }
 
+/// `video.probe` format table: `ID  EXT  KIND  RES  FPS  SIZE  CODECS  NOTE`.
+pub fn video_formats_table(formats: &[dman_proto::video::VideoFormat]) -> String {
+    use dman_proto::video::VideoStreamKind as K;
+    let rows: Vec<[String; 8]> = formats
+        .iter()
+        .map(|f| {
+            let kind = match f.kind {
+                K::Combined => "video+audio",
+                K::VideoOnly => "video only",
+                K::AudioOnly => "audio only",
+                K::Other => "other",
+            };
+            let res = match (f.width, f.height) {
+                (Some(w), Some(h)) => format!("{w}x{h}"),
+                (None, Some(h)) => format!("{h}p"),
+                _ => "-".into(),
+            };
+            let codec = |c: &Option<String>| c.clone().filter(|c| c != "none");
+            let codecs = [codec(&f.vcodec), codec(&f.acodec)]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join("/");
+            [
+                f.id.clone(),
+                f.ext.clone(),
+                kind.to_owned(),
+                res,
+                f.fps.map_or("-".into(), |x| format!("{x:.0}")),
+                f.size.map_or("-".into(), size),
+                if codecs.is_empty() {
+                    "-".into()
+                } else {
+                    codecs
+                },
+                f.note.clone().unwrap_or_default(),
+            ]
+        })
+        .collect();
+    table(
+        ["ID", "EXT", "KIND", "RES", "FPS", "SIZE", "CODECS", "NOTE"],
+        &rows,
+        &[0, 1, 2, 6],
+    )
+}
+
+/// Quality plans of a probe: `QUALITY  PLAN  EXPLANATION`.
+pub fn video_plans_table(plans: &[dman_proto::video::VideoPlan]) -> String {
+    use dman_proto::video::VideoPlanKind as K;
+    let kind = |k: K| match k {
+        K::Merged => "merged",
+        K::Single => "single file",
+        K::Separate => "separate files",
+        K::Audio => "audio",
+    };
+    let mut rows: Vec<[String; 3]> = Vec::new();
+    for p in plans {
+        rows.push([p.preset.clone(), kind(p.kind).into(), p.explanation.clone()]);
+        if let Some(a) = &p.alternative {
+            rows.push([
+                String::new(),
+                format!("or {}", kind(a.kind)),
+                format!("{} (--allow-separate-streams)", a.explanation),
+            ]);
+        }
+    }
+    table(["QUALITY", "PLAN", "EXPLANATION"], &rows, &[0, 1])
+}
+
+/// Playlist entries of a probe: `#  DURATION  TITLE`.
+pub fn playlist_table(entries: &[dman_proto::video::PlaylistEntry]) -> String {
+    let rows: Vec<[String; 3]> = entries
+        .iter()
+        .map(|e| {
+            [
+                e.index.to_string(),
+                e.duration.map_or("-".into(), duration),
+                e.title.clone().unwrap_or_default(),
+            ]
+        })
+        .collect();
+    table(["#", "DURATION", "TITLE"], &rows, &[])
+}
+
+/// `h:mm:ss` or `m:ss`.
+pub fn duration(secs: f64) -> String {
+    let s = secs.max(0.0).round() as u64;
+    let (h, m, s) = (s / 3600, s / 60 % 60, s % 60);
+    if h > 0 {
+        format!("{h}:{m:02}:{s:02}")
+    } else {
+        format!("{m}:{s:02}")
+    }
+}
+
 /// File table: `#  DONE  SIZE  SEL  PATH`.
 pub fn file_table(files: &[FileInfo]) -> String {
     let rows: Vec<[String; 5]> = files
@@ -451,6 +546,43 @@ pub fn key_values(pairs: &[(&str, String)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_tables() {
+        use dman_proto::video::*;
+        assert_eq!(duration(65.4), "1:05");
+        assert_eq!(duration(3725.0), "1:02:05");
+        let t = video_formats_table(&[VideoFormat {
+            id: "137".into(),
+            ext: "mp4".into(),
+            vcodec: Some("avc1".into()),
+            acodec: Some("none".into()),
+            width: None,
+            height: Some(1080),
+            fps: Some(30.0),
+            size: Some(1 << 20),
+            note: Some("1080p".into()),
+            kind: VideoStreamKind::VideoOnly,
+        }]);
+        assert!(
+            t.contains("video only") && t.contains("1080p") && t.contains("avc1"),
+            "{t}"
+        );
+        let p = video_plans_table(&[VideoPlan {
+            preset: "best".into(),
+            kind: VideoPlanKind::Single,
+            selector: "b".into(),
+            explanation: "x".into(),
+            alternative: Some(Box::new(VideoPlan {
+                preset: "best".into(),
+                kind: VideoPlanKind::Separate,
+                selector: "bv*+ba/b".into(),
+                explanation: "y".into(),
+                alternative: None,
+            })),
+        }]);
+        assert!(p.contains("or separate files"), "{p}");
+    }
 
     fn result(title: &str, size: Option<u64>, s: Option<u32>, l: Option<u32>) -> SearchResultDto {
         SearchResultDto {

@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use dman_aria2::{Aria2Client, DownloadStatus, Gid, Status};
 use dman_proto::method::Event;
-use dman_proto::{JobId, JobState, SourceKind};
+use dman_proto::{Engine, JobId, JobState, SourceKind};
 use dman_store::{Desired, LiveFigures};
 use serde_json::{Value, json};
 
@@ -38,8 +38,10 @@ impl Manager {
                     self.poll_failing = true;
                 }
             }
-            self.schedule(&client).await;
         }
+        self.pump_videos();
+        let client = self.client.clone();
+        self.schedule(client.as_ref()).await;
         self.emit_changes();
         self.emit_finished();
         self.emit(Event::Stats {
@@ -209,6 +211,9 @@ impl Manager {
         // 3. Jobs that vanished from aria2.
         let mut readd: Vec<JobId> = Vec::new();
         for e in self.jobs.values_mut() {
+            if e.rec.engine != Engine::Aria2 {
+                continue;
+            }
             if seen.contains(&e.rec.id) {
                 e.missing = 0;
                 continue;

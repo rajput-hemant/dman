@@ -21,7 +21,7 @@ fn is_bittorrent(src: &AddSource) -> bool {
         AddSource::Uris { uris } => uris
             .first()
             .is_some_and(|u| u.trim_start().to_ascii_lowercase().starts_with("magnet:")),
-        AddSource::Metalink { .. } => false,
+        AddSource::Metalink { .. } | AddSource::Video { .. } => false,
     }
 }
 
@@ -29,12 +29,24 @@ impl Manager {
     // ----- add ---------------------------------------------------------------
 
     pub(super) async fn add(&mut self, p: AddParams) -> Result<Vec<AddOutcome>, RpcError> {
-        let client = self
-            .client
-            .clone()
-            .ok_or_else(|| unavailable(self.engine.reason.as_deref().unwrap_or("not running")))?;
         if p.sources.is_empty() {
             return Err(RpcError::invalid("no sources given"));
+        }
+        let videos = p
+            .sources
+            .iter()
+            .filter(|s| matches!(s, AddSource::Video { .. }))
+            .count();
+        // A request the missing engine cannot serve at all fails as a whole;
+        // mixed requests report per source.
+        if videos == p.sources.len() && self.tools.ytdlp.is_none() {
+            return Err(crate::video::unavailable());
+        }
+        let client = self.client.clone();
+        if videos < p.sources.len() && client.is_none() {
+            return Err(unavailable(
+                self.engine.reason.as_deref().unwrap_or("not running"),
+            ));
         }
         let dir = resolve_dir(p.options.dir.as_deref(), &self.default_dir)?;
         tokio::fs::create_dir_all(&dir).await.map_err(|e| {
@@ -70,11 +82,25 @@ impl Manager {
         };
         let mut out = Vec::with_capacity(p.sources.len());
         for src in p.sources {
+            if matches!(src, AddSource::Video { .. }) {
+                let r = self.add_video(src, &options, &dir_s, p.paused).await;
+                out.push(match r {
+                    Ok(mut ids) => AddOutcome::Added {
+                        id: ids.remove(0),
+                        extra_ids: ids,
+                    },
+                    Err(error) => AddOutcome::Failed { error },
+                });
+                continue;
+            }
+            let Some(client) = &client else {
+                continue; // unreachable: checked above
+            };
             let (a, o) = match &with_trackers {
                 Some(t) if is_bittorrent(&src) => t,
                 _ => &(aopts.clone(), options.clone()),
             };
-            let r = self.add_one(&client, src, a, o, &dir_s, p.paused).await;
+            let r = self.add_one(client, src, a, o, &dir_s, p.paused).await;
             out.push(match r {
                 Ok(mut ids) => {
                     let id = ids.remove(0);
@@ -149,6 +175,9 @@ impl Manager {
                     .unwrap_or(&name)
                     .to_owned();
                 (SourceKind::Metalink, display, name, Vec::new(), Some(data))
+            }
+            AddSource::Video { .. } => {
+                return Err(RpcError::invalid("video sources are added by add_video"));
             }
         };
 

@@ -1,4 +1,4 @@
-//! The dman daemon. It supervises aria2c (and later yt-dlp), owns the job queue
+//! The dman daemon. It supervises aria2c, runs yt-dlp for video jobs, owns the job queue
 //! and the persistent store, and serves the JSON-RPC API used by every client.
 //!
 //! Architecture:
@@ -32,6 +32,7 @@ pub mod schedule;
 pub mod search;
 pub mod server;
 pub mod tick;
+pub mod video;
 
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -164,6 +165,7 @@ pub async fn run_with_clock(
     };
     let (engine, engine_rx, engine_task) = engine::spawn(make_settings, engine::RETRY_EVERY).await;
 
+    let video = Arc::new(video::VideoService::start(&config.video, Some(paths.clone())).await);
     let previews = preview::PreviewRegistry::new(paths.state_dir().join("metadata"));
     previews.reset_dir();
     let preview = Arc::new(preview::Preview::new(previews.clone(), engine_rx.clone()));
@@ -208,6 +210,8 @@ pub async fn run_with_clock(
         engine: engine_rx,
         previews,
         trackers: search.trackers(),
+        video: config.video.clone(),
+        video_tools: video.subscribe(),
     });
 
     let notifier_task =
@@ -226,6 +230,7 @@ pub async fn run_with_clock(
         engine: engine.clone(),
         preview,
         search,
+        video,
     });
     let mut graceful = shutdown_rx.clone();
     let mut server = tokio::spawn(async move {

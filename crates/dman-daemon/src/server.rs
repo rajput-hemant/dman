@@ -49,6 +49,8 @@ pub struct ServerState {
     pub preview: Arc<crate::preview::Preview>,
     /// Search, providers and tracker list.
     pub search: Arc<crate::search::SearchService>,
+    /// The video engine's tools (`video.probe`, re-detection on `engine.restart`).
+    pub video: Arc<crate::video::VideoService>,
 }
 
 /// The axum router serving the API.
@@ -309,13 +311,39 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
                     let _ = out.send(encode(&resp)).await;
                 }));
             }
+            method::VIDEO_PROBE => {
+                let params = match parse::<dman_proto::VideoProbeParams>(req.params) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        reply(Response::err(id, e)).await;
+                        continue;
+                    }
+                };
+                // Runs off the manager; aborted (yt-dlp killed) on disconnect.
+                let video = state.video.clone();
+                let out = out_tx.clone();
+                previews.retain(|t| !t.is_finished());
+                previews.push(tokio::spawn(async move {
+                    let resp = match video.probe(params).await {
+                        Ok(v) => Response::ok(id, json!(v)),
+                        Err(e) => Response::err(id, e),
+                    };
+                    let _ = out.send(encode(&resp)).await;
+                }));
+            }
             method::ENGINE_RESTART => {
                 let engine = state.engine.clone();
+                let video = state.video.clone();
                 let out = out_tx.clone();
                 tasks.retain(|t| !t.is_finished());
                 tasks.push(tokio::spawn(async move {
+                    // yt-dlp/ffmpeg are looked up again first (the manager
+                    // publishes the new status), then aria2 is restarted.
+                    let tools = video.redetect().await;
                     let resp = match engine.restart().await {
-                        Ok(status) => Response::ok(id, json!([status])),
+                        Ok(status) => {
+                            Response::ok(id, json!([status, crate::video::engine_status(&tools)]))
+                        }
                         Err(e) => Response::err(id, e),
                     };
                     let _ = out.send(encode(&resp)).await;

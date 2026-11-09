@@ -35,6 +35,34 @@ pub enum Container {
     Webm,
 }
 
+impl FromStr for AudioCodec {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Error> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "mp3" => Ok(Self::Mp3),
+            "m4a" => Ok(Self::M4a),
+            "opus" => Ok(Self::Opus),
+            other => Err(Error::InvalidSpec(format!(
+                "unknown audio codec {other:?} (mp3, m4a, opus)"
+            ))),
+        }
+    }
+}
+
+impl FromStr for Container {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self, Error> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "mp4" => Ok(Self::Mp4),
+            "mkv" => Ok(Self::Mkv),
+            "webm" => Ok(Self::Webm),
+            other => Err(Error::InvalidSpec(format!(
+                "unknown container {other:?} (mp4, mkv, webm)"
+            ))),
+        }
+    }
+}
+
 impl Container {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -58,6 +86,34 @@ pub enum QualityPreset {
 }
 
 impl QualityPreset {
+    /// Every preset, in the order a UI should offer them.
+    pub const ALL: [QualityPreset; 9] = [
+        Self::Best,
+        Self::P2160,
+        Self::P1440,
+        Self::P1080,
+        Self::P720,
+        Self::P480,
+        Self::AudioOnly {
+            codec: AudioCodec::M4a,
+        },
+        Self::AudioOnly {
+            codec: AudioCodec::Mp3,
+        },
+        Self::AudioOnly {
+            codec: AudioCodec::Opus,
+        },
+    ];
+
+    /// Canonical name, accepted by [`FromStr`]: "best", "1080p", "audio:mp3", ...
+    pub fn name(self) -> String {
+        match self {
+            Self::Best => "best".into(),
+            Self::AudioOnly { codec } => format!("audio:{}", codec.as_str()),
+            other => format!("{}p", other.max_height().unwrap_or_default()),
+        }
+    }
+
     /// Height cap in pixels, `None` for Best and audio.
     pub fn max_height(self) -> Option<u32> {
         match self {
@@ -285,6 +341,18 @@ mod tests {
             protocol: None,
             note: None,
         }
+    }
+
+    #[test]
+    fn preset_names_round_trip() {
+        for p in QualityPreset::ALL {
+            assert_eq!(p.name().parse::<QualityPreset>().unwrap(), p);
+        }
+        assert_eq!(QualityPreset::P1080.name(), "1080p");
+        assert_eq!("MKV".parse::<Container>().unwrap(), Container::Mkv);
+        assert!("avi".parse::<Container>().is_err());
+        assert_eq!("opus".parse::<AudioCodec>().unwrap(), AudioCodec::Opus);
+        assert!("flac".parse::<AudioCodec>().is_err());
     }
 
     fn info(formats: Vec<Format>) -> VideoInfo {

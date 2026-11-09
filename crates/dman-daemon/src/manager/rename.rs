@@ -284,6 +284,13 @@ impl Manager {
                 "job {} has failed or was removed; it cannot be renamed",
                 p.id
             ))),
+            JobState::Waiting | JobState::Paused if e.rec.engine == dman_proto::Engine::YtDlp => {
+                Err(RpcError::refused(format!(
+                    "job {} is a video download: its file name comes from the output template; \
+                     rename it after it completed",
+                    p.id
+                )))
+            }
             JobState::Waiting | JobState::Paused => {
                 if matches!(e.aria2, Some(dman_aria2::DownloadStatus::Active)) {
                     return Err(refuse_active());

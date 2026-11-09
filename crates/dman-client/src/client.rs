@@ -347,6 +347,16 @@ macro_rules! typed_api {
             .await
         }
 
+        /// `video.probe`: formats, subtitles, playlist entries and quality
+        /// plans of a video URL (yt-dlp runs on the daemon host, up to 60 s).
+        pub async fn video_probe(
+            &self,
+            params: dman_proto::VideoProbeParams,
+        ) -> Result<dman_proto::VideoProbe, ClientError> {
+            self.call_with_timeout(method::VIDEO_PROBE, params, Duration::from_secs(90))
+                .await
+        }
+
         /// `jobs.pause`
         pub async fn pause(&self, ids: &[JobId]) -> Result<method::BatchResult, ClientError> {
             self.call(method::JOBS_PAUSE, IdsParams { ids: ids.to_vec() })

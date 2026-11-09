@@ -259,7 +259,10 @@ async fn serves_without_engine_and_enforces_auth_and_lock() {
     assert_eq!(c.profile(), "local");
 
     let status = c.engine_status().await.unwrap();
-    assert_eq!(status.len(), 1);
+    // aria2 first, then the yt-dlp video engine.
+    assert_eq!(status.len(), 2);
+    assert_eq!(status[0].engine, dman_proto::Engine::Aria2);
+    assert_eq!(status[1].engine, dman_proto::Engine::YtDlp);
     assert!(!status[0].available);
     assert!(
         status[0]

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use dman_aria2::{Aria2Client, DownloadStatus, Gid};
 use dman_proto::method::Level;
-use dman_proto::{JobId, JobState};
+use dman_proto::{Engine, JobId, JobState};
 use dman_store::{Desired, LiveFigures};
 
 use crate::disk::{self, Space};
@@ -18,8 +18,9 @@ use super::util::pause_gid;
 impl Manager {
     // ----- scheduler ---------------------------------------------------------
 
-    /// Queue scheduler (D5) with disk guard (Q3).
-    pub(super) async fn schedule(&mut self, client: &Aria2Client) {
+    /// Queue scheduler (D5) with disk guard (Q3), for aria2 and video jobs
+    /// alike. aria2 jobs are only touched while aria2 runs (`client`).
+    pub(super) async fn schedule(&mut self, client: Option<&Aria2Client>) {
         let min_free = self.profile.min_free;
         let mut space_cache: HashMap<PathBuf, Option<Space>> = HashMap::new();
         let mut space_of = |dir: &str| -> Option<Space> {
@@ -69,6 +70,25 @@ impl Manager {
             to_pause.push((id, None));
         }
         for (id, msg) in to_pause {
+            if self
+                .jobs
+                .get(&id)
+                .is_some_and(|e| e.rec.engine == Engine::YtDlp)
+            {
+                let st = match self.jobs.get(&id).map(|e| e.rec.desired) {
+                    Some(Desired::Queued) => JobState::Waiting,
+                    _ => JobState::Paused,
+                };
+                self.stop_video(id, st);
+                if let Some(text) = msg {
+                    if let Some(e) = self.jobs.get_mut(&id) {
+                        e.disk_blocked = true;
+                    }
+                    self.message(Level::Warn, text);
+                }
+                continue;
+            }
+            let Some(client) = client else { continue };
             let Some(gid) = self.jobs.get(&id).and_then(|e| e.rec.gid.clone()) else {
                 continue;
             };
@@ -102,14 +122,23 @@ impl Manager {
         // Start queued jobs.
         let running = self.jobs.values().filter(|e| e.uses_slot()).count();
         let running = u32::try_from(running).unwrap_or(u32::MAX);
+        let aria2_up = client.is_some();
+        let ytdlp_up = self.tools.ytdlp.is_some();
         let mut candidates: Vec<(u64, JobId, String)> = self
             .jobs
             .values()
             .filter(|e| {
                 e.rec.desired == Desired::Queued
                     && !e.rec.state.is_stopped()
-                    && e.aria2 == Some(DownloadStatus::Paused)
-                    && e.rec.gid.is_some()
+                    && match e.rec.engine {
+                        Engine::Aria2 => {
+                            aria2_up
+                                && e.aria2 == Some(DownloadStatus::Paused)
+                                && e.rec.gid.is_some()
+                        }
+                        // Not while a stopped process is still exiting.
+                        Engine::YtDlp => ytdlp_up && e.video.is_none(),
+                    }
             })
             .map(|e| (e.rec.queue_key, e.rec.id, e.rec.dir.clone()))
             .collect();
@@ -134,6 +163,15 @@ impl Manager {
             }
         }
         for id in plan.start {
+            if self
+                .jobs
+                .get(&id)
+                .is_some_and(|e| e.rec.engine == Engine::YtDlp)
+            {
+                self.start_video(id);
+                continue;
+            }
+            let Some(client) = client else { continue };
             let Some(gid) = self.jobs.get(&id).and_then(|e| e.rec.gid.clone()) else {
                 continue;
             };

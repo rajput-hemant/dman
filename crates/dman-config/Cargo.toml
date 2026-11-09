@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 dman-search = { path = "../dman-search" }
+dman-ytdlp = { path = "../dman-ytdlp" }
 bytesize.workspace = true
 etcetera.workspace = true
 getrandom = "0.3"

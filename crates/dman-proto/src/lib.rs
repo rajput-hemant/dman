@@ -9,9 +9,11 @@ pub mod job;
 pub mod method;
 pub mod rpc;
 pub mod search;
+pub mod video;
 
 pub use error::{ErrorCode, RpcError};
 pub use job::*;
+pub use video::{VideoOptions, VideoProbe, VideoProbeParams, VideoSubtitles};
 
 /// Major version of the daemon API. Clients refuse to talk to a daemon with a
 /// different major version.

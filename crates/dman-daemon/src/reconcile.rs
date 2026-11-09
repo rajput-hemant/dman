@@ -82,7 +82,10 @@ impl Manager {
                     }
                 }
                 None => {
-                    if !e.rec.state.is_stopped() && e.rec.desired != Desired::Stopped {
+                    if e.rec.engine == Engine::Aria2
+                        && !e.rec.state.is_stopped()
+                        && e.rec.desired != Desired::Stopped
+                    {
                         readd.push(id);
                     }
                 }

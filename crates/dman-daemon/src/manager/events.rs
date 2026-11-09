@@ -79,7 +79,11 @@ impl Manager {
             .map(|e| (e.rec.id, e.live.download_speed, e.live.upload_speed))
             .collect();
         let t = super::util::now_ms();
-        self.history.record(t, self.global_speed, &running);
+        let speed = (
+            self.global_speed.0.saturating_add(self.video_speed()),
+            self.global_speed.1,
+        );
+        self.history.record(t, speed, &running);
         let jobs = &self.jobs;
         self.history
             .retain_jobs(|id| jobs.get(&id).is_some_and(|e| !e.rec.state.is_stopped()));
@@ -100,6 +104,10 @@ impl Manager {
     pub(super) fn job_view(e: &Entry, positions: &HashMap<JobId, u32>) -> Job {
         let mut j = e.rec.to_job(Some(&e.live));
         j.queue_position = positions.get(&e.rec.id).copied();
+        if let Some((n, m)) = e.video_item {
+            // Playlist downloads show their position in the name.
+            j.name = format!("{} [{n}/{m}]", j.name);
+        }
         j
     }
 
@@ -116,7 +124,7 @@ impl Manager {
 
     pub(super) fn stats(&self) -> GlobalStats {
         let mut s = GlobalStats {
-            download_speed: self.global_speed.0,
+            download_speed: self.global_speed.0.saturating_add(self.video_speed()),
             upload_speed: self.global_speed.1,
             total_downloaded: self.totals.0.saturating_add(self.pending_transfer.0),
             total_uploaded: self.totals.1.saturating_add(self.pending_transfer.1),

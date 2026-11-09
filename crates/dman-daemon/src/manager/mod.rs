@@ -17,6 +17,7 @@ mod rename;
 mod scheduler;
 mod timetable;
 mod util;
+pub(crate) mod video;
 
 use util::store_err;
 pub(crate) use util::{file_paths, now, pause_gid};
@@ -149,6 +150,10 @@ pub struct ManagerConfig {
     pub previews: std::sync::Arc<crate::preview::PreviewRegistry>,
     /// Tracker list attached to new torrents and magnets.
     pub trackers: std::sync::Arc<crate::search::Trackers>,
+    /// `[video]` defaults applied to new video jobs.
+    pub video: dman_config::Video,
+    /// Detected yt-dlp / ffmpeg (re-detected on `engine.restart`).
+    pub video_tools: watch::Receiver<dman_ytdlp::Tools>,
 }
 
 /// In-memory state of one job.
@@ -168,11 +173,16 @@ pub(crate) struct Entry {
     /// Held back by the disk guard (warning already sent).
     disk_blocked: bool,
     pub(crate) missing: u32,
+    /// The running yt-dlp process of a video job.
+    pub(crate) video: Option<video::VideoRun>,
+    /// Playlist position `(n, m)` of a running video job.
+    pub(crate) video_item: Option<(u32, u32)>,
 }
 
 impl Entry {
     pub(crate) fn new(rec: JobRecord) -> Self {
-        let need_details = !rec.state.is_stopped()
+        let need_details = rec.engine == Engine::Aria2
+            && !rec.state.is_stopped()
             && rec.extra.get("details_final").and_then(Value::as_bool) != Some(true);
         Self {
             rec,
@@ -185,12 +195,17 @@ impl Entry {
             need_details,
             disk_blocked: false,
             missing: 0,
+            video: None,
+            video_item: None,
         }
     }
 
     /// Downloading (or about to: unpaused and waiting in aria2), i.e. using a
     /// slot. Seeding does not count.
     fn uses_slot(&self) -> bool {
+        if let Some(v) = &self.video {
+            return !v.stopping;
+        }
         match self.aria2 {
             Some(DownloadStatus::Active) => self.rec.state != JobState::Seeding,
             Some(DownloadStatus::Waiting) => true,
@@ -199,6 +214,9 @@ impl Entry {
     }
 
     fn running_in_engine(&self) -> bool {
+        if let Some(v) = &self.video {
+            return !v.stopping;
+        }
         matches!(
             self.aria2,
             Some(DownloadStatus::Active | DownloadStatus::Waiting)
@@ -231,6 +249,12 @@ pub struct Manager {
     pub(crate) history: crate::history::History,
     pub(crate) previews: std::sync::Arc<crate::preview::PreviewRegistry>,
     pub(crate) trackers: std::sync::Arc<crate::search::Trackers>,
+    pub(crate) video_cfg: dman_config::Video,
+    /// yt-dlp / ffmpeg as detected now.
+    pub(crate) tools: dman_ytdlp::Tools,
+    pub(crate) video_tx: video::VideoTx,
+    /// Counter identifying yt-dlp runs (stale completions are ignored).
+    pub(crate) video_runs: u64,
 }
 
 fn to_value<T: Serialize>(v: T) -> Result<Value, RpcError> {
@@ -241,6 +265,8 @@ impl Manager {
     /// Spawns the actor and returns its handle and join handle.
     pub fn spawn(cfg: ManagerConfig) -> (ManagerHandle, tokio::task::JoinHandle<()>) {
         let (tx, rx) = mpsc::channel(64);
+        let (video_tx, video_rx) = mpsc::unbounded_channel();
+        let tools = cfg.video_tools.borrow().clone();
         let default_dir = cfg.profile.download_path();
         let mgr = Manager {
             store: cfg.store,
@@ -275,8 +301,12 @@ impl Manager {
             history: crate::history::History::default(),
             previews: cfg.previews,
             trackers: cfg.trackers,
+            video_cfg: cfg.video,
+            tools,
+            video_tx,
+            video_runs: 0,
         };
-        let task = tokio::spawn(mgr.run(rx, cfg.engine));
+        let task = tokio::spawn(mgr.run(rx, cfg.engine, video_rx, cfg.video_tools));
         (ManagerHandle { tx }, task)
     }
 
@@ -309,11 +339,20 @@ impl Manager {
         match self.db(|s| Ok((s.list_jobs()?, s.totals()?))).await {
             Ok((records, totals)) => {
                 self.totals = totals;
-                for rec in records {
+                for mut rec in records {
+                    let dirty = rec.engine == Engine::YtDlp && rec.state == JobState::Active;
+                    if dirty {
+                        // yt-dlp was stopped with the daemon: queue it again
+                        // (the respawn resumes its .part files).
+                        rec.state = JobState::Waiting;
+                        self.urgent = true;
+                    }
                     if let Some(g) = &rec.gid {
                         self.gids.insert(g.clone(), rec.id);
                     }
-                    self.jobs.insert(rec.id, Entry::new(rec));
+                    let mut e = Entry::new(rec);
+                    e.dirty = dirty;
+                    self.jobs.insert(e.rec.id, e);
                 }
                 tracing::info!(jobs = self.jobs.len(), "loaded job records");
             }
@@ -321,8 +360,19 @@ impl Manager {
         }
     }
 
-    async fn run(mut self, mut rx: mpsc::Receiver<Msg>, mut engine: watch::Receiver<EngineState>) {
+    async fn run(
+        mut self,
+        mut rx: mpsc::Receiver<Msg>,
+        mut engine: watch::Receiver<EngineState>,
+        mut video_rx: mpsc::UnboundedReceiver<video::VideoMsg>,
+        mut tools_rx: watch::Receiver<dman_ytdlp::Tools>,
+    ) {
         self.load().await;
+        self.tools = tools_rx.borrow_and_update().clone();
+        self.emit(Event::Engine {
+            status: crate::video::engine_status(&self.tools),
+        });
+        let mut tools_open = true;
         let initial = engine.borrow_and_update().clone();
         let mut notif = self.on_engine_state(initial).await;
         let mut engine_open = true;
@@ -338,15 +388,31 @@ impl Manager {
                         self.flush(false).await;
                     }
                     Some(Msg::Shutdown(done)) => {
+                        self.shutdown_videos().await;
                         self.flush(true).await;
                         let _ = done.send(());
                         return;
                     }
                     None => {
+                        self.shutdown_videos().await;
                         self.flush(true).await;
                         return;
                     }
                 },
+                Some(m) = video_rx.recv() => {
+                    self.on_video_msg(m).await;
+                }
+                changed = tools_rx.changed(), if tools_open => {
+                    if changed.is_err() {
+                        tools_open = false;
+                    } else {
+                        self.tools = tools_rx.borrow_and_update().clone();
+                        self.emit(Event::Engine {
+                            status: crate::video::engine_status(&self.tools),
+                        });
+                        self.tick().await;
+                    }
+                }
                 changed = engine.changed(), if engine_open => {
                     if changed.is_err() {
                         engine_open = false;
@@ -539,7 +605,10 @@ impl Manager {
             Request::ScheduleGet => to_value(self.schedule_status()),
             Request::Stats => to_value(self.stats()),
             Request::StatsHistory => to_value(self.history.global()),
-            Request::EngineStatus => to_value(vec![self.engine.clone()]),
+            Request::EngineStatus => to_value(vec![
+                self.engine.clone(),
+                crate::video::engine_status(&self.tools),
+            ]),
             Request::FsList(p) => to_value(fs::list(&self.profile, p).await?),
             Request::Snapshot => {
                 // Bring every subscriber's baseline in line with what was sent.

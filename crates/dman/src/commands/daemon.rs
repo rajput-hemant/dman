@@ -249,14 +249,30 @@ async fn engine_restart(ctx: &Ctx) -> Result<i32, CliError> {
 }
 
 fn engine_line(e: &dman_proto::method::EngineStatus) -> String {
-    let name = format!("{:?}", e.engine).to_lowercase();
+    let name = match e.engine {
+        dman_proto::Engine::Aria2 => "aria2",
+        dman_proto::Engine::YtDlp => "yt-dlp",
+    };
     if e.available {
-        format!(
+        let mut line = format!(
             "engine {name}: available {}",
             e.version.as_deref().unwrap_or("")
         )
         .trim_end()
-        .to_owned()
+        .to_owned();
+        let extra: Vec<&str> = e
+            .features
+            .iter()
+            .map(String::as_str)
+            .filter(|f| f.starts_with("ffmpeg"))
+            .collect();
+        if !extra.is_empty() {
+            line.push_str(&format!(" ({})", extra.join(", ")));
+        }
+        if let Some(r) = &e.reason {
+            line.push_str(&format!("\n  note: {r}"));
+        }
+        line
     } else {
         format!(
             "engine {name}: unavailable ({})",

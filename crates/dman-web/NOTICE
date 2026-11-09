@@ -1,0 +1,24 @@
+dman-web vendors two third-party JavaScript files in assets/ (served to the browser):
+
+  htmx.min.js   htmx 2.0.4        https://htmx.org
+  sse.js        htmx-ext-sse 2.2.2 https://github.com/bigskysoftware/htmx-extensions
+
+Both are licensed under the Zero-Clause BSD License (0BSD), which permits use,
+copying, modification and distribution without conditions:
+
+  Copyright (c) 2020, Big Sky Software (htmx) / 2023, Alexander Petros (htmx-ext-sse)
+
+  Permission to use, copy, modify, and/or distribute this software for any
+  purpose with or without fee is hereby granted.
+
+  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+  REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+  INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+  OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+  TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+  THIS SOFTWARE.
+
+Note: the task brief mentioned BSD-2-Clause; the published packages declare 0BSD
+(htmx 2.0.4 LICENSE: "Zero-Clause BSD"; htmx-ext-sse 2.2.2 package.json: "0BSD").
+The extension is shipped unminified (the npm package has no minified build).

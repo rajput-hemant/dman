@@ -1,0 +1,30 @@
+[package]
+name = "dman-web"
+description = "dman's browser UI: server-rendered HTML, htmx and SSE, served by the daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dman-proto.workspace = true
+axum = { version = "0.8", default-features = false, features = ["tokio", "http1", "multipart"] }
+maud = { version = "0.27", default-features = false }
+rust-embed = { version = "8", default-features = false, features = ["debug-embed"] }
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+futures-util = { version = "0.3", default-features = false, features = ["alloc"] }
+serde.workspace = true
+serde_json.workspace = true
+secrecy.workspace = true
+subtle = "2.6"
+base64 = "0.22"
+getrandom = "0.3"
+url.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", default-features = false, features = ["util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }
+
+[lints]
+workspace = true

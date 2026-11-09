@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 71 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
+**Overall: 75 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -24,7 +24,7 @@ commit this file together with the code it describes.
 | M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | in progress |
 | M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | done |
 | M6 Video engine (yt-dlp adapter, probe UI, options, fallbacks) | 10 | in progress |
-| M7 Web UI (htmx views, live updates, upload, auth, responsive) | 12 | — |
+| M7 Web UI (htmx views, live updates, upload, auth, responsive) | 12 | in progress |
 | M8 Remote and release (TLS, reconnect, completions, installers, update, docs, review) | 11 | — |
 
 ## Next up
@@ -93,8 +93,15 @@ commit this file together with the code it describes.
 - [x] Missing yt-dlp/ffmpeg: explained via engine.status (yt-dlp entry, ffmpeg as feature) (engine.status entry for yt-dlp and ffmpeg)
 - [x] Follow-up: use `nix::sys::signal::killpg` instead of the external `kill` binary in dman-ytdlp
 
-### M7 … M8
-Detailed task lists are written when the previous milestone finishes.
+### M7 — Web UI (12 %)
+- [x] `dman-web` crate: `Backend` trait + `router()`; htmx 2.0.4 + SSE ext (0BSD, 65 KB assets), pages for downloads/detail/add/search/settings, SSE live rows (≤ 2/s), token login + bearer, CSRF (Origin/Sec-Fetch-Site + per-session token), CSP without inline code, base_path, upload ≤ 10 MiB, double confirmation for delete-files
+- [ ] Daemon wiring: implement `Backend` over the dispatch, `[web]` config (enabled, bind, port, base_path, token_ref, exposed warning), mount on its own listener, `dman serve` (D3: foreground daemon with web on / enable on running daemon), `web.status` API
+- [ ] Use engine.status (yt-dlp availability) instead of the empty-URL video.probe hack for showing video options
+- [ ] Browser smoke test with Playwright (desktop + phone viewport): load, add a download, live progress, pause/resume, remove with delete confirmation, search
+- [ ] Missing web features vs TUI: magnet file selection (preview_magnet), daemon folder picker (fs.list), multi-select
+
+### M8 — Remote and release (11 %)
+Task list is written when M7 finishes.
 
 ### Follow-ups noted during M1
 - [x] Split `crates/dman-daemon/src/manager.rs` into `manager/` modules (largest 524 lines).

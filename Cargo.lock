@@ -799,6 +799,7 @@ name = "dman-config"
 version = "0.1.0"
 dependencies = [
  "bytesize",
+ "dman-search",
  "etcetera",
  "getrandom 0.3.4",
  "secrecy",
@@ -821,6 +822,7 @@ dependencies = [
  "dman-client",
  "dman-config",
  "dman-proto",
+ "dman-search",
  "dman-store",
  "dman-torrent",
  "futures-util",
@@ -917,6 +919,20 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "dman-ytdlp"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

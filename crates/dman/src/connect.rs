@@ -26,11 +26,16 @@ pub struct Ctx {
 impl Ctx {
     /// Load and validate the configuration and select the profile.
     pub fn load(cli: &Cli) -> Result<Self, CliError> {
+        Self::load_profile(cli.profile.as_deref(), cli.json)
+    }
+
+    /// Like [`Ctx::load`] with the profile name given directly.
+    pub fn load_profile(profile: Option<&str>, json: bool) -> Result<Self, CliError> {
         let paths = Paths::discover()?;
         let config = Config::load(&paths)?;
         config.validate()?;
         let (name, profile) = {
-            let (n, p) = config.profile(cli.profile.as_deref())?;
+            let (n, p) = config.profile(profile)?;
             (n.to_owned(), p.clone())
         };
         Ok(Self {
@@ -38,7 +43,7 @@ impl Ctx {
             config,
             name,
             profile,
-            json: cli.json,
+            json,
         })
     }
 
@@ -60,6 +65,12 @@ impl Ctx {
 
     /// WebSocket URL and API token of the profile's daemon.
     pub fn endpoint(&self) -> Result<(Url, SecretString), CliError> {
+        self.endpoint_with(true)
+    }
+
+    /// Like [`Ctx::endpoint`]; without `create_secret` a missing local secret is an error
+    /// instead of being generated (shell completion must not write files).
+    pub fn endpoint_with(&self, create_secret: bool) -> Result<(Url, SecretString), CliError> {
         let mut secrets = Secrets::load(&self.paths)?;
         match &self.profile.daemon {
             DaemonTarget::Local {
@@ -69,7 +80,17 @@ impl Ctx {
             } => {
                 let scheme = if tls.is_some() { "wss" } else { "ws" };
                 let url = parse_url(&format!("{scheme}://{listen}{WS_PATH}"))?;
-                Ok((url, secrets.ensure(secret_ref)?))
+                let token = if create_secret {
+                    secrets.ensure(secret_ref)?
+                } else {
+                    secrets.get(secret_ref).ok_or_else(|| {
+                        CliError::new(
+                            dman_proto::ErrorCode::Unauthorized,
+                            format!("secret '{secret_ref}' missing in secrets.toml"),
+                        )
+                    })?
+                };
+                Ok((url, token))
             }
             DaemonTarget::Remote {
                 url, secret_ref, ..

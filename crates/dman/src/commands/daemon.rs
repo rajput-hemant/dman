@@ -295,6 +295,7 @@ fn gen_config(ctx: &Ctx) -> Result<i32, CliError> {
         print_json(&serde_json::json!({ "path": path, "created": created }))?;
     } else if created {
         println!("created {}", path.display());
+        println!("tip: enable shell completions with `dman completions install`");
     } else {
         println!("{} already exists", path.display());
     }

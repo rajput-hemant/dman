@@ -1,19 +1,12 @@
-//! limit, max-concurrent, stats, completions and placeholders.
+//! limit, max-concurrent, stats, schedule and config reload.
 
-use clap::CommandFactory;
-use clap_complete::Shell;
 use dman_proto::method::LimitsUpdate;
 
 use super::print_json;
-use crate::cli::{Cli, ConfigCmd, LimitArgs};
+use crate::cli::{ConfigCmd, LimitArgs};
 use crate::connect::Ctx;
 use crate::error::CliError;
 use crate::format;
-
-pub fn completions(shell: Shell) -> Result<i32, CliError> {
-    clap_complete::generate(shell, &mut Cli::command(), "dman", &mut std::io::stdout());
-    Ok(0)
-}
 
 fn now_secs() -> i64 {
     std::time::SystemTime::now()

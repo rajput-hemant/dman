@@ -2,11 +2,12 @@
 
 mod cli;
 mod commands;
+mod completion;
 mod connect;
 mod error;
 mod format;
 
-use clap::Parser;
+use clap::FromArgMatches as _;
 use cli::{Cli, Command, DaemonCmd};
 use error::CliError;
 use std::process::ExitCode;
@@ -52,8 +53,29 @@ async fn run(cli: Cli, is_daemon_run: bool) -> Result<i32, CliError> {
     }
 }
 
+/// Exit quietly when the reader of our output went away (`dman list | head`).
+///
+/// Rust ignores SIGPIPE, so a write to a closed pipe fails with EPIPE and `println!`
+/// panics with "failed printing to stdout: Broken pipe". That is a normal way for a
+/// pipeline to end, not an error. (The daemon is exempt: it must not die with its log pipe.)
+fn exit_quietly_on_broken_pipe() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let msg = info.to_string();
+        if msg.contains("failed printing to std") && msg.contains("Broken pipe") {
+            std::process::exit(0);
+        }
+        default(info);
+    }));
+}
+
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    // Shell completion requests (`COMPLETE=<shell> dman -- ...`) are answered here and exit.
+    completion::handle_env_request();
+    let cli = match Cli::from_arg_matches(&cli::command().get_matches()) {
+        Ok(cli) => cli,
+        Err(e) => e.exit(),
+    };
     let json = cli.json;
     let is_daemon_run = matches!(
         cli.command,
@@ -61,6 +83,9 @@ fn main() -> ExitCode {
             cmd: DaemonCmd::Run { .. }
         })
     );
+    if !is_daemon_run {
+        exit_quietly_on_broken_pipe();
+    }
     // Log output would corrupt the full-screen UI, so the TUI runs without it.
     let is_tui =
         cli.command.is_none() && !cli.json && std::io::IsTerminal::is_terminal(&std::io::stdout());

@@ -29,7 +29,7 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
         return Ok(code);
     };
     match command {
-        Command::Completions { shell } => misc::completions(*shell),
+        Command::Completions(args) => crate::completion::run(args, cli.json),
         Command::Search(args) => search::run(&Ctx::load(&cli)?, args).await,
         Command::Providers { cmd } => providers::run(&Ctx::load(&cli)?, cmd).await,
         Command::Trackers { cmd } => providers::trackers(&Ctx::load(&cli)?, cmd).await,

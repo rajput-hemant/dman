@@ -1,15 +1,36 @@
 //! Command-line definition (clap derive).
 
-use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 use dman_proto::{JobId, JobState};
 
+use crate::completion as comp;
+
+const EXAMPLES: &str = "\
+Examples:
+  dman                                    open the interactive UI (starts the daemon if needed)
+  dman daemon start                       start the background daemon
+  dman add https://example.org/big.iso    download a file
+  dman search ubuntu --add 1              search the enabled providers and add result 1
+  dman list --state active,paused         show running and paused downloads
+  dman serve                              open the browser UI on http://127.0.0.1:6811
+  dman completions install                enable tab completion for your shell";
+
 /// dman: a terminal-first download manager.
+///
+/// A background daemon owns aria2 (and yt-dlp for video) and all state; this CLI, the
+/// interactive UI (run `dman` without arguments) and the browser UI (`dman serve`) are
+/// clients of it.
+///
+/// Tab completion (job IDs with their names, providers, profiles, options) is installed
+/// with `dman completions install`; `dman completions <shell>` prints the script instead.
+/// Exit codes: 0 ok, 1 general error, 2 usage error, 130 interrupted; see `--json` for
+/// machine-readable errors.
 #[derive(Parser, Debug)]
-#[command(name = "dman", version, propagate_version = true)]
+#[command(name = "dman", version, propagate_version = true, after_help = EXAMPLES)]
 pub struct Cli {
     /// Daemon profile to use.
-    #[arg(long, global = true, env = "DMAN_PROFILE", value_name = "NAME")]
+    #[arg(long, global = true, env = "DMAN_PROFILE", value_name = "NAME", add = comp::profiles())]
     pub profile: Option<String>,
     /// Machine-readable output (JSON), also for errors.
     #[arg(long, global = true)]
@@ -21,6 +42,14 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+/// The command definition used for parsing and completion. `pause` and `resume` share
+/// [`TargetArgs`]; resume completes paused jobs instead.
+pub fn command() -> clap::Command {
+    Cli::command().mut_subcommand("resume", |c| {
+        c.mut_arg("ids", |a| a.add(comp::job_ids_paused()))
+    })
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Manage the background daemon.
@@ -29,12 +58,27 @@ pub enum Command {
         cmd: DaemonCmd,
     },
     /// Add downloads (URLs, magnets, .torrent/.metalink files).
+    #[command(after_help = "\
+Examples:
+  dman add https://example.org/big.iso
+  dman add magnet:?xt=urn:btih:... --select-files 1,3-5
+  dman add ubuntu.torrent --dir ~/iso --paused
+  dman add -i urls.txt --max-download-limit 2MiB
+  dman add --mirror https://a.example/f.zip https://b.example/f.zip
+  dman add https://youtu.be/ID --quality 1080p --container mkv --subs en")]
     Add(Box<AddArgs>),
     /// List downloads.
+    #[command(after_help = "\
+Examples:
+  dman list
+  dman list --state active,seeding
+  dman list --watch
+  dman list --json | jq '.[].name'")]
     List(ListArgs),
     /// Show details of one download.
     Get {
         /// Job ID.
+        #[arg(add = comp::job_ids_any())]
         id: JobId,
         /// Also list the files.
         #[arg(long)]
@@ -46,6 +90,7 @@ pub enum Command {
     /// Rename a download (waiting/paused: new output name; complete: move on disk).
     Rename {
         /// Job ID.
+        #[arg(add = comp::job_ids_any())]
         id: JobId,
         /// New file name (no `/`); for a completed multi-file torrent without
         /// --file, the new top-level directory name.
@@ -57,6 +102,7 @@ pub enum Command {
     /// Delete the partial files of a finished torrent's deselected files (asks first).
     Cleanup {
         /// Job ID.
+        #[arg(add = comp::job_ids_finished())]
         id: JobId,
         /// Do not ask for confirmation.
         #[arg(long, short = 'y')]
@@ -75,7 +121,7 @@ pub enum Command {
         #[arg(long)]
         playlist: bool,
         /// Read cookies from this browser (firefox, chrome, ...).
-        #[arg(long, value_name = "BROWSER")]
+        #[arg(long, value_name = "BROWSER", add = comp::browser())]
         cookies_from_browser: Option<String>,
     },
     /// Show the files of a magnet link without downloading it.
@@ -107,12 +153,20 @@ pub enum Command {
     Schedule,
     /// Show global statistics.
     Stats,
-    /// Print a shell completion script.
-    Completions {
-        /// Target shell.
-        shell: Shell,
-    },
+    /// Print a shell completion script, or install it (`completions install`).
+    #[command(after_help = "\
+Examples:
+  dman completions install                install for the shell in $SHELL
+  dman completions install --shell fish   choose the shell explicitly
+  dman completions bash > dman.bash       print the script (for package managers)")]
+    Completions(CompletionsArgs),
     /// Search the enabled providers; optionally add results.
+    #[command(after_help = "\
+Examples:
+  dman search ubuntu 24.04
+  dman search 'blade runner' --provider YTS --category movies
+  dman search ubuntu --limit 5 --add 1,2   add the first two results
+  dman search --history")]
     Search(Box<SearchArgs>),
     /// Manage search providers (enable, disable, test, import, export).
     Providers {
@@ -125,9 +179,61 @@ pub enum Command {
         cmd: TrackersCmd,
     },
     /// Serve the browser UI (enable it on the running daemon, or run a daemon with it).
+    #[command(after_help = "\
+Examples:
+  dman serve                              web UI on http://127.0.0.1:6811
+  dman serve --bind 0.0.0.0 --persist     expose it on the network and remember that
+  dman serve --base-path /dman            behind a reverse proxy at /dman
+  dman serve --stop                       turn the web UI off again")]
     Serve(ServeArgs),
     /// Update dman (installer installs only) or show the right command for your install.
     Update(UpdateArgs),
+}
+
+#[derive(Args, Debug)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct CompletionsArgs {
+    /// Print the completion script of this shell to stdout.
+    pub shell: Option<Shell>,
+    #[command(subcommand)]
+    pub cmd: Option<CompletionsCmd>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum CompletionsCmd {
+    /// Write the completion script where your shell loads it and say what else to do.
+    Install {
+        /// Shell to install for (default: detected from $SHELL).
+        #[arg(long, value_enum)]
+        shell: Option<InstallShell>,
+        /// Replace an existing, different completion file.
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+/// Shells `completions install` knows a standard location for.
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallShell {
+    Bash,
+    Zsh,
+    Fish,
+}
+
+impl InstallShell {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Bash => "bash",
+            Self::Zsh => "zsh",
+            Self::Fish => "fish",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Self::Bash, Self::Zsh, Self::Fish]
+            .into_iter()
+            .find(|s| s.name() == name)
+    }
 }
 
 #[derive(Args, Debug)]
@@ -146,10 +252,10 @@ pub struct SearchArgs {
     #[arg(required_unless_present_any = ["history", "clear_history"])]
     pub query: Vec<String>,
     /// Only this provider (repeatable); default: every enabled provider.
-    #[arg(short, long = "provider", value_name = "NAME")]
+    #[arg(short, long = "provider", value_name = "NAME", add = comp::providers_any())]
     pub provider: Vec<String>,
     /// Category filter (movies, tv, audio, software, books, xxx, other).
-    #[arg(long, value_name = "CATEGORY")]
+    #[arg(long, value_name = "CATEGORY", add = comp::category())]
     pub category: Option<String>,
     /// Add these results (the numbers of the table, e.g. 1,3) to the downloads.
     #[arg(long, value_name = "N[,M]", value_delimiter = ',', value_parser = parse_index)]
@@ -180,33 +286,37 @@ pub enum ProvidersCmd {
     /// Enable providers (nothing is searched until one is enabled).
     Enable {
         /// Provider names.
-        #[arg(required = true)]
+        #[arg(required = true, add = comp::providers_disabled())]
         names: Vec<String>,
     },
     /// Disable providers.
     Disable {
         /// Provider names.
-        #[arg(required = true)]
+        #[arg(required = true, add = comp::providers_enabled())]
         names: Vec<String>,
     },
     /// Probe a provider and show what it returns.
     Test {
         /// Provider name.
+        #[arg(add = comp::providers_any())]
         name: String,
     },
     /// Add or replace custom providers from a TOML file (`-` = stdin).
     Import {
         /// File of `[[provider]]` tables.
+        #[arg(add = comp::any_file())]
         file: String,
     },
     /// Print providers as TOML (default: the custom ones).
     Export {
         /// Provider names.
+        #[arg(add = comp::providers_any())]
         names: Vec<String>,
     },
     /// Remove a custom provider (built-ins can only be disabled).
     Remove {
         /// Provider name.
+        #[arg(add = comp::providers_custom())]
         name: String,
     },
 }
@@ -226,6 +336,11 @@ pub enum DaemonCmd {
         detach: bool,
     },
     /// Start the daemon in the background.
+    #[command(after_help = "\
+Examples:
+  dman daemon start        start it (no-op if it is already running)
+  dman daemon status       check that it runs and which engines it found
+  dman daemon gen-config   write a commented config.toml to edit first")]
     Start,
     /// Stop the daemon.
     Stop,
@@ -267,15 +382,16 @@ pub struct ServeArgs {
 #[derive(Args, Debug, Default)]
 pub struct AddArgs {
     /// URLs, magnets, local .torrent/.metalink/.meta4 files, or `-` for stdin.
+    #[arg(add = comp::add_sources())]
     pub sources: Vec<String>,
     /// Read sources from a text file (one per line; blank lines and # comments skipped).
-    #[arg(long, value_name = "FILE")]
+    #[arg(short = 'i', long, value_name = "FILE", add = comp::any_file())]
     pub input_file: Option<String>,
     /// Treat all URI sources as mirrors of ONE download.
     #[arg(long)]
     pub mirror: bool,
     /// Download directory (on the daemon host).
-    #[arg(long, value_name = "DIR")]
+    #[arg(long, value_name = "DIR", add = comp::any_dir())]
     pub dir: Option<String>,
     /// Output file name.
     #[arg(long, value_name = "NAME")]
@@ -340,13 +456,13 @@ pub struct VideoArgs {
     #[arg(long)]
     pub no_video: bool,
     /// Quality: best, 2160p, 1440p, 1080p, 720p, 480p, audio:m4a|mp3|opus, or a yt-dlp selector.
-    #[arg(long, value_name = "Q")]
+    #[arg(long, value_name = "Q", add = comp::quality())]
     pub quality: Option<String>,
     /// Exact format id(s) from `dman probe`, e.g. 137+140.
     #[arg(long, value_name = "ID")]
     pub format_id: Option<String>,
     /// Container for merged video: mp4, mkv or webm.
-    #[arg(long, value_name = "C")]
+    #[arg(long, value_name = "C", add = comp::container())]
     pub container: Option<String>,
     /// Download the whole playlist.
     #[arg(long)]
@@ -370,10 +486,10 @@ pub struct VideoArgs {
     #[arg(long)]
     pub no_metadata: bool,
     /// Cut SponsorBlock segments, e.g. sponsor,intro (needs ffmpeg).
-    #[arg(long, value_name = "CATS", value_delimiter = ',')]
+    #[arg(long, value_name = "CATS", value_delimiter = ',', add = comp::sponsorblock())]
     pub sponsorblock_remove: Vec<String>,
     /// Read cookies from this browser (firefox, chrome, ...).
-    #[arg(long, value_name = "BROWSER")]
+    #[arg(long, value_name = "BROWSER", add = comp::browser())]
     pub cookies_from_browser: Option<String>,
     /// Without ffmpeg, accept video and audio as separate files instead of a lower quality.
     #[arg(long)]
@@ -451,7 +567,7 @@ pub struct ListArgs {
 #[derive(Args, Debug)]
 pub struct TargetArgs {
     /// Job IDs.
-    #[arg(required_unless_present = "all")]
+    #[arg(required_unless_present = "all", add = comp::job_ids_running())]
     pub ids: Vec<JobId>,
     /// Apply to every job.
     #[arg(long, conflicts_with = "ids")]
@@ -468,7 +584,7 @@ pub enum ConfigCmd {
 #[derive(Args, Debug)]
 pub struct RemoveArgs {
     /// Job IDs.
-    #[arg(required = true)]
+    #[arg(required = true, add = comp::job_ids_any())]
     pub ids: Vec<JobId>,
     /// Also delete the downloaded files (asks a second time).
     #[arg(long)]
@@ -484,6 +600,7 @@ pub struct RemoveArgs {
 #[derive(Args, Debug)]
 pub struct PurgeArgs {
     /// Job IDs; none = all stopped jobs.
+    #[arg(add = comp::job_ids_stopped())]
     pub ids: Vec<JobId>,
     /// Do not ask for confirmation.
     #[arg(long, short = 'y')]
@@ -494,6 +611,7 @@ pub struct PurgeArgs {
 #[command(group(clap::ArgGroup::new("move").required(true).multiple(false)))]
 pub struct ReorderArgs {
     /// Job ID.
+    #[arg(add = comp::job_ids_any())]
     pub id: JobId,
     /// Move to this absolute position (0 = first).
     #[arg(long, value_name = "N", group = "move")]

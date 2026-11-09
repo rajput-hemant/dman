@@ -105,7 +105,7 @@ commit this file together with the code it describes.
 
 ### UX pass (requested by the user, 2026-11-09)
 - [ ] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
-- [ ] CLI: dynamic completions (job IDs, providers, profiles), `dman completions install`, help examples, SIGPIPE-safe output
+- [x] CLI: dynamic completions (job IDs, providers, profiles), `dman completions install`, help examples, SIGPIPE-safe output
 - [x] Seeding OFF by default (`[torrents] seed = false`; per-job `seed` override; setting a seed ratio/time on a job implies seeding)
 - [ ] Video quality picker (user request): backend — `[video] ask_quality` (default true) + `default_audio`, `video.preferences.get/set` (persisted), probe `video_choices`/`audio_choices`/`needs_choice`, "v+a" format ids, defaults used when no choice
 - [ ] Video quality picker UI in TUI, web and CLI: if ask_quality → probe → picker (video + audio lists, presets) with "Use as my default" and "Never ask again" checkboxes; else add with defaults; Settings toggle to ask again

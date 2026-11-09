@@ -83,6 +83,14 @@ impl From<ConfigError> for CliError {
 
 impl From<std::io::Error> for CliError {
     fn from(e: std::io::Error) -> Self {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            // The reader of our output went away (`dman ... | head`): a normal end.
+            return Self {
+                code: ErrorCode::General,
+                message: String::new(),
+                exit: 0,
+            };
+        }
         Self::general(e.to_string())
     }
 }

@@ -9,6 +9,8 @@
 //!   broadcast channel. It polls aria2 every tick (and on aria2
 //!   notifications), runs the queue scheduler with the disk guard, and
 //!   persists records to the store.
+//! * [`search`]: search providers, background searches, search history and the
+//!   tracker list; independent of the manager so it can never block downloads.
 //! * [`server`]: axum WebSocket endpoint `GET /api/v1/ws` (JSON-RPC 2.0).
 //! * `reconcile`: store ↔ aria2 matching on startup and after engine restarts.
 //! * [`tick`], [`queue`], [`disk`], [`ops`]: pure decision logic (status
@@ -27,6 +29,7 @@ pub mod preview;
 pub mod queue;
 mod reconcile;
 pub mod schedule;
+pub mod search;
 pub mod server;
 pub mod tick;
 
@@ -165,6 +168,15 @@ pub async fn run_with_clock(
     previews.reset_dir();
     let preview = Arc::new(preview::Preview::new(previews.clone(), engine_rx.clone()));
     let (events, _) = broadcast::channel(EVENT_CAPACITY);
+    let search = search::SearchService::new(
+        paths.clone(),
+        store.clone(),
+        events.clone(),
+        &config,
+        &secrets,
+    )
+    .context("cannot set up search")?;
+    let tracker_task = search.spawn_tracker_refresher();
     let notifier = {
         let secret = match config
             .notify
@@ -195,6 +207,7 @@ pub async fn run_with_clock(
         events: events.clone(),
         engine: engine_rx,
         previews,
+        trackers: search.trackers(),
     });
 
     let notifier_task =
@@ -202,6 +215,7 @@ pub async fn run_with_clock(
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (request_tx, mut request_rx) = mpsc::channel::<()>(1);
+    let search_close = search.clone();
     let state = Arc::new(ServerState {
         manager: manager.clone(),
         token,
@@ -211,6 +225,7 @@ pub async fn run_with_clock(
         shutdown_request: request_tx,
         engine: engine.clone(),
         preview,
+        search,
     });
     let mut graceful = shutdown_rx.clone();
     let mut server = tokio::spawn(async move {
@@ -247,6 +262,10 @@ pub async fn run_with_clock(
     if let Some(t) = notifier_task {
         t.abort();
     }
+    if let Some(t) = tracker_task {
+        t.abort();
+    }
+    search_close.close();
     engine.shutdown().await;
     let _ = engine_task.await;
     if !server_done

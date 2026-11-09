@@ -147,6 +147,8 @@ pub struct ManagerConfig {
     pub engine: watch::Receiver<EngineState>,
     /// Magnet previews running in aria2; never adopted as jobs.
     pub previews: std::sync::Arc<crate::preview::PreviewRegistry>,
+    /// Tracker list attached to new torrents and magnets.
+    pub trackers: std::sync::Arc<crate::search::Trackers>,
 }
 
 /// In-memory state of one job.
@@ -228,6 +230,7 @@ pub struct Manager {
     poll_failing: bool,
     pub(crate) history: crate::history::History,
     pub(crate) previews: std::sync::Arc<crate::preview::PreviewRegistry>,
+    pub(crate) trackers: std::sync::Arc<crate::search::Trackers>,
 }
 
 fn to_value<T: Serialize>(v: T) -> Result<Value, RpcError> {
@@ -271,6 +274,7 @@ impl Manager {
             poll_failing: false,
             history: crate::history::History::default(),
             previews: cfg.previews,
+            trackers: cfg.trackers,
         };
         let task = tokio::spawn(mgr.run(rx, cfg.engine));
         (ManagerHandle { tx }, task)

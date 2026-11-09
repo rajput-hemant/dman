@@ -47,6 +47,8 @@ pub struct ServerState {
     pub engine: crate::engine::EngineHandle,
     /// Magnet previews (`jobs.preview_magnet`).
     pub preview: Arc<crate::preview::Preview>,
+    /// Search, providers and tracker list.
+    pub search: Arc<crate::search::SearchService>,
 }
 
 /// The axum router serving the API.
@@ -314,6 +316,19 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
                 tasks.push(tokio::spawn(async move {
                     let resp = match engine.restart().await {
                         Ok(status) => Response::ok(id, json!([status])),
+                        Err(e) => Response::err(id, e),
+                    };
+                    let _ = out.send(encode(&resp)).await;
+                }));
+            }
+            m if crate::search::handles(m) => {
+                let search = state.search.clone();
+                let out = out_tx.clone();
+                let method = m.to_owned();
+                tasks.retain(|t| !t.is_finished());
+                tasks.push(tokio::spawn(async move {
+                    let resp = match search.call(&method, req.params).await {
+                        Ok(v) => Response::ok(id, v),
                         Err(e) => Response::err(id, e),
                     };
                     let _ = out.send(encode(&resp)).await;

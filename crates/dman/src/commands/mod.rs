@@ -5,6 +5,8 @@ pub mod control;
 pub mod daemon;
 pub mod list;
 pub mod misc;
+pub mod providers;
+pub mod search;
 
 use crate::cli::{Cli, Command};
 use crate::connect::Ctx;
@@ -23,7 +25,9 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
     };
     match command {
         Command::Completions { shell } => misc::completions(*shell),
-        Command::Search { .. } => misc::unavailable("search", "M5"),
+        Command::Search(args) => search::run(&Ctx::load(&cli)?, args).await,
+        Command::Providers { cmd } => providers::run(&Ctx::load(&cli)?, cmd).await,
+        Command::Trackers { cmd } => providers::trackers(&Ctx::load(&cli)?, cmd).await,
         Command::Serve => misc::unavailable("serve", "M7"),
         Command::Daemon { cmd } => daemon::run(&Ctx::load(&cli)?, cmd).await,
         Command::Add(args) => add::run(&Ctx::load(&cli)?, args).await,

@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+dman-search = { path = "../dman-search" }
 bytesize.workspace = true
 etcetera.workspace = true
 getrandom = "0.3"

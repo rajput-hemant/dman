@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use toml_edit::{DocumentMut, Item, Table, Value};
+use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
 use crate::{ConfigError, Paths, fsutil};
 
@@ -64,6 +64,81 @@ impl ConfigDoc {
         Ok(())
     }
 
+    /// Create or replace the `[[search.provider]]` entry named `table["name"]`
+    /// (case-insensitive) with exactly `table`. Other entries, comments and
+    /// formatting are untouched.
+    pub fn upsert_search_provider(&mut self, table: &toml::Table) -> Result<(), ConfigError> {
+        let name = provider_name(table)?;
+        let new = to_edit_table(table)?;
+        let list = self.provider_list()?;
+        match find_provider(list, &name) {
+            Some(i) => *list.get_mut(i).ok_or_else(bad_provider)? = new,
+            None => list.push(new),
+        }
+        Ok(())
+    }
+
+    /// Set `fields` on the `[[search.provider]]` entry named `name`, creating
+    /// `{ name, ..fields }` when none exists (a built-in override). Existing
+    /// values keep their trailing comments.
+    pub fn patch_search_provider(
+        &mut self,
+        name: &str,
+        fields: &toml::Table,
+    ) -> Result<(), ConfigError> {
+        let list = self.provider_list()?;
+        let Some(i) = find_provider(list, name) else {
+            let mut all = toml::Table::new();
+            all.insert("name".into(), toml::Value::String(name.to_owned()));
+            all.extend(fields.iter().map(|(k, v)| (k.clone(), v.clone())));
+            list.push(to_edit_table(&all)?);
+            return Ok(());
+        };
+        let entry = list.get_mut(i).ok_or_else(bad_provider)?;
+        let patch = to_edit_table(fields)?;
+        for (k, item) in patch.iter() {
+            if let (Some(Item::Value(old)), Item::Value(new)) = (entry.get(k), item) {
+                let mut new = new.clone();
+                *new.decor_mut() = old.decor().clone();
+                entry[k] = Item::Value(new);
+            } else {
+                entry[k] = item.clone();
+            }
+        }
+        Ok(())
+    }
+
+    /// Remove the `[[search.provider]]` entry named `name`; `true` if it existed.
+    pub fn remove_search_provider(&mut self, name: &str) -> Result<bool, ConfigError> {
+        let list = self.provider_list()?;
+        match find_provider(list, name) {
+            Some(i) => {
+                list.remove(i);
+                Ok(true)
+            }
+            None => Ok(false),
+        }
+    }
+
+    fn provider_list(&mut self) -> Result<&mut ArrayOfTables, ConfigError> {
+        let search = self
+            .doc
+            .as_table_mut()
+            .entry("search")
+            .or_insert_with(|| {
+                let mut t = Table::new();
+                t.set_implicit(true);
+                Item::Table(t)
+            })
+            .as_table_mut()
+            .ok_or_else(bad_provider)?;
+        search
+            .entry("provider")
+            .or_insert_with(|| Item::ArrayOfTables(ArrayOfTables::new()))
+            .as_array_of_tables_mut()
+            .ok_or_else(bad_provider)
+    }
+
     /// The current document text.
     pub fn to_string_lossy(&self) -> String {
         self.doc.to_string()
@@ -78,6 +153,47 @@ impl ConfigDoc {
     pub fn save(&self) -> Result<(), ConfigError> {
         fsutil::atomic_write(&self.path, self.doc.to_string().as_bytes(), None)
     }
+}
+
+fn bad_provider() -> ConfigError {
+    ConfigError::BadPath("search.provider".into())
+}
+
+fn provider_name(t: &toml::Table) -> Result<String, ConfigError> {
+    t.get("name")
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| ConfigError::Invalid("search.provider entry without a `name`".into()))
+}
+
+fn find_provider(list: &ArrayOfTables, name: &str) -> Option<usize> {
+    list.iter().position(|t| {
+        t.get("name")
+            .and_then(Item::as_str)
+            .is_some_and(|n| n.eq_ignore_ascii_case(name))
+    })
+}
+
+/// Convert a `toml` table into an editable one.
+fn to_edit_table(t: &toml::Table) -> Result<Table, ConfigError> {
+    let text = toml::to_string(t).map_err(|e| ConfigError::Invalid(e.to_string()))?;
+    let doc = text
+        .parse::<DocumentMut>()
+        .map_err(|e| ConfigError::Invalid(e.to_string()))?;
+    // Nested tables become inline tables (valid anywhere inside an array of
+    // tables) and `name` goes first.
+    let mut src = doc.as_table().clone();
+    let mut out = Table::new();
+    if let Some(n) = src.remove("name") {
+        out["name"] = n;
+    }
+    for (k, item) in src {
+        out[k.as_str()] = match item {
+            Item::Table(t) => Item::Value(Value::InlineTable(t.into_inline_table())),
+            other => other,
+        };
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -134,5 +250,47 @@ mod tests {
         let mut doc = ConfigDoc::parse("a = 1\n", "/x/config.toml").unwrap();
         assert!(doc.set(&[], 1).is_err());
         assert!(doc.set(&["a", "b"], 1).is_err());
+    }
+
+    #[test]
+    fn provider_entries_upsert_patch_remove_keep_comments() {
+        let text = "# top\n[ui]\nmouse = false\n\n# my providers\n[[search.provider]]\nname = \"Nyaa\"\nenabled = false # off for now\norder = 3\n";
+        let mut doc = ConfigDoc::parse(text, "/x/config.toml").unwrap();
+        let mut f = toml::Table::new();
+        f.insert("enabled".into(), true.into());
+        doc.patch_search_provider("nyaa", &f).unwrap();
+        let mut f = toml::Table::new();
+        f.insert("timeout_secs".into(), 9.into());
+        doc.patch_search_provider("YTS", &f).unwrap();
+        let custom: toml::Table = toml::from_str(
+            "name = \"mine\"\nkind = \"feed\"\nurl = \"http://x/rss\"\n[headers]\nX-A = \"b\"\n",
+        )
+        .unwrap();
+        doc.upsert_search_provider(&custom).unwrap();
+        let out = doc.to_string_lossy();
+        assert!(
+            out.contains("# top") && out.contains("# my providers"),
+            "{out}"
+        );
+        assert!(out.contains("enabled = true # off for now"), "{out}");
+        let cfg = crate::Config::from_toml_str(&out, Path::new("c.toml")).unwrap();
+        cfg.validate().unwrap();
+        assert_eq!(cfg.search.provider.len(), 3);
+        let defs = cfg.search.effective_providers().unwrap();
+        assert!(defs.iter().any(|d| d.name == "Nyaa" && d.enabled));
+        assert!(defs.iter().any(|d| d.name == "YTS" && d.timeout_secs == 9));
+        assert!(
+            defs.iter()
+                .any(|d| d.name == "mine" && d.headers["X-A"] == "b")
+        );
+        // Replace, then remove.
+        let custom2: toml::Table =
+            toml::from_str("name = \"MINE\"\nkind = \"feed\"\nurl = \"http://y/rss\"\n").unwrap();
+        doc.upsert_search_provider(&custom2).unwrap();
+        assert!(doc.remove_search_provider("mine").unwrap());
+        assert!(!doc.remove_search_provider("mine").unwrap());
+        let cfg =
+            crate::Config::from_toml_str(&doc.to_string_lossy(), Path::new("c.toml")).unwrap();
+        assert_eq!(cfg.search.provider.len(), 2);
     }
 }

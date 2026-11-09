@@ -4,7 +4,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use dman_proto::JobId;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
 
 use crate::{JobRecord, Result};
@@ -17,6 +17,9 @@ const BLOBS: TableDefinition<'_, u64, &[u8]> = TableDefinition::new("blobs");
 const META: TableDefinition<'_, &str, u64> = TableDefinition::new("meta");
 // key: (job id, per-job sequence number); value: JSON `RenameEntry`.
 const RENAMES: TableDefinition<'_, (u64, u64), &[u8]> = TableDefinition::new("renames");
+
+// key: sequence number (ascending = older first); value: JSON `SearchHistoryRecord`.
+const SEARCH_HISTORY: TableDefinition<'_, u64, &[u8]> = TableDefinition::new("search_history");
 
 const K_SCHEMA: &str = "schema_version";
 const K_NEXT_ID: &str = "next_job_id";
@@ -78,6 +81,32 @@ pub struct RenameEntry {
     pub at: i64,
 }
 
+/// One remembered search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchHistoryRecord {
+    /// Query text.
+    pub query: String,
+    /// Providers the search was restricted to (empty = every enabled one).
+    #[serde(default)]
+    pub providers: Vec<String>,
+    /// Category filter.
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Unix seconds.
+    pub at: i64,
+    /// Distinct results found.
+    #[serde(default)]
+    pub result_count: u32,
+}
+
+impl SearchHistoryRecord {
+    fn same_search(&self, other: &Self) -> bool {
+        self.query == other.query
+            && self.providers == other.providers
+            && self.category == other.category
+    }
+}
+
 /// Handle to the persistent store. Cheap to clone; safe to share between threads.
 #[derive(Clone)]
 pub struct Store {
@@ -125,6 +154,7 @@ impl Store {
             tx.open_table(JOBS)?;
             tx.open_table(BLOBS)?;
             tx.open_table(RENAMES)?;
+            tx.open_table(SEARCH_HISTORY)?;
         }
         tx.commit()?;
         Ok(())
@@ -283,6 +313,69 @@ impl Store {
             };
             table.insert((id.0, seq), bytes.as_slice())?;
         }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Remembers a search. A search identical to the most recent one (same
+    /// query, providers and category) replaces it instead of adding an entry.
+    /// Only the newest `keep` entries are retained; `keep == 0` stores nothing.
+    pub fn record_search(&self, rec: &SearchHistoryRecord, keep: usize) -> Result<()> {
+        if keep == 0 {
+            return Ok(());
+        }
+        let bytes = serde_json::to_vec(rec)?;
+        let tx = self.db.begin_write()?;
+        {
+            let mut table = tx.open_table(SEARCH_HISTORY)?;
+            let last = table.last()?.map(|(k, v)| (k.value(), v.value().to_vec()));
+            let key = match last {
+                Some((k, v))
+                    if serde_json::from_slice::<SearchHistoryRecord>(&v)
+                        .is_ok_and(|r| r.same_search(rec)) =>
+                {
+                    k
+                }
+                Some((k, _)) => k + 1,
+                None => 0,
+            };
+            table.insert(key, bytes.as_slice())?;
+            let len = usize::try_from(table.len()?).unwrap_or(usize::MAX);
+            if len > keep {
+                let drop: Vec<u64> = table
+                    .iter()?
+                    .take(len - keep)
+                    .map(|e| e.map(|(k, _)| k.value()))
+                    .collect::<std::result::Result<_, _>>()?;
+                for k in drop {
+                    table.remove(k)?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The newest `limit` searches, newest first.
+    pub fn search_history(&self, limit: usize) -> Result<Vec<SearchHistoryRecord>> {
+        let tx = self.db.begin_read()?;
+        let table = tx.open_table(SEARCH_HISTORY)?;
+        let mut out = Vec::new();
+        for e in table.iter()?.rev().take(limit) {
+            let (_, v) = e?;
+            // A record written by a future version that no longer parses is skipped.
+            if let Ok(r) = serde_json::from_slice(v.value()) {
+                out.push(r);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Forgets every remembered search.
+    pub fn clear_search_history(&self) -> Result<()> {
+        let tx = self.db.begin_write()?;
+        tx.delete_table(SEARCH_HISTORY)?;
+        tx.open_table(SEARCH_HISTORY)?;
         tx.commit()?;
         Ok(())
     }
@@ -479,5 +572,44 @@ mod tests {
         );
         s.purge(&[JobId(1)]).unwrap();
         assert!(s.get_job(JobId(1)).unwrap().is_none());
+    }
+
+    #[test]
+    fn search_history_dedupes_trims_clears_and_persists() {
+        let dir = tempfile::tempdir().unwrap();
+        let q = |text: &str, at: i64, n: u32| SearchHistoryRecord {
+            query: text.into(),
+            providers: vec![],
+            category: None,
+            at,
+            result_count: n,
+        };
+        {
+            let s = open(&dir);
+            s.record_search(&q("a", 1, 0), 3).unwrap();
+            s.record_search(&q("a", 2, 7), 3).unwrap(); // same as latest: replaced
+            s.record_search(&q("b", 3, 1), 3).unwrap();
+            s.record_search(&q("a", 4, 2), 3).unwrap(); // not consecutive: kept
+            let h = s.search_history(10).unwrap();
+            assert_eq!(
+                h.iter().map(|r| r.query.as_str()).collect::<Vec<_>>(),
+                ["a", "b", "a"]
+            );
+            assert_eq!(h[2].result_count, 7);
+            s.record_search(&q("c", 5, 0), 3).unwrap(); // trims the oldest
+        }
+        let s = open(&dir);
+        let h = s.search_history(2).unwrap();
+        assert_eq!(
+            h.iter().map(|r| r.query.as_str()).collect::<Vec<_>>(),
+            ["c", "a"]
+        );
+        assert_eq!(s.search_history(10).unwrap().len(), 3);
+        s.record_search(&q("x", 6, 0), 0).unwrap();
+        assert_eq!(s.search_history(10).unwrap().len(), 3);
+        s.clear_search_history().unwrap();
+        assert!(s.search_history(10).unwrap().is_empty());
+        s.record_search(&q("n", 7, 0), 3).unwrap();
+        assert_eq!(s.search_history(10).unwrap().len(), 1);
     }
 }

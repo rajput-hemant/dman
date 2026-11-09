@@ -581,6 +581,8 @@ fn apply_event(state: &mut State, event: Event) -> Vec<Cmd> {
             state.engines.retain(|e| e.engine != status.engine);
             state.engines.push(status);
         }
+        // The Search view comes with the next TUI task.
+        Event::SearchUpdate { .. } | Event::SearchFinished { .. } => {}
         Event::JobFinished {
             name,
             path,

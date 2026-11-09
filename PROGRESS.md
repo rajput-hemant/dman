@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 55 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
+**Overall: 60 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -71,17 +71,17 @@ commit this file together with the code it describes.
 - [ ] `dman limit` / `dman stats` show the active window and its overrides
 - [x] Hooks on completion / error / end of seeding (`[notify.hooks]` commands, env DMAN_EVENT/ID/NAME/PATH/STATUS/ENGINE/SIZE, timeout, no shell unless configured), webhook POST with retry (`[notify.webhook]`), events `JobCompleted/JobFailed/SeedCompleted` (additive)
 - [x] Desktop notifications (notify-rust) shown by the TUI client (D20); optional on daemon host (`[notify] desktop_on_daemon = true`)
-- [ ] Tracker-list source: download URL on a timer (Q2), cache in data dir, attach to new torrents when enabled (`bt-tracker`), CLI/TUI status
+- [x] Tracker-list source (done with M5 search integration)
 - [ ] Remove-unselected-files cleanup (D28: opt-in + confirmation) after torrent completion
 - [ ] Real-aria2 tests for seeding/ratio stop (D12) using the local seeder fixture (crates/dman-daemon/tests/fixtures/seeder.py)
 - [ ] Hot reload of `[[schedule]]`/limits when config.toml changes (`config.reload` API + TUI settings later)
 
 ### M5 — Search (12 %)
 - [x] `dman-search` library: declarative provider defs (torznab/feed/html/json), built-ins (Nyaa, YTS, TPB, Knaben, 1337x, Torznab template; all off, unverified against live sites), concurrent fan-out with per-provider timeout/rate limit/cap, dedupe by info-hash, ranking, test_provider, import/export, tracker-list fetch
-- [ ] Daemon: providers config (`[[provider]]` + built-in overrides by name), `search.start/cancel/results/history`, results streamed as events, search history persisted (redb), `providers.list/set/test/import/export`, secrets for API keys, runtime changes without restart
+- [x] Daemon: providers config (`[[provider]]` + built-in overrides by name), `search.start/cancel/results/history`, results streamed as events, search history persisted (redb), `providers.list/set/test/import/export`, secrets for API keys, runtime changes without restart
 - [ ] TUI Search view: provider selector, query, live results table (title, size, S/L, source, date), filters (size, seeders, source), add from results (magnet or detail resolve), history + re-run, per-provider errors; first-run prompt to enable providers (D26)
 - [ ] Settings view basics for providers (enable/disable/reorder/test/import/export)
-- [ ] CLI `dman search <q> [--provider X] [--add N]`, `dman providers ...`
+- [x] CLI `dman search <q> [--provider X] [--add N]`, `dman search --history`, `dman providers ...`, `dman trackers status`; tracker-list source (Q2) fetched/cached/attached in daemon
 - [x] Live-verified Nyaa, TPB (fixed HTML entities), Knaben; 1337x (403 Cloudflare) and YTS (unreachable) stay unverified
 
 ### M6 — Video engine (10 %)

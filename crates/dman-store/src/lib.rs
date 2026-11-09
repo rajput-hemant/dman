@@ -9,7 +9,7 @@ mod record;
 mod store;
 
 pub use record::{Desired, JobRecord, LiveFigures};
-pub use store::{RenameEntry, SCHEMA_VERSION, Store, StoreError};
+pub use store::{RenameEntry, SCHEMA_VERSION, SearchHistoryRecord, Store, StoreError};
 
 /// Result alias for store operations.
 pub type Result<T> = std::result::Result<T, StoreError>;

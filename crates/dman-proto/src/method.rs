@@ -317,6 +317,20 @@ pub enum Event {
         path: String,
         outcome: Outcome,
     },
+    /// A search made progress. Sent per provider status change, at most every
+    /// 250 ms; `results` is the cumulative merged list (ranked, at most
+    /// [`crate::search::MAX_RESULTS`]), so a client simply replaces its list.
+    SearchUpdate {
+        search_id: u64,
+        provider: String,
+        status: crate::search::ProviderStatus,
+        results: Vec<crate::search::SearchResultDto>,
+    },
+    /// Every provider of the search finished (or it was cancelled); always the
+    /// last event of a search.
+    SearchFinished {
+        search_id: u64,
+    },
 }
 
 /// What happened to a job in [`Event::JobFinished`].

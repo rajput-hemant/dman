@@ -14,6 +14,17 @@ use crate::tick::{self, Counters};
 use super::util::{engine_err, now, resolve_dir, unavailable};
 use super::{Entry, Manager};
 
+/// A `.torrent` file or a magnet link.
+fn is_bittorrent(src: &AddSource) -> bool {
+    match src {
+        AddSource::Torrent { .. } => true,
+        AddSource::Uris { uris } => uris
+            .first()
+            .is_some_and(|u| u.trim_start().to_ascii_lowercase().starts_with("magnet:")),
+        AddSource::Metalink { .. } => false,
+    }
+}
+
 impl Manager {
     // ----- add ---------------------------------------------------------------
 
@@ -25,8 +36,6 @@ impl Manager {
         if p.sources.is_empty() {
             return Err(RpcError::invalid("no sources given"));
         }
-        let mut aopts =
-            job_options_to_aria2(&p.options).map_err(|e| RpcError::invalid(e.to_string()))?;
         let dir = resolve_dir(p.options.dir.as_deref(), &self.default_dir)?;
         tokio::fs::create_dir_all(&dir).await.map_err(|e| {
             RpcError::new(
@@ -35,15 +44,37 @@ impl Manager {
             )
         })?;
         let dir_s = dir.display().to_string();
-        aopts.set("dir", dir_s.clone());
-        aopts.set("pause", "true");
-        let mut options = p.options.clone();
-        options.dir = Some(dir_s.clone());
+        let make = |o: &JobOptions| -> Result<(Options, JobOptions), RpcError> {
+            let mut aopts =
+                job_options_to_aria2(o).map_err(|e| RpcError::invalid(e.to_string()))?;
+            aopts.set("dir", dir_s.clone());
+            aopts.set("pause", "true");
+            let mut options = o.clone();
+            options.dir = Some(dir_s.clone());
+            Ok((aopts, options))
+        };
+        let (aopts, options) = make(&p.options)?;
+        // The public tracker list (when enabled) joins the trackers of new
+        // torrents and magnets; the user's own come first, no duplicates.
+        let extra = self.trackers.attach_list();
+        let with_trackers = if extra.is_empty() {
+            None
+        } else {
+            let mut o = p.options.clone();
+            let merged = crate::search::merge_trackers(
+                o.engine_options.get("bt-tracker").map(String::as_str),
+                &extra,
+            );
+            o.engine_options.insert("bt-tracker".into(), merged);
+            Some(make(&o)?)
+        };
         let mut out = Vec::with_capacity(p.sources.len());
         for src in p.sources {
-            let r = self
-                .add_one(&client, src, &aopts, &options, &dir_s, p.paused)
-                .await;
+            let (a, o) = match &with_trackers {
+                Some(t) if is_bittorrent(&src) => t,
+                _ => &(aopts.clone(), options.clone()),
+            };
+            let r = self.add_one(&client, src, a, o, &dir_s, p.paused).await;
             out.push(match r {
                 Ok(mut ids) => {
                     let id = ids.remove(0);

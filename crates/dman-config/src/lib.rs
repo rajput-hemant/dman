@@ -12,6 +12,7 @@ mod notify;
 mod paths;
 mod schedule;
 mod schema;
+mod search;
 mod secrets;
 mod units;
 
@@ -24,6 +25,7 @@ pub use schema::{
     Aria2, Config, DEFAULT_CONFIG_TOML, DaemonTarget, ENV_PROFILE, Limits, Profile, Ui,
     expand_tilde,
 };
+pub use search::{Search, TrackerList};
 pub use secrets::Secrets;
 pub use units::{ByteLimit, DiskThreshold, format_bytes, parse_bytes};
 

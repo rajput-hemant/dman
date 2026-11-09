@@ -444,6 +444,139 @@ macro_rules! typed_api {
             self.call(method::FS_LIST, params).await
         }
 
+        /// `search.start`: begin a background search; progress arrives as
+        /// `SearchUpdate` / `SearchFinished` events (subscribe first).
+        pub async fn search_start(
+            &self,
+            params: dman_proto::search::SearchStartParams,
+        ) -> Result<dman_proto::search::SearchStarted, ClientError> {
+            self.call(dman_proto::search::SEARCH_START, params).await
+        }
+
+        /// `search.cancel`
+        pub async fn search_cancel(&self, search_id: u64) -> Result<(), ClientError> {
+            self.call::<_, Value>(
+                dman_proto::search::SEARCH_CANCEL,
+                dman_proto::search::SearchIdParams { search_id },
+            )
+            .await
+            .map(drop)
+        }
+
+        /// `search.results`: latest merged results of one of the last searches.
+        pub async fn search_results(
+            &self,
+            search_id: u64,
+        ) -> Result<dman_proto::search::SearchSnapshot, ClientError> {
+            self.call(
+                dman_proto::search::SEARCH_RESULTS,
+                dman_proto::search::SearchIdParams { search_id },
+            )
+            .await
+        }
+
+        /// `search.resolve`: magnet link from a result's detail page.
+        pub async fn search_resolve(
+            &self,
+            params: dman_proto::search::SearchResolveParams,
+        ) -> Result<dman_proto::search::ResolvedMagnet, ClientError> {
+            self.call_with_timeout(
+                dman_proto::search::SEARCH_RESOLVE,
+                params,
+                Duration::from_secs(90),
+            )
+            .await
+        }
+
+        /// `search.history`: recent queries, newest first.
+        pub async fn search_history(
+            &self,
+        ) -> Result<Vec<dman_proto::search::SearchHistoryEntry>, ClientError> {
+            self.call(dman_proto::search::SEARCH_HISTORY, ()).await
+        }
+
+        /// `search.history_clear`
+        pub async fn search_history_clear(&self) -> Result<(), ClientError> {
+            self.call::<_, Value>(dman_proto::search::SEARCH_HISTORY_CLEAR, ())
+                .await
+                .map(drop)
+        }
+
+        /// `providers.list`
+        pub async fn providers_list(
+            &self,
+        ) -> Result<Vec<dman_proto::search::ProviderInfo>, ClientError> {
+            self.call(dman_proto::search::PROVIDERS_LIST, ()).await
+        }
+
+        /// `providers.set`: applied at once and saved to `config.toml`.
+        pub async fn providers_set(
+            &self,
+            params: dman_proto::search::ProviderSetParams,
+        ) -> Result<dman_proto::search::ProviderInfo, ClientError> {
+            self.call(dman_proto::search::PROVIDERS_SET, params).await
+        }
+
+        /// `providers.test`: a failing provider is `ok == false`, not an error.
+        pub async fn providers_test(
+            &self,
+            name: &str,
+        ) -> Result<dman_proto::search::ProviderTestReport, ClientError> {
+            self.call_with_timeout(
+                dman_proto::search::PROVIDERS_TEST,
+                dman_proto::search::ProviderNameParams {
+                    name: name.to_owned(),
+                },
+                Duration::from_secs(90),
+            )
+            .await
+        }
+
+        /// `providers.import`: add or replace custom providers from TOML.
+        pub async fn providers_import(
+            &self,
+            toml: &str,
+        ) -> Result<dman_proto::search::ProvidersImported, ClientError> {
+            self.call(
+                dman_proto::search::PROVIDERS_IMPORT,
+                dman_proto::search::ProvidersImportParams {
+                    toml: toml.to_owned(),
+                },
+            )
+            .await
+        }
+
+        /// `providers.export`: TOML of the named providers (none = custom ones).
+        pub async fn providers_export(
+            &self,
+            names: Option<Vec<String>>,
+        ) -> Result<String, ClientError> {
+            self.call(
+                dman_proto::search::PROVIDERS_EXPORT,
+                dman_proto::search::ProvidersExportParams { names },
+            )
+            .await
+        }
+
+        /// `providers.remove`: custom providers only.
+        pub async fn providers_remove(&self, name: &str) -> Result<(), ClientError> {
+            self.call::<_, Value>(
+                dman_proto::search::PROVIDERS_REMOVE,
+                dman_proto::search::ProviderNameParams {
+                    name: name.to_owned(),
+                },
+            )
+            .await
+            .map(drop)
+        }
+
+        /// `trackers.status`
+        pub async fn trackers_status(
+            &self,
+        ) -> Result<dman_proto::search::TrackersStatus, ClientError> {
+            self.call(dman_proto::search::TRACKERS_STATUS, ()).await
+        }
+
         /// `daemon.shutdown`
         pub async fn shutdown(&self) -> Result<(), ClientError> {
             self.call::<_, Value>(method::DAEMON_SHUTDOWN, ())

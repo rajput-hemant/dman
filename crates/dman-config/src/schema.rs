@@ -203,6 +203,8 @@ pub struct Config {
     pub schedule: Vec<ScheduleWindow>,
     /// Notifications, hooks and webhook.
     pub notify: crate::Notify,
+    /// Search providers, tracker list and history.
+    pub search: crate::Search,
     /// Sections not yet understood by this version.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -218,6 +220,7 @@ impl Default for Config {
             ui: Ui::default(),
             schedule: Vec::new(),
             notify: crate::Notify::default(),
+            search: crate::Search::default(),
             extra: toml::Table::new(),
         }
     }
@@ -309,6 +312,35 @@ on = ["completed", "failed", "seed_completed"]
 # on = ["completed"]
 # command = ["/home/me/bin/on-done", "--quiet"]
 # timeout_secs = 60
+
+[search]
+# Number of recent queries kept (0 = keep none).
+history_size = 50
+# Proxy for provider requests and the tracker list (http, https, socks5, socks5h).
+# proxy = "socks5h://127.0.0.1:9050"
+
+# Public tracker list added (as bt-tracker) to new torrents and magnets. Off by
+# default: nothing is fetched unless you enable it.
+[search.tracker_list]
+enabled = false
+refresh_hours = 24
+attach_to_new = true
+# url = "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt"
+
+# Search providers are all OFF until enabled. Built-ins are overridden by name:
+# [[search.provider]]
+# name = "Nyaa"
+# enabled = true
+# order = 5
+# timeout_secs = 20
+#
+# A custom provider needs a full definition (see `dman providers export`):
+# [[search.provider]]
+# name = "My Prowlarr"
+# kind = "torznab"
+# url = "http://localhost:9696/api/v2.0/indexers/all/results/torznab/api"
+# api_key_ref = "prowlarr"      # name of the entry in secrets.toml
+# enabled = true
 "#;
 
 impl Config {
@@ -408,6 +440,7 @@ impl Config {
         if let Err(m) = self.notify.validate() {
             return bad(m);
         }
+        self.search.validate().map_err(ConfigError::Invalid)?;
         if self.aria2.rpc_port == 0 {
             return bad("aria2.rpc_port must be non-zero".into());
         }

@@ -125,3 +125,22 @@ fn rename_and_preview_need_a_daemon_and_arguments() {
         .assert()
         .code(3);
 }
+
+#[test]
+fn search_commands_need_a_daemon_and_arguments() {
+    let dir = config_dir();
+    dman(&dir).args(["search"]).assert().code(2);
+    dman(&dir).args(["search", "ubuntu"]).assert().code(3);
+    dman(&dir).args(["search", "--history"]).assert().code(3);
+    dman(&dir)
+        .args(["search", "x", "--add", "0"])
+        .assert()
+        .code(2);
+    dman(&dir).args(["providers", "list"]).assert().code(3);
+    dman(&dir).args(["providers", "enable"]).assert().code(2);
+    dman(&dir)
+        .args(["providers", "import", "/nonexistent.toml"])
+        .assert()
+        .code(3);
+    dman(&dir).args(["trackers", "status"]).assert().code(3);
+}

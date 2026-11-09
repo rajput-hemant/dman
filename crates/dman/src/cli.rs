@@ -88,13 +88,97 @@ pub enum Command {
         /// Target shell.
         shell: Shell,
     },
-    /// Search providers (not available yet).
-    Search {
-        /// Query words.
-        query: Vec<String>,
+    /// Search the enabled providers; optionally add results.
+    Search(Box<SearchArgs>),
+    /// Manage search providers (enable, disable, test, import, export).
+    Providers {
+        #[command(subcommand)]
+        cmd: ProvidersCmd,
+    },
+    /// Public tracker list status.
+    Trackers {
+        #[command(subcommand)]
+        cmd: TrackersCmd,
     },
     /// Run the web UI (not available yet).
     Serve,
+}
+
+#[derive(Args, Debug, Default)]
+pub struct SearchArgs {
+    /// Query words.
+    #[arg(required_unless_present_any = ["history", "clear_history"])]
+    pub query: Vec<String>,
+    /// Only this provider (repeatable); default: every enabled provider.
+    #[arg(short, long = "provider", value_name = "NAME")]
+    pub provider: Vec<String>,
+    /// Category filter (movies, tv, audio, software, books, xxx, other).
+    #[arg(long, value_name = "CATEGORY")]
+    pub category: Option<String>,
+    /// Add these results (the numbers of the table, e.g. 1,3) to the downloads.
+    #[arg(long, value_name = "N[,M]", value_delimiter = ',', value_parser = parse_index)]
+    pub add: Vec<usize>,
+    /// Show at most this many results (0 = all).
+    #[arg(long, value_name = "N", default_value_t = 20)]
+    pub limit: usize,
+    /// Show the recent queries instead of searching.
+    #[arg(long, conflicts_with_all = ["query", "add"])]
+    pub history: bool,
+    /// Forget the recent queries.
+    #[arg(long, conflicts_with_all = ["query", "add", "history"])]
+    pub clear_history: bool,
+}
+
+/// A 1-based result number.
+fn parse_index(s: &str) -> Result<usize, String> {
+    match s.trim().parse::<usize>() {
+        Ok(n) if n >= 1 => Ok(n),
+        _ => Err(format!("`{s}` is not a result number (1 or more)")),
+    }
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ProvidersCmd {
+    /// List providers with their state.
+    List,
+    /// Enable providers (nothing is searched until one is enabled).
+    Enable {
+        /// Provider names.
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
+    /// Disable providers.
+    Disable {
+        /// Provider names.
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
+    /// Probe a provider and show what it returns.
+    Test {
+        /// Provider name.
+        name: String,
+    },
+    /// Add or replace custom providers from a TOML file (`-` = stdin).
+    Import {
+        /// File of `[[provider]]` tables.
+        file: String,
+    },
+    /// Print providers as TOML (default: the custom ones).
+    Export {
+        /// Provider names.
+        names: Vec<String>,
+    },
+    /// Remove a custom provider (built-ins can only be disabled).
+    Remove {
+        /// Provider name.
+        name: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TrackersCmd {
+    /// Show whether the tracker list is enabled, how many trackers are loaded and when.
+    Status,
 }
 
 #[derive(Subcommand, Debug)]
@@ -288,4 +372,99 @@ pub struct LimitArgs {
     /// Global upload limit (0 = unlimited).
     #[arg(long, value_name = "SIZE", value_parser = parse_size)]
     pub upload: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("dman").chain(args.iter().copied()))
+    }
+
+    fn search(args: &[&str]) -> SearchArgs {
+        match parse(args).unwrap().command {
+            Some(Command::Search(a)) => *a,
+            other => panic!("not a search: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn search_words_providers_add_limit() {
+        let a = search(&[
+            "search",
+            "ubuntu",
+            "24.04",
+            "--provider",
+            "Nyaa",
+            "-p",
+            "YTS",
+            "--add",
+            "1,3",
+            "--limit",
+            "5",
+            "--category",
+            "software",
+        ]);
+        assert_eq!(a.query, ["ubuntu", "24.04"]);
+        assert_eq!(a.provider, ["Nyaa", "YTS"]);
+        assert_eq!(a.add, [1, 3]);
+        assert_eq!(a.limit, 5);
+        assert_eq!(a.category.as_deref(), Some("software"));
+        assert!(!a.history);
+        let a = search(&["search", "x"]);
+        assert_eq!((a.limit, a.add.len(), a.provider.len()), (20, 0, 0));
+        assert!(parse(&["--json", "search", "x"]).unwrap().json);
+    }
+
+    #[test]
+    fn search_argument_errors() {
+        assert!(parse(&["search"]).is_err(), "query required");
+        assert!(parse(&["search", "x", "--add", "0"]).is_err());
+        assert!(parse(&["search", "x", "--add", "a"]).is_err());
+        assert!(parse(&["search", "x", "--history"]).is_err());
+        assert!(parse(&["search", "--history", "--add", "1"]).is_err());
+        assert!(search(&["search", "--history"]).history);
+        assert!(search(&["search", "--clear-history"]).clear_history);
+    }
+
+    #[test]
+    fn providers_and_trackers_subcommands() {
+        let cmd = |args: &[&str]| match parse(args).unwrap().command {
+            Some(Command::Providers { cmd }) => cmd,
+            other => panic!("{other:?}"),
+        };
+        assert!(matches!(cmd(&["providers", "list"]), ProvidersCmd::List));
+        assert!(
+            matches!(cmd(&["providers", "enable", "Nyaa", "YTS"]), ProvidersCmd::Enable { names } if names == ["Nyaa", "YTS"])
+        );
+        assert!(matches!(
+            cmd(&["providers", "disable", "Nyaa"]),
+            ProvidersCmd::Disable { .. }
+        ));
+        assert!(
+            matches!(cmd(&["providers", "test", "Nyaa"]), ProvidersCmd::Test { name } if name == "Nyaa")
+        );
+        assert!(
+            matches!(cmd(&["providers", "import", "f.toml"]), ProvidersCmd::Import { file } if file == "f.toml")
+        );
+        assert!(
+            matches!(cmd(&["providers", "export"]), ProvidersCmd::Export { names } if names.is_empty())
+        );
+        assert!(
+            matches!(cmd(&["providers", "export", "A", "B"]), ProvidersCmd::Export { names } if names.len() == 2)
+        );
+        assert!(matches!(
+            cmd(&["providers", "remove", "x"]),
+            ProvidersCmd::Remove { .. }
+        ));
+        assert!(parse(&["providers", "enable"]).is_err());
+        assert!(parse(&["providers"]).is_err());
+        assert!(matches!(
+            parse(&["trackers", "status"]).unwrap().command,
+            Some(Command::Trackers {
+                cmd: TrackersCmd::Status
+            })
+        ));
+    }
 }

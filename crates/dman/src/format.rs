@@ -2,6 +2,7 @@
 
 use bytesize::ByteSize;
 use dman_proto::method::{ScheduleStatus, WindowInfo};
+use dman_proto::search::{ProviderInfo, SearchHistoryEntry, SearchResultDto};
 use dman_proto::{FileInfo, Job, JobState, PeerInfo};
 
 const DEFAULT_WIDTH: usize = 120;
@@ -326,6 +327,118 @@ pub fn schedule_text(s: &ScheduleStatus, now: i64) -> String {
     )
 }
 
+/// `2024-05-01` (UTC), or `-` when unknown.
+pub fn date(secs: Option<i64>) -> String {
+    secs.and_then(|s| jiff::Timestamp::from_second(s).ok())
+        .map_or_else(
+            || "-".into(),
+            |t| t.to_zoned(jiff::tz::TimeZone::UTC).date().to_string(),
+        )
+}
+
+/// `12/3` (seeders/leechers), `-` when neither is known.
+pub fn seeds(s: Option<u32>, l: Option<u32>) -> String {
+    if s.is_none() && l.is_none() {
+        return "-".into();
+    }
+    format!(
+        "{}/{}",
+        s.map_or_else(|| "?".into(), |v| v.to_string()),
+        l.map_or_else(|| "?".into(), |v| v.to_string())
+    )
+}
+
+/// Ranked search results: `#  TITLE  SIZE  S/L  SOURCES  DATE`. `first` is
+/// the number of the first row (1-based); TITLE takes the remaining width.
+pub fn search_table(results: &[SearchResultDto], first: usize, width: usize) -> String {
+    let rows: Vec<[String; 6]> = results
+        .iter()
+        .enumerate()
+        .map(|(i, r)| {
+            [
+                (first + i).to_string(),
+                r.title.clone(),
+                r.size.map_or_else(|| "-".into(), size),
+                seeds(r.seeders, r.leechers),
+                r.sources.join(","),
+                date(r.date),
+            ]
+        })
+        .collect();
+    let headers = ["#", "TITLE", "SIZE", "S/L", "SOURCES", "DATE"];
+    let mut widths = headers.map(str::len);
+    for row in &rows {
+        for (w, cell) in widths.iter_mut().zip(row) {
+            *w = (*w).max(cell.chars().count());
+        }
+    }
+    let others: usize = widths
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != 1)
+        .map(|(_, w)| w + COLUMN_GAP.len())
+        .sum();
+    let title_w = width
+        .saturating_sub(others + COLUMN_GAP.len())
+        .max(MIN_NAME_WIDTH);
+    let rows: Vec<[String; 6]> = rows
+        .into_iter()
+        .map(|mut r| {
+            r[1] = truncate(&r[1], title_w);
+            r
+        })
+        .collect();
+    // # right, TITLE left, SIZE right, S/L right, SOURCES left, DATE last.
+    table(headers, &rows, &[1, 4])
+}
+
+/// Providers: `NAME KIND ENABLED ORDER TIMEOUT VERIFIED BUILTIN URL`.
+pub fn providers_table(list: &[ProviderInfo]) -> String {
+    let yn = |b: bool| if b { "yes" } else { "no" }.to_owned();
+    let rows: Vec<[String; 8]> = list
+        .iter()
+        .map(|p| {
+            [
+                p.name.clone(),
+                p.kind.clone(),
+                yn(p.enabled),
+                p.order.to_string(),
+                format!("{}s", p.timeout_secs),
+                yn(p.verified),
+                if p.builtin { "built-in" } else { "custom" }.to_owned(),
+                p.url.clone(),
+            ]
+        })
+        .collect();
+    table(
+        [
+            "NAME", "KIND", "ENABLED", "ORDER", "TIMEOUT", "VERIFIED", "ORIGIN", "URL",
+        ],
+        &rows,
+        &[0, 1, 2, 5, 6],
+    )
+}
+
+/// Recent searches: `WHEN  RESULTS  PROVIDERS  QUERY`.
+pub fn history_table(list: &[SearchHistoryEntry]) -> String {
+    let rows: Vec<[String; 4]> = list
+        .iter()
+        .map(|e| {
+            [
+                date(Some(e.at)),
+                e.result_count.to_string(),
+                if e.providers.is_empty() {
+                    "all".to_owned()
+                } else {
+                    e.providers.join(",")
+                },
+                e.query.clone(),
+            ]
+        })
+        .collect();
+    table(["DATE", "RESULTS", "PROVIDERS", "QUERY"], &rows, &[0, 2])
+}
+
 /// Aligned `key: value` lines.
 pub fn key_values(pairs: &[(&str, String)]) -> String {
     let w = pairs.iter().map(|(k, _)| k.len() + 1).max().unwrap_or(0);
@@ -338,6 +451,98 @@ pub fn key_values(pairs: &[(&str, String)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn result(title: &str, size: Option<u64>, s: Option<u32>, l: Option<u32>) -> SearchResultDto {
+        SearchResultDto {
+            title: title.into(),
+            size,
+            seeders: s,
+            leechers: l,
+            date: Some(1_714_521_600),
+            sources: vec!["Nyaa".into(), "YTS".into()],
+            ..SearchResultDto::default()
+        }
+    }
+
+    #[test]
+    fn search_table_columns_numbers_and_truncation() {
+        let rs = vec![
+            result(
+                "Ubuntu 24.04 desktop amd64",
+                Some(6 << 30),
+                Some(120),
+                Some(4),
+            ),
+            result(&"x".repeat(200), None, None, None),
+        ];
+        let t = search_table(&rs, 1, 80);
+        let lines: Vec<&str> = t.lines().collect();
+        assert_eq!(lines.len(), 3);
+        for h in ["#", "TITLE", "SIZE", "S/L", "SOURCES", "DATE"] {
+            assert!(lines[0].contains(h), "{}", lines[0]);
+        }
+        assert!(
+            lines[1].starts_with("1  Ubuntu 24.04 desktop amd64"),
+            "{}",
+            lines[1]
+        );
+        assert!(
+            lines[1].contains("120/4")
+                && lines[1].contains("Nyaa,YTS")
+                && lines[1].contains("2024-05-01")
+        );
+        assert!(lines[2].trim_start().starts_with('2') && lines[2].contains('…'));
+        assert!(lines.iter().all(|l| l.chars().count() <= 80), "{t}");
+        // Numbering continues from `first`.
+        assert!(
+            search_table(&rs[..1], 21, 80)
+                .lines()
+                .nth(1)
+                .unwrap()
+                .trim_start()
+                .starts_with("21")
+        );
+    }
+
+    #[test]
+    fn seeds_and_dates() {
+        assert_eq!(seeds(Some(3), None), "3/?");
+        assert_eq!(seeds(None, None), "-");
+        assert_eq!(date(None), "-");
+        assert_eq!(date(Some(0)), "1970-01-01");
+    }
+
+    #[test]
+    fn providers_and_history_tables() {
+        let p = ProviderInfo {
+            name: "Nyaa".into(),
+            kind: "feed".into(),
+            enabled: true,
+            order: 3,
+            timeout_secs: 15,
+            verified: false,
+            builtin: true,
+            url: "https://nyaa.si/".into(),
+            description: None,
+            rate_limit_per_min: None,
+            max_results: 100,
+            api_key_ref: None,
+        };
+        let t = providers_table(&[p]);
+        assert!(
+            t.lines().nth(1).unwrap().contains("Nyaa")
+                && t.contains("built-in")
+                && t.contains("15s")
+        );
+        let h = history_table(&[SearchHistoryEntry {
+            query: "ubuntu".into(),
+            providers: vec![],
+            category: None,
+            at: 0,
+            result_count: 7,
+        }]);
+        assert!(h.lines().nth(1).unwrap().contains("all") && h.contains("ubuntu"));
+    }
     use dman_proto::{Engine, JobId, SourceKind};
 
     fn job(id: u64, name: &str) -> Job {

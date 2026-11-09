@@ -179,6 +179,7 @@ const DEFAULTS: &[(Context, Action, &[&str])] = &[
     ),
     (Context::Add, Action::AddToggleMirror, &["ctrl-t"]),
     (Context::Add, Action::AddPickDir, &["ctrl-f"]),
+    (Context::Add, Action::AddToggleVideo, &["ctrl-g"]),
     (Context::Search, Action::Up, &["k", "up"]),
     (Context::Search, Action::Down, &["j", "down"]),
     (Context::Search, Action::PageUp, &["pageup", "ctrl-u"]),

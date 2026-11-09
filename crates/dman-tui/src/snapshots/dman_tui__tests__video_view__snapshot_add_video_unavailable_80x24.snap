@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 80, 24)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+ Engine yt-dlp unavailable: yt-dlp not found in PATH
+┌ Sources · 1 item ────────────────────────────────────────────────────────────┐
+│ttps://www.youtube.com/watch?v=abc123  video (yt-dlp not installed — will dow…│
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ yt-dlp is unavailable (yt-dlp not found in PATH): video links are added as pla…
+┌ Options (empty = profile default) ───────────────────────────────────────────┐
+│  Mirror        [ ] all URI lines are mirrors of one download                 │
+│  Directory     profile default (Ctrl-f browses the daemon)                   │
+│  Output name   from the source (single source only)                          │
+│  Start paused  [ ] add without starting                                      │
+│  Down limit    inherit (e.g. 2MiB; 0 = unlimited)                            │
+│  Up limit      inherit (e.g. 2MiB; 0 = unlimited)                            │
+│  Conn/server   inherit (1-16)                                                │
+│  Split         inherit                                                       │
+│  Seed ratio    inherit (e.g. 1.5)                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ Ctrl-s preview  Tab next field  Ctrl-o files  Ctrl-v clipboard  Ctrl-t mirror

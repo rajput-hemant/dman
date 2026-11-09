@@ -102,14 +102,14 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
     ])
     .areas(inner);
     frame.render_widget(Paragraph::new(header), head);
-    let titles: Vec<String> = Tab::ALL
+    let shown = Tab::visible(super::is_torrent(state, d.id));
+    let titles: Vec<String> = shown
         .iter()
-        .enumerate()
-        .map(|(i, tab)| format!("{} {}", i + 1, tab.label()))
+        .map(|tab| format!("{} {}", tab.index() + 1, tab.label()))
         .collect();
     frame.render_widget(
         Tabs::new(titles)
-            .select(d.tab.index())
+            .select(shown.iter().position(|t| *t == d.tab).unwrap_or(0))
             .style(t.dim)
             .highlight_style(t.accent)
             .divider("│"),

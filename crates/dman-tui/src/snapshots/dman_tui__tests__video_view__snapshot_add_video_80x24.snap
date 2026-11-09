@@ -1,0 +1,28 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "snap_form(80, 24, Field::VQuality)"
+---
+ dman  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                250.0 GiB free
+┌ Sources · 3 items ───────────────────────────────────────────────────────────┐
+│https://www.youtube.com/watch?v=abc123                                   video│
+│https://media.example.org/clip/42                 https · Ctrl-g: try as video│
+│https://example.org/a.iso                                                video│
+│                                                                              │
+│                                                                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+ ffmpeg missing (ffmpeg not found in PATH): no merging, conversion or embedding…
+┌ Options (empty = profile default) ───────────────────────────────────────────┐
+│  Select files  all (e.g. 1,3-5)                                              │
+│  User agent    inherit                                                       │
+│  Referer       inherit                                                       │
+│  Headers       Name: value, one per line                                     │
+│  Proxy         inherit                                                       │
+│  Checksum      e.g. sha-256=<hex>                                            │
+│  Engine opts   key=value, one per line                                       │
+│── Video (yt-dlp) ──                                                          │
+│▸ Quality       1080p                                                         │
+└──────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ Ctrl-s preview  Tab next field  Ctrl-o files  Ctrl-v clipboard  Ctrl-t mirror

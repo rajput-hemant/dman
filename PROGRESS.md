@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 75 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
+**Overall: 79 %** · Current milestone: **M7 — web UI** (M4 has a few leftovers) · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -23,7 +23,7 @@ commit this file together with the code it describes.
 | M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | done |
 | M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | in progress |
 | M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | done |
-| M6 Video engine (yt-dlp adapter, probe UI, options, fallbacks) | 10 | in progress |
+| M6 Video engine (yt-dlp adapter, probe UI, options, fallbacks) | 10 | done |
 | M7 Web UI (htmx views, live updates, upload, auth, responsive) | 12 | in progress |
 | M8 Remote and release (TLS, reconnect, completions, installers, update, docs, review) | 11 | — |
 
@@ -88,7 +88,7 @@ commit this file together with the code it describes.
 - [x] `dman-ytdlp` library: tool detection (+age warning), URL heuristic (D10), probe (video/playlist), quality presets → selectors honouring ffmpeg, fallback plans (merged / single / separate streams), arg builder (--ignore-config, allow-listed extra args), spawn with JSON progress, stop/resume via --continue, outcome classification (Finished/Split/Failed/Stopped)
 - [x] Daemon: Engine::YtDlp jobs in the same queue/history/hooks/notifications; `video.probe` API; `jobs.add` with a `Video` source (spec: format, quality, container, playlist items, subs, thumbnail, metadata, template, cookies, rate limit, sponsorblock); pause = stop, resume = respawn; progress → Job figures; config `[video]` (paths, default quality, template, sponsorblock defaults)
 - [x] Global download limit also throttles yt-dlp (equal-share budget, respawn with hysteresis)
-- [ ] TUI: Add view detects video URLs (heuristic + "try as video"), probe overlay with format/quality/container/playlist-item selection and fallback explanation; Detail view for video jobs
+- [x] TUI: Add view detects video URLs (heuristic + "try as video"), probe overlay with format/quality/container/playlist-item selection and fallback explanation; Detail view for video jobs
 - [x] CLI: `dman add --video [--quality 1080p --container mkv --subs en --playlist-items 1-3 ...]`, `dman probe <url>`
 - [x] Missing yt-dlp/ffmpeg: explained via engine.status (yt-dlp entry, ffmpeg as feature) (engine.status entry for yt-dlp and ffmpeg)
 - [x] Follow-up: use `nix::sys::signal::killpg` instead of the external `kill` binary in dman-ytdlp

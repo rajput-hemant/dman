@@ -10,7 +10,10 @@ use dman_proto::search::{
     ProviderInfo, ProviderSetParams, ProviderTestReport, ProvidersImported, ResolvedMagnet,
     SearchHistoryEntry, SearchResolveParams, SearchSnapshot, SearchStartParams, SearchStarted,
 };
-use dman_proto::{AddOutcome, AddParams, JobDetail, JobId, JobOptions, Limits, SpeedSample};
+use dman_proto::{
+    AddOutcome, AddParams, JobDetail, JobId, JobOptions, Limits, SpeedSample, VideoProbe,
+    VideoProbeParams,
+};
 
 use crate::format::{limit, plural};
 
@@ -73,6 +76,8 @@ pub enum ApiCall {
         /// The magnet link.
         uri: String,
     },
+    /// `video.probe` (add preview; yt-dlp runs on the daemon host).
+    VideoProbe(VideoProbeParams),
     /// `stats.history` (global speed graph; polled while it is visible).
     StatsHistory,
     /// `search.start`.
@@ -132,6 +137,7 @@ impl ApiCall {
             ApiCall::SetOptions { .. } => "Saving option".into(),
             ApiCall::Rename { .. } => "Renaming".into(),
             ApiCall::PreviewMagnet { .. } => "Fetching magnet metadata".into(),
+            ApiCall::VideoProbe(_) => "Probing video".into(),
             ApiCall::StatsHistory => "Loading speed history".into(),
             ApiCall::SearchStart(_) => "Starting search".into(),
             ApiCall::SearchCancel(_) => "Cancelling search".into(),
@@ -166,6 +172,7 @@ impl ApiCall {
             ApiCall::SetOptions { .. } => "Set option",
             ApiCall::Rename { .. } => "Rename",
             ApiCall::PreviewMagnet { .. } => "Magnet preview",
+            ApiCall::VideoProbe(_) => "Video probe",
             ApiCall::StatsHistory => "Speed history",
             ApiCall::SearchStart(_) => "Search",
             ApiCall::SearchCancel(_) => "Cancel search",
@@ -226,6 +233,10 @@ impl ApiCall {
                 .preview_magnet(&uri, Some(MAGNET_TIMEOUT_SECS))
                 .await
                 .map(|p| ApiReply::MagnetPreview(Box::new(p))),
+            ApiCall::VideoProbe(p) => client
+                .video_probe(p)
+                .await
+                .map(|v| ApiReply::VideoProbe(Box::new(v))),
             ApiCall::StatsHistory => client.stats_history().await.map(ApiReply::History),
             ApiCall::SearchStart(p) => client.search_start(p).await.map(ApiReply::SearchStarted),
             ApiCall::SearchCancel(id) => client.search_cancel(id).await.map(|()| ApiReply::Done),
@@ -280,6 +291,8 @@ pub enum ApiReply {
     Detail(Box<JobDetail>),
     /// The file list of a magnet.
     MagnetPreview(Box<MagnetPreview>),
+    /// Formats, plans and playlist entries of a video.
+    VideoProbe(Box<VideoProbe>),
     /// Global speed samples, oldest first.
     History(Vec<SpeedSample>),
     /// A search was started.
@@ -337,6 +350,10 @@ pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome,
         Ok(ApiReply::MagnetPreview(p)) => (
             Outcome::Ok,
             format!("Fetched {}", plural(p.files.len(), "file")),
+        ),
+        Ok(ApiReply::VideoProbe(v)) => (
+            Outcome::Ok,
+            format!("Probed {}", v.title.as_deref().unwrap_or(&v.url)),
         ),
         Ok(ApiReply::History(h)) => (Outcome::Ok, format!("{} speed samples", h.len())),
         Ok(ApiReply::SearchStarted(s)) => (

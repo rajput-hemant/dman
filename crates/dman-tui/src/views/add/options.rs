@@ -1,7 +1,7 @@
 //! The per-add options form: fields, local validation, conversion to
 //! [`JobOptions`]. Empty fields inherit the profile defaults.
 
-use dman_proto::JobOptions;
+use dman_proto::{JobOptions, VideoOptions, VideoSubtitles};
 
 use crate::widgets::editor::Editor;
 
@@ -44,10 +44,121 @@ pub enum Field {
     Checksum,
     /// Engine options, `key=value` per line.
     Engine,
+    /// Video: quality preset.
+    VQuality,
+    /// Video: container.
+    VContainer,
+    /// Video: subtitle languages.
+    VSubs,
+    /// Video: write subtitles as files instead of embedding them.
+    VSubsFiles,
+    /// Video: also fetch automatic captions.
+    VSubsAuto,
+    /// Video: embed the thumbnail.
+    VThumb,
+    /// Video: embed metadata.
+    VMeta,
+    /// Video: SponsorBlock categories to cut.
+    VSponsor,
+    /// Video: download whole playlists.
+    VPlaylist,
+    /// Video: playlist items.
+    VItems,
+    /// Video: output template.
+    VTemplate,
+    /// Video: browser to read cookies from.
+    VCookies,
+    /// Video: keep video and audio separate when ffmpeg is missing.
+    VSeparate,
 }
 
+/// Quality presets of the video form.
+pub const QUALITIES: [&str; 9] = [
+    "best",
+    "2160p",
+    "1440p",
+    "1080p",
+    "720p",
+    "480p",
+    "audio:m4a",
+    "audio:mp3",
+    "audio:opus",
+];
+
 impl Field {
-    /// Every field in form order.
+    /// The video section, shown when the sources include a video.
+    pub const VIDEO: [Field; 13] = [
+        Field::VQuality,
+        Field::VContainer,
+        Field::VSubs,
+        Field::VSubsFiles,
+        Field::VSubsAuto,
+        Field::VThumb,
+        Field::VMeta,
+        Field::VSponsor,
+        Field::VPlaylist,
+        Field::VItems,
+        Field::VTemplate,
+        Field::VCookies,
+        Field::VSeparate,
+    ];
+
+    /// Every field including the video section.
+    pub const FULL: [Field; 31] = [
+        Field::Mirror,
+        Field::Dir,
+        Field::Out,
+        Field::Paused,
+        Field::DownLimit,
+        Field::UpLimit,
+        Field::Connections,
+        Field::Split,
+        Field::SeedRatio,
+        Field::SeedTime,
+        Field::Sequential,
+        Field::SelectFiles,
+        Field::UserAgent,
+        Field::Referer,
+        Field::Headers,
+        Field::Proxy,
+        Field::Checksum,
+        Field::Engine,
+        Field::VQuality,
+        Field::VContainer,
+        Field::VSubs,
+        Field::VSubsFiles,
+        Field::VSubsAuto,
+        Field::VThumb,
+        Field::VMeta,
+        Field::VSponsor,
+        Field::VPlaylist,
+        Field::VItems,
+        Field::VTemplate,
+        Field::VCookies,
+        Field::VSeparate,
+    ];
+
+    /// A field of the video section.
+    pub const fn is_video(self) -> bool {
+        matches!(
+            self,
+            Field::VQuality
+                | Field::VContainer
+                | Field::VSubs
+                | Field::VSubsFiles
+                | Field::VSubsAuto
+                | Field::VThumb
+                | Field::VMeta
+                | Field::VSponsor
+                | Field::VPlaylist
+                | Field::VItems
+                | Field::VTemplate
+                | Field::VCookies
+                | Field::VSeparate
+        )
+    }
+
+    /// Every core field in form order.
     pub const ALL: [Field; 18] = [
         Field::Mirror,
         Field::Dir,
@@ -71,7 +182,7 @@ impl Field {
 
     /// Position in [`Field::ALL`].
     pub fn index(self) -> usize {
-        Field::ALL.iter().position(|f| *f == self).unwrap_or(0)
+        Field::FULL.iter().position(|f| *f == self).unwrap_or(0)
     }
 
     /// Form label.
@@ -95,6 +206,19 @@ impl Field {
             Field::Proxy => "Proxy",
             Field::Checksum => "Checksum",
             Field::Engine => "Engine opts",
+            Field::VQuality => "Quality",
+            Field::VContainer => "Container",
+            Field::VSubs => "Subtitles",
+            Field::VSubsFiles => "Subs as files",
+            Field::VSubsAuto => "Auto captions",
+            Field::VThumb => "Thumbnail",
+            Field::VMeta => "Metadata",
+            Field::VSponsor => "SponsorBlock",
+            Field::VPlaylist => "Playlist",
+            Field::VItems => "Items",
+            Field::VTemplate => "Out template",
+            Field::VCookies => "Cookies from",
+            Field::VSeparate => "Sep. streams",
         }
     }
 
@@ -116,12 +240,38 @@ impl Field {
             Field::Headers => "Name: value, one per line",
             Field::Checksum => "e.g. sha-256=<hex>",
             Field::Engine => "key=value, one per line",
+            Field::VQuality => {
+                "daemon default (best 2160p 1440p 1080p 720p 480p audio:m4a|mp3|opus)"
+            }
+            Field::VContainer => "daemon default (auto mp4 mkv webm)",
+            Field::VSubs => "none (e.g. en,de or en.*)",
+            Field::VSubsFiles => "write subtitle files next to the video instead of embedding",
+            Field::VSubsAuto => "also fetch automatic captions",
+            Field::VThumb => "embed the thumbnail",
+            Field::VMeta => "embed metadata",
+            Field::VSponsor => "none (e.g. sponsor,selfpromo; needs ffmpeg)",
+            Field::VPlaylist => "download the whole playlist",
+            Field::VItems => "all (e.g. 1-3,7)",
+            Field::VTemplate => "daemon default (yt-dlp template, relative)",
+            Field::VCookies => "none (firefox, chrome, …)",
+            Field::VSeparate => "keep video and audio as two files if ffmpeg is missing",
         }
     }
 
     /// A checkbox.
     pub const fn is_check(self) -> bool {
-        matches!(self, Field::Mirror | Field::Paused | Field::Sequential)
+        matches!(
+            self,
+            Field::Mirror
+                | Field::Paused
+                | Field::Sequential
+                | Field::VSubsFiles
+                | Field::VSubsAuto
+                | Field::VThumb
+                | Field::VMeta
+                | Field::VPlaylist
+                | Field::VSeparate
+        )
     }
 
     /// Text that may span lines.
@@ -158,7 +308,7 @@ pub struct OptionsForm {
 impl Default for OptionsForm {
     fn default() -> Self {
         Self {
-            values: Field::ALL
+            values: Field::FULL
                 .iter()
                 .map(|f| {
                     if f.is_check() {
@@ -181,6 +331,11 @@ pub struct Parsed {
     pub paused: bool,
     /// Group URI lines into one download.
     pub mirror: bool,
+    /// Options of video sources.
+    pub video: VideoOptions,
+    /// Problems with the video section, in form order (only relevant when
+    /// there is a video source).
+    pub video_errors: Vec<(Field, String)>,
     /// Problems, in form order.
     pub errors: Vec<(Field, String)>,
 }
@@ -359,7 +514,102 @@ impl OptionsForm {
         }
         errors.sort_by_key(|(f, _)| f.index());
         p.errors = errors;
+        let (video, video_errors) = self.parse_video();
+        p.video = video;
+        p.video_errors = video_errors;
         p
+    }
+
+    fn parse_video(&self) -> (VideoOptions, Vec<(Field, String)>) {
+        let mut v = VideoOptions::default();
+        let mut errors = Vec::new();
+        let single = |f: Field| {
+            let t = self.text(f);
+            let t = t.trim();
+            (!t.is_empty()).then(|| t.to_owned())
+        };
+        let list = |f: Field| -> Vec<String> {
+            self.text(f)
+                .split(|c: char| c == ',' || c.is_whitespace())
+                .filter(|p| !p.is_empty())
+                .map(str::to_owned)
+                .collect()
+        };
+        if let Some(q) = single(Field::VQuality) {
+            let q = q.to_ascii_lowercase();
+            if QUALITIES.contains(&q.as_str()) {
+                v.quality = Some(q);
+            } else {
+                errors.push((
+                    Field::VQuality,
+                    format!("`{q}` is not one of {}", QUALITIES.join(", ")),
+                ));
+            }
+        }
+        if let Some(c) = single(Field::VContainer) {
+            match c.to_ascii_lowercase().as_str() {
+                "auto" => {}
+                c @ ("mp4" | "mkv" | "webm") => v.container = Some(c.to_owned()),
+                _ => errors.push((Field::VContainer, "use auto, mp4, mkv or webm".into())),
+            }
+        }
+        let langs = list(Field::VSubs);
+        if langs.is_empty() {
+            if self.checked(Field::VSubsAuto) || self.checked(Field::VSubsFiles) {
+                errors.push((Field::VSubsAuto, "enter subtitle languages first".into()));
+            }
+        } else {
+            v.subtitles = Some(VideoSubtitles {
+                langs,
+                embed: !self.checked(Field::VSubsFiles),
+                auto: self.checked(Field::VSubsAuto),
+            });
+        }
+        if self.checked(Field::VThumb) {
+            v.embed_thumbnail = Some(true);
+        }
+        if self.checked(Field::VMeta) {
+            v.embed_metadata = Some(true);
+        }
+        let cats = list(Field::VSponsor);
+        if let Some(bad) = cats
+            .iter()
+            .find(|c| !c.chars().all(|ch| ch.is_ascii_lowercase() || ch == '_'))
+        {
+            errors.push((
+                Field::VSponsor,
+                format!("`{bad}` is not a category (e.g. sponsor, selfpromo)"),
+            ));
+        } else if !cats.is_empty() {
+            v.sponsorblock_remove = Some(cats);
+        }
+        v.playlist = self.checked(Field::VPlaylist);
+        if let Some(t) = single(Field::VItems) {
+            match parse_selection(&t) {
+                Ok(_) => v.playlist_items = Some(t.split_whitespace().collect()),
+                Err(e) => errors.push((Field::VItems, e)),
+            }
+        }
+        if let Some(t) = single(Field::VTemplate) {
+            if t.starts_with('/') || t.contains("..") {
+                errors.push((
+                    Field::VTemplate,
+                    "must stay inside the job directory (no leading / or ..)".into(),
+                ));
+            } else {
+                v.output_template = Some(t);
+            }
+        }
+        if let Some(t) = single(Field::VCookies) {
+            if t.contains(char::is_whitespace) {
+                errors.push((Field::VCookies, "a browser name, e.g. firefox".into()));
+            } else {
+                v.cookies_from_browser = Some(t);
+            }
+        }
+        v.allow_separate_streams = self.checked(Field::VSeparate);
+        errors.sort_by_key(|(f, _)| f.index());
+        (v, errors)
     }
 }
 

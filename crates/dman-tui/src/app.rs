@@ -354,6 +354,12 @@ impl State {
 
 /// Apply `msg` to `state`; returns the side effects to perform.
 pub fn update(state: &mut State, msg: Msg) -> Vec<Cmd> {
+    let cmds = update_inner(state, msg);
+    views::add::sync_engine(state);
+    cmds
+}
+
+fn update_inner(state: &mut State, msg: Msg) -> Vec<Cmd> {
     state.dirty = true;
     match msg {
         Msg::Key(key) => on_key(state, key),
@@ -690,6 +696,10 @@ fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String
     state.pending = state.pending.saturating_sub(1);
     if let ApiCall::PreviewMagnet { uri } = call {
         views::add::on_magnet_preview(state, uri, result);
+        return Vec::new();
+    }
+    if let ApiCall::VideoProbe(params) = call {
+        views::add::on_video_probe(state, params, result);
         return Vec::new();
     }
     if matches!(call, ApiCall::FsList(_)) {

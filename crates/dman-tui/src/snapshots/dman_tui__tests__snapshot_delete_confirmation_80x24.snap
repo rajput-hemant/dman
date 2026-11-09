@@ -10,7 +10,7 @@ expression: "render(&mut s, 80, 24)"
 ● big-dataset-2026.tar.zst   active  ░░░░░░░░  10%   3.0 MiB/s  1h42m   20.0 GiB
   debian-13.2.0-amd64-netin… seeding ████████ 100%           -      -  700.0 MiB
   Waiting (2)
-  Big Buck┌ Delete files from disk? ─────────────────────────────────┐         -
+  ▶ Big Bu┌ Delete files from disk? ─────────────────────────────────┐         -
   archlinu│This permanently DELETES the files of 2 downloads from    │   1.2 GiB
   Stopped │disk.                                                     │
   report-q│It cannot be undone.                                      │   3.0 MiB

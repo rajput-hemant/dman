@@ -80,6 +80,36 @@ impl Tab {
         }
     }
 
+    /// Tabs that only make sense for torrents.
+    pub const fn torrent_only(self) -> bool {
+        matches!(self, Tab::Peers | Tab::Trackers | Tab::Pieces)
+    }
+
+    /// The tabs shown for a job (torrent-only tabs are hidden for HTTP, FTP
+    /// and video jobs).
+    pub fn visible(torrent: bool) -> Vec<Tab> {
+        Tab::ALL
+            .iter()
+            .copied()
+            .filter(|t| torrent || !t.torrent_only())
+            .collect()
+    }
+
+    /// The next of `tabs` after this one, wrapping.
+    pub fn step(self, tabs: &[Tab], forward: bool) -> Tab {
+        let n = tabs.len().max(1);
+        match tabs.iter().position(|t| *t == self) {
+            Some(i) => {
+                tabs[if forward {
+                    (i + 1) % n
+                } else {
+                    (i + n - 1) % n
+                }]
+            }
+            None => Tab::Files,
+        }
+    }
+
     /// Position in [`Tab::ALL`].
     pub fn index(self) -> usize {
         Tab::ALL.iter().position(|t| *t == self).unwrap_or(0)
@@ -249,6 +279,26 @@ pub fn close_if_gone(state: &mut State) {
     }
 }
 
+/// Whether the job has torrent data (peers, trackers, pieces). Unknown jobs
+/// count as torrents so nothing is hidden by mistake.
+pub fn is_torrent(state: &State, id: JobId) -> bool {
+    use dman_proto::SourceKind;
+    state.jobs.get(&id).is_none_or(|j| {
+        !matches!(
+            j.kind,
+            SourceKind::Http | SourceKind::Ftp | SourceKind::Sftp | SourceKind::Video
+        )
+    })
+}
+
+fn target_tab(action: Action) -> Tab {
+    match action {
+        Action::DetailPeers => Tab::Peers,
+        Action::DetailTrackers => Tab::Trackers,
+        _ => Tab::Pieces,
+    }
+}
+
 /// Apply a detail-view action; `None` when not handled here.
 pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
     let (id, tab) = match state.view() {
@@ -256,6 +306,7 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         _ => return None,
     };
     let page = isize::try_from(state.list_height().max(1)).unwrap_or(1);
+    let tabs = Tab::visible(is_torrent(state, id));
     let d = top(state)?;
     match action {
         Action::Up => d.move_cursor(-1),
@@ -264,9 +315,16 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::PageDown => d.move_cursor(page),
         Action::Top => d.cursor = 0,
         Action::Bottom => d.cursor = d.rows().saturating_sub(1),
-        Action::DetailNextTab => d.set_tab(tab.next()),
-        Action::DetailPrevTab => d.set_tab(tab.prev()),
+        Action::DetailNextTab => d.set_tab(tab.step(&tabs, true)),
+        Action::DetailPrevTab => d.set_tab(tab.step(&tabs, false)),
         Action::DetailFiles => d.set_tab(Tab::Files),
+        Action::DetailPeers | Action::DetailTrackers | Action::DetailPieces
+            if !tabs.contains(&target_tab(action)) =>
+        {
+            state
+                .status
+                .info("Peers, trackers and pieces are only shown for torrents");
+        }
         Action::DetailPeers => d.set_tab(Tab::Peers),
         Action::DetailTrackers => d.set_tab(Tab::Trackers),
         Action::DetailPieces => d.set_tab(Tab::Pieces),

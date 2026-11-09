@@ -8,7 +8,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use crossterm::event::{KeyCode, KeyEvent};
-use dman_proto::{AddParams, AddSource};
+use dman_proto::{AddParams, AddSource, VideoProbeParams};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
@@ -16,6 +16,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 use super::options::{Field, Parsed};
 use super::source::{Kind, Token};
+use super::video::{self, ProbeFetch, ProbeKey};
 use crate::format::{plural, size};
 use crate::theme::Theme;
 use crate::widgets::centered;
@@ -28,6 +29,8 @@ pub enum Planned {
     Uris(Vec<Token>),
     /// A local file to upload.
     File(Token),
+    /// A video page for the yt-dlp engine.
+    Video(Token),
 }
 
 impl Planned {
@@ -35,7 +38,7 @@ impl Planned {
     pub fn tokens(&self) -> Vec<String> {
         match self {
             Planned::Uris(t) => t.iter().map(|t| t.text.clone()).collect(),
-            Planned::File(t) => vec![t.text.clone()],
+            Planned::File(t) | Planned::Video(t) => vec![t.text.clone()],
         }
     }
 }
@@ -57,6 +60,8 @@ pub fn plan(tokens: &[Token], mirror: bool) -> Vec<Planned> {
     for t in tokens {
         if t.kind.is_file() {
             out.push(Planned::File(t.clone()));
+        } else if t.kind.is_video() {
+            out.push(Planned::Video(t.clone()));
         } else if t.kind.is_uri() && !(mirror && t.kind.is_mirrorable()) {
             out.push(Planned::Uris(vec![t.clone()]));
         }
@@ -76,6 +81,7 @@ pub fn plan_errors(plan: &[Planned], parsed: &Parsed) -> Vec<(Field, String)> {
     if parsed.options.select_files.is_some() {
         let bt = |p: &Planned| match p {
             Planned::File(_) => true,
+            Planned::Video(_) => false,
             Planned::Uris(t) => t.iter().any(|t| t.kind == Kind::Magnet),
         };
         if plan.len() > 1 {
@@ -110,6 +116,10 @@ pub fn build_params(
         sources.push(match p {
             Planned::Uris(t) => AddSource::Uris {
                 uris: t.iter().map(|t| t.text.clone()).collect(),
+            },
+            Planned::Video(t) => AddSource::Video {
+                url: t.text.clone(),
+                video: Box::new(parsed.video.clone()),
             },
             Planned::File(t) => {
                 let data = match files.get(&t.text) {
@@ -263,6 +273,13 @@ pub fn build_items(plan: &[Planned], files: &Loaded, parsed: &Parsed) -> Vec<Pre
                 details: vec!["metadata will be fetched after adding".into()],
                 problem: None,
             },
+            Planned::Video(t) => PreviewItem {
+                kind: "video".into(),
+                name: uri_name(&t.text),
+                size: None,
+                details: vec![t.text.clone(), video::summary(&parsed.video)],
+                problem: None,
+            },
             Planned::Uris(t) if t.len() == 1 => PreviewItem {
                 kind: t[0].kind.label(),
                 name: uri_name(&t[0].text),
@@ -332,6 +349,8 @@ pub enum PreviewOutcome {
     Fetch(String),
     /// The running fetch was cancelled; its answer is dropped when it arrives.
     CancelFetch,
+    /// Ask the daemon to probe this video.
+    Probe(VideoProbeParams),
 }
 
 /// One file of a fetched magnet, with its checkbox.
@@ -449,6 +468,8 @@ pub struct Preview {
     pub scroll: usize,
     /// Magnet file list fetch (only for a single magnet source).
     pub fetch: Fetch,
+    /// Video probe (only for a single video source).
+    pub probe: ProbeFetch,
 }
 
 impl Preview {
@@ -460,7 +481,26 @@ impl Preview {
             origins,
             scroll: 0,
             fetch: Fetch::Idle,
+            probe: ProbeFetch::Idle,
         }
+    }
+
+    /// The options of the single video source the probe applies to.
+    fn probe_target(&self) -> Option<(&str, &dman_proto::VideoOptions)> {
+        match self.params.sources.as_slice() {
+            [AddSource::Video { url, video }] => Some((url.as_str(), &**video)),
+            _ => None,
+        }
+    }
+
+    /// Whether a video probe can be run.
+    pub fn probeable(&self) -> bool {
+        self.probe_target().is_some()
+    }
+
+    /// Whether a probe is running.
+    pub fn probing(&self) -> bool {
+        matches!(self.probe, ProbeFetch::Running { .. })
     }
 
     /// The magnet whose file list can be fetched: the request must consist of
@@ -484,6 +524,11 @@ impl Preview {
 
     /// Whether confirming is blocked, and why.
     pub fn blocker(&self) -> Option<&str> {
+        if let ProbeFetch::Done(p) = &self.probe
+            && let Some(b) = p.blocker()
+        {
+            return Some(b);
+        }
         if let Fetch::Done(m) = &self.fetch
             && m.chosen().is_empty()
         {
@@ -508,11 +553,21 @@ impl Preview {
             };
             p.options.select_files = Some(m.chosen());
         }
+        if let ProbeFetch::Done(ui) = &self.probe
+            && let [AddSource::Video { video, .. }] = p.sources.as_mut_slice()
+        {
+            ui.apply(video);
+        }
         p
     }
 
     /// A tick while fetching: advance the spinner. Returns whether it did.
     pub fn on_tick(&mut self, tick: Duration) -> bool {
+        if let ProbeFetch::Running { ticks, elapsed, .. } = &mut self.probe {
+            *ticks += 1;
+            *elapsed += tick;
+            return true;
+        }
         if let Fetch::Running { ticks, elapsed, .. } = &mut self.fetch {
             *ticks += 1;
             *elapsed += tick;
@@ -524,6 +579,29 @@ impl Preview {
 
     /// Handle a key.
     pub fn key(&mut self, key: KeyEvent) -> PreviewOutcome {
+        if self.probing() {
+            return if key.code == KeyCode::Esc {
+                self.probe = ProbeFetch::Idle;
+                PreviewOutcome::CancelFetch
+            } else {
+                PreviewOutcome::Stay
+            };
+        }
+        if matches!(self.probe, ProbeFetch::Done(_)) {
+            let blocked = self.blocker().is_some();
+            if let ProbeFetch::Done(ui) = &mut self.probe
+                && ui.key(key) == ProbeKey::Stay
+            {
+                return PreviewOutcome::Stay;
+            }
+            return match key.code {
+                KeyCode::Esc | KeyCode::Char('n' | 'q') | KeyCode::Backspace => {
+                    PreviewOutcome::Back
+                }
+                KeyCode::Enter | KeyCode::Char('y') if !blocked => PreviewOutcome::Confirm,
+                _ => PreviewOutcome::Stay,
+            };
+        }
         if self.fetching() {
             return if key.code == KeyCode::Esc {
                 self.fetch = Fetch::Idle;
@@ -568,6 +646,18 @@ impl Preview {
             KeyCode::Enter | KeyCode::Char('y') if self.blocker().is_none() => {
                 PreviewOutcome::Confirm
             }
+            KeyCode::Char('f') if self.probeable() => {
+                let Some((url, v)) = self.probe_target() else {
+                    return PreviewOutcome::Stay;
+                };
+                let params = video::probe_params(url, v);
+                self.probe = ProbeFetch::Running {
+                    url: params.url.clone(),
+                    ticks: 0,
+                    elapsed: Duration::ZERO,
+                };
+                PreviewOutcome::Probe(params)
+            }
             KeyCode::Char('f') => match self.fetchable_uri().map(str::to_owned) {
                 Some(uri) => {
                     self.fetch = Fetch::Running {
@@ -602,12 +692,17 @@ impl Preview {
     /// Footer hints.
     pub fn hints(&self) -> Vec<(String, String)> {
         let mut h = Vec::new();
-        if self.fetching() {
+        if self.fetching() || self.probing() {
             h.push(("Esc".to_owned(), "cancel fetch".to_owned()));
             return h;
         }
         if self.blocker().is_none() {
             h.push(("Enter".to_owned(), "add".to_owned()));
+        }
+        if let ProbeFetch::Done(ui) = &self.probe {
+            h.extend(ui.hints());
+        } else if self.probeable() {
+            h.push(("f".into(), "probe formats".into()));
         }
         if let Fetch::Done(_) = self.fetch {
             h.push(("Space".into(), "toggle file".into()));
@@ -626,7 +721,18 @@ impl Preview {
             ("Enter / y", "add"),
             ("Esc / n / q", "back to the form"),
             ("↑ ↓ PgUp PgDn", "scroll"),
-            ("f", "magnet: fetch the file list (Esc cancels)"),
+            (
+                "f",
+                "magnet: fetch the file list; video: probe formats (Esc cancels)",
+            ),
+            (
+                "Tab",
+                "video probe: switch between plans, formats, playlist",
+            ),
+            (
+                "Space",
+                "video probe: choose plan / format / playlist entry",
+            ),
             ("Space", "file list: toggle the file under the cursor"),
             ("a", "file list: select all / none"),
         ]
@@ -636,7 +742,7 @@ impl Preview {
     }
 
     /// Lines of the preview, and the line of the file-list cursor if shown.
-    fn lines(&self, theme: &Theme) -> (Vec<Line<'static>>, Option<usize>) {
+    fn lines(&self, theme: &Theme, width: usize) -> (Vec<Line<'static>>, Option<usize>) {
         let o = &self.params.options;
         let mut cursor_line = None;
         let mut out = vec![Line::from(vec![
@@ -659,6 +765,20 @@ impl Preview {
                 Some(m) => ("torrent", m.name.clone(), Some(m.chosen_bytes())),
                 None => (it.kind.as_str(), it.name.clone(), it.size),
             };
+            if let ProbeFetch::Done(ui) = &self.probe
+                && i == 0
+                && self.probeable()
+            {
+                out.push(Line::from(vec![
+                    Span::styled(format!("{}. ", i + 1), theme.dim),
+                    Span::styled("[video] ", theme.key),
+                    Span::raw(ui.probe.title.clone().unwrap_or_else(|| it.name.clone())),
+                ]));
+                let (lines, c) = ui.lines(theme, width);
+                cursor_line = c.map(|c| c + out.len());
+                out.extend(lines);
+                continue;
+            }
             let head = vec![
                 Span::styled(format!("{}. ", i + 1), theme.dim),
                 Span::styled(format!("[{kind}] "), theme.key),
@@ -710,6 +830,9 @@ impl Preview {
                 if i == 0 && self.fetchable_uri().is_some() {
                     out.extend(self.fetch_status(theme));
                 }
+                if i == 0 && self.probeable() {
+                    out.extend(self.probe_status(theme));
+                }
             }
             if let Some((p, fatal)) = &it.problem {
                 out.push(Line::styled(
@@ -749,6 +872,33 @@ impl Preview {
         }
     }
 
+    /// Lines about the probe under the video item.
+    fn probe_status(&self, theme: &Theme) -> Vec<Line<'static>> {
+        let key = |text: &'static str| {
+            Line::from(vec![
+                Span::raw("     "),
+                Span::styled("f", theme.key),
+                Span::styled(text, theme.dim),
+            ])
+        };
+        match &self.probe {
+            ProbeFetch::Idle => vec![key(" Probe: choose quality, format or playlist items")],
+            ProbeFetch::Running { ticks, elapsed, .. } => vec![Line::from(vec![
+                Span::raw("     "),
+                Span::styled(video::SPINNER[ticks % video::SPINNER.len()], theme.accent),
+                Span::raw(format!(
+                    " probing the video… {}s (Esc to cancel)",
+                    elapsed.as_secs()
+                )),
+            ])],
+            ProbeFetch::Failed(e) => vec![
+                Line::styled(format!("     ! probe failed: {e}"), theme.warn),
+                key(" retry, or Enter to add with the form's options"),
+            ],
+            ProbeFetch::Done(_) => Vec::new(),
+        }
+    }
+
     /// Draw the modal.
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
         let rect = centered(
@@ -763,7 +913,7 @@ impl Preview {
             .title(Span::styled(" Preview ", theme.accent));
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
-        let (mut lines, cursor_line) = self.lines(theme);
+        let (mut lines, cursor_line) = self.lines(theme, usize::from(inner.width));
         let h = usize::from(inner.height).saturating_sub(2);
         let max_scroll = lines.len().saturating_sub(h);
         let scroll = match cursor_line {
@@ -772,13 +922,24 @@ impl Preview {
         };
         lines = lines.into_iter().skip(scroll).take(h).collect();
         lines.push(Line::default());
-        lines.push(if self.fetching() {
+        lines.push(if self.fetching() || self.probing() {
             Line::from(vec![
                 Span::styled("Esc", theme.key),
                 Span::raw(" cancel fetch"),
             ])
         } else if let Some(b) = self.blocker() {
             Line::styled(format!("Cannot add: {b}"), theme.error)
+        } else if let ProbeFetch::Done(_) = self.probe {
+            Line::from(vec![
+                Span::styled("Enter", theme.key),
+                Span::raw(" add   "),
+                Span::styled("Space", theme.key),
+                Span::raw(" choose   "),
+                Span::styled("Tab", theme.key),
+                Span::raw(" next list   "),
+                Span::styled("Esc", theme.key),
+                Span::raw(" back"),
+            ])
         } else if let Fetch::Done(_) = self.fetch {
             Line::from(vec![
                 Span::styled("Enter", theme.key),

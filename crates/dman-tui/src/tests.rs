@@ -2046,7 +2046,7 @@ fn rename_in_detail_off_the_files_tab() {
     // Completed: the whole output is renamed (no file index).
     let mut s = state();
     open_detail(&mut s, 6);
-    key(&mut s, '2');
+    key(&mut s, '5');
     key(&mut s, 'n');
     assert_eq!(
         prompt(&s).kind,
@@ -3882,5 +3882,681 @@ mod search_view {
         let mut s = st();
         open_search(&mut s, all_off());
         insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+}
+
+// -------------------------------------------------------------------- video
+
+mod video_view {
+    use super::*;
+    use crate::views::add::options::Field;
+    use crate::views::add::preview::Preview;
+    use crate::views::add::source::Kind;
+    use crate::views::add::video::{ProbeFetch, Section};
+    use crate::views::add::{AddState, Focus, Overlay};
+    use dman_proto::method::EngineStatus;
+    use dman_proto::video::{
+        PlaylistEntry, VideoFormat, VideoPlan, VideoPlanKind, VideoStreamKind,
+    };
+    use dman_proto::{
+        AddOutcome, AddParams, AddSource, SourceKind, VideoOptions, VideoProbe, VideoProbeParams,
+    };
+
+    const YT: &str = "https://www.youtube.com/watch?v=abc123";
+    const OTHER: &str = "https://media.example.org/clip/42";
+
+    fn engine(available: bool, ffmpeg: bool, reason: Option<&str>) -> Msg {
+        Msg::Event(Event::Engine {
+            status: EngineStatus {
+                engine: Engine::YtDlp,
+                available,
+                version: available.then(|| "2026.10.01".to_owned()),
+                features: if ffmpeg {
+                    vec!["ffmpeg 7.1".into(), "merge".into()]
+                } else {
+                    vec![]
+                },
+                reason: reason.map(str::to_owned),
+            },
+        })
+    }
+
+    fn open(engine_msg: Option<Msg>) -> State {
+        let mut s = state();
+        if let Some(m) = engine_msg {
+            update(&mut s, m);
+        }
+        key(&mut s, 'a');
+        s
+    }
+
+    fn add(s: &State) -> &AddState {
+        match s.view() {
+            View::Add(a) => a,
+            v => panic!("not the add view: {v:?}"),
+        }
+    }
+
+    fn ctrl(s: &mut State, c: char) -> Vec<Cmd> {
+        press(s, KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
+
+    fn lines(s: &mut State, lines: &[&str]) {
+        for (i, l) in lines.iter().enumerate() {
+            if i > 0 {
+                code(s, KeyCode::Enter);
+            }
+            typed(s, l);
+        }
+    }
+
+    fn kinds(s: &State) -> Vec<Kind> {
+        add(s).all_tokens().iter().map(|t| t.kind).collect()
+    }
+
+    fn focus(s: &mut State, f: Field) {
+        if let Some(View::Add(a)) = s.views.last_mut() {
+            a.focus = Focus::Field(f);
+        }
+    }
+
+    fn set(s: &mut State, f: Field, text: &str) {
+        if let Some(View::Add(a)) = s.views.last_mut() {
+            a.form.set_text(f, text);
+        }
+    }
+
+    fn preview(s: &State) -> &Preview {
+        match &add(s).overlay {
+            Some(Overlay::Preview(p)) => p,
+            other => panic!("no preview: {other:?}"),
+        }
+    }
+
+    fn add_call(cmds: &[Cmd]) -> AddParams {
+        match cmds {
+            [Cmd::Api(ApiCall::Add(p))] => (**p).clone(),
+            other => panic!("expected an add call, got {other:?}"),
+        }
+    }
+
+    fn fmt(id: &str, h: Option<u32>, kind: VideoStreamKind) -> VideoFormat {
+        VideoFormat {
+            id: id.into(),
+            ext: if kind == VideoStreamKind::AudioOnly {
+                "m4a"
+            } else {
+                "mp4"
+            }
+            .into(),
+            vcodec: (kind != VideoStreamKind::AudioOnly).then(|| "avc1.640028".to_owned()),
+            acodec: (kind != VideoStreamKind::VideoOnly).then(|| "mp4a.40.2".to_owned()),
+            width: h.map(|h| h * 16 / 9),
+            height: h,
+            fps: h.map(|_| 30.0),
+            size: Some(u64::from(h.unwrap_or(1)) * 100_000),
+            note: None,
+            kind,
+        }
+    }
+
+    fn plan(preset: &str, kind: VideoPlanKind, why: &str) -> VideoPlan {
+        VideoPlan {
+            preset: preset.into(),
+            kind,
+            selector: "bv*+ba/b".into(),
+            explanation: why.into(),
+            alternative: None,
+        }
+    }
+
+    fn probe() -> VideoProbe {
+        let mut p1080 = plan(
+            "1080p",
+            VideoPlanKind::Single,
+            "ffmpeg missing: best single-file format 720p; separate 1080p streams available with consent",
+        );
+        p1080.alternative = Some(Box::new(plan(
+            "1080p",
+            VideoPlanKind::Separate,
+            "1080p video and audio as two files",
+        )));
+        VideoProbe {
+            url: YT.into(),
+            id: Some("abc123".into()),
+            title: Some("Big Buck Bunny".into()),
+            duration: Some(596.0),
+            uploader: Some("Blender Foundation".into()),
+            formats: vec![
+                fmt("18", Some(360), VideoStreamKind::Combined),
+                fmt("137", Some(1080), VideoStreamKind::VideoOnly),
+                fmt("140", None, VideoStreamKind::AudioOnly),
+                fmt("sb0", Some(90), VideoStreamKind::Other),
+            ],
+            subtitles: vec!["en".into(), "de".into()],
+            ffmpeg: false,
+            plans: vec![
+                plan("best", VideoPlanKind::Single, "best single-file format"),
+                p1080,
+                plan("audio:m4a", VideoPlanKind::Audio, "audio only (m4a)"),
+            ],
+            ..VideoProbe::default()
+        }
+    }
+
+    fn playlist_probe() -> VideoProbe {
+        VideoProbe {
+            url: "https://www.youtube.com/playlist?list=PL1".into(),
+            title: Some("Conference talks".into()),
+            playlist: true,
+            ffmpeg: true,
+            entries: (1..=5)
+                .map(|i| PlaylistEntry {
+                    index: i,
+                    title: Some(format!("Talk number {i}")),
+                    duration: Some(f64::from(i) * 600.0),
+                })
+                .collect(),
+            ..VideoProbe::default()
+        }
+    }
+
+    fn deliver(s: &mut State, url: &str, playlist: bool, result: Result<VideoProbe, String>) {
+        update(
+            s,
+            Msg::ActionResult {
+                call: ApiCall::VideoProbe(VideoProbeParams {
+                    url: url.into(),
+                    playlist,
+                    cookies_from_browser: None,
+                }),
+                result: result.map(|p| ApiReply::VideoProbe(Box::new(p))),
+            },
+        );
+    }
+
+    fn probed() -> State {
+        let mut s = open(Some(engine(true, false, Some("ffmpeg not found in PATH"))));
+        lines(&mut s, &[YT]);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        deliver(&mut s, YT, false, Ok(probe()));
+        s
+    }
+
+    #[test]
+    fn detection_follows_the_engine() {
+        // yt-dlp present: known sites are video, others stay http.
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[YT, OTHER, "https://example.org/a.iso"]);
+        assert_eq!(kinds(&s), [Kind::Video, Kind::Https, Kind::Https]);
+        // No engine information yet: nothing is classified.
+        let mut s = open(None);
+        lines(&mut s, &[YT]);
+        assert_eq!(kinds(&s), [Kind::Https]);
+        // yt-dlp unavailable: a hint, and the plan keeps plain http.
+        let mut s = open(Some(engine(false, false, Some("yt-dlp not found in PATH"))));
+        lines(&mut s, &[YT]);
+        assert_eq!(kinds(&s), [Kind::VideoUnavailable]);
+        assert_eq!(
+            Kind::VideoUnavailable.label(),
+            "video (yt-dlp not installed — will download the page)"
+        );
+        let hint = add(&s).engine_hint().expect("hint").0;
+        assert!(hint.contains("yt-dlp not found in PATH"), "{hint}");
+        ctrl(&mut s, 's');
+        let p = add_call(&code(&mut s, KeyCode::Enter));
+        assert_eq!(
+            p.sources,
+            vec![AddSource::Uris {
+                uris: vec![YT.into()]
+            }]
+        );
+    }
+
+    #[test]
+    fn engine_event_updates_an_open_form() {
+        let mut s = open(None);
+        lines(&mut s, &[YT]);
+        assert_eq!(kinds(&s), [Kind::Https]);
+        update(&mut s, engine(true, true, None));
+        assert_eq!(kinds(&s), [Kind::Video]);
+    }
+
+    #[test]
+    fn try_as_video_toggles_per_line() {
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[YT, OTHER]);
+        // Cursor is on the second (unknown) line.
+        ctrl(&mut s, 'g');
+        assert_eq!(kinds(&s), [Kind::Video, Kind::Video]);
+        ctrl(&mut s, 'g');
+        assert_eq!(kinds(&s), [Kind::Video, Kind::Https]);
+        // A detected line can be turned back into plain http.
+        code(&mut s, KeyCode::Up);
+        ctrl(&mut s, 'g');
+        assert_eq!(kinds(&s), [Kind::Https, Kind::Https]);
+        // Unavailable engine: refused with the reason.
+        let mut s = open(Some(engine(false, false, Some("yt-dlp not found"))));
+        lines(&mut s, &[OTHER]);
+        ctrl(&mut s, 'g');
+        assert!(status_text(&s).contains("yt-dlp not found"));
+        assert_eq!(kinds(&s), [Kind::Https]);
+    }
+
+    #[test]
+    fn video_section_appears_only_with_a_video_line() {
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &["https://example.org/a.iso"]);
+        assert!(!add(&s).visible_fields().contains(&Field::VQuality));
+        let mut s2 = open(Some(engine(true, true, None)));
+        lines(&mut s2, &[YT]);
+        assert!(add(&s2).visible_fields().contains(&Field::VQuality));
+        // Tab walks into the video section and wraps back to the sources.
+        for _ in 0..Field::FULL.len() {
+            code(&mut s2, KeyCode::Tab);
+        }
+        assert_eq!(add(&s2).focus, Focus::Field(Field::VSeparate));
+        code(&mut s2, KeyCode::Tab);
+        assert_eq!(add(&s2).focus, Focus::Sources);
+    }
+
+    #[test]
+    fn video_options_become_the_video_source() {
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[YT, "https://example.org/a.iso"]);
+        for (f, t) in [
+            (Field::VQuality, "1080p"),
+            (Field::VContainer, "mkv"),
+            (Field::VSubs, "en, de"),
+            (Field::VSponsor, "sponsor selfpromo"),
+            (Field::VItems, "1-3, 7"),
+            (Field::VTemplate, "%(title)s.%(ext)s"),
+            (Field::VCookies, "firefox"),
+        ] {
+            set(&mut s, f, t);
+        }
+        for f in [
+            Field::VSubsAuto,
+            Field::VThumb,
+            Field::VMeta,
+            Field::VPlaylist,
+            Field::VSeparate,
+        ] {
+            focus(&mut s, f);
+            key(&mut s, ' ');
+        }
+        ctrl(&mut s, 's');
+        let p = add_call(&code(&mut s, KeyCode::Enter));
+        assert_eq!(p.sources.len(), 2);
+        let want = VideoOptions {
+            quality: Some("1080p".into()),
+            container: Some("mkv".into()),
+            subtitles: Some(dman_proto::VideoSubtitles {
+                langs: vec!["en".into(), "de".into()],
+                embed: true,
+                auto: true,
+            }),
+            embed_thumbnail: Some(true),
+            embed_metadata: Some(true),
+            sponsorblock_remove: Some(vec!["sponsor".into(), "selfpromo".into()]),
+            playlist: true,
+            playlist_items: Some("1-3,7".into()),
+            output_template: Some("%(title)s.%(ext)s".into()),
+            cookies_from_browser: Some("firefox".into()),
+            allow_separate_streams: true,
+            ..VideoOptions::default()
+        };
+        assert_eq!(
+            p.sources[0],
+            AddSource::Video {
+                url: YT.into(),
+                video: Box::new(want)
+            }
+        );
+        assert!(matches!(&p.sources[1], AddSource::Uris { .. }));
+    }
+
+    #[test]
+    fn invalid_video_options_block_only_with_a_video_line() {
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[YT]);
+        set(&mut s, Field::VQuality, "8k");
+        set(&mut s, Field::VContainer, "avi");
+        assert!(ctrl(&mut s, 's').is_empty());
+        assert!(status_text(&s).contains("Quality"), "{}", status_text(&s));
+        assert_eq!(add(&s).focus, Focus::Field(Field::VQuality));
+        // The same values are ignored when no source is a video.
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &["https://example.org/a.iso"]);
+        set(&mut s, Field::VQuality, "8k");
+        ctrl(&mut s, 's');
+        assert!(matches!(add(&s).overlay, Some(Overlay::Preview(_))));
+    }
+
+    #[test]
+    fn probe_then_choose_a_plan_then_add() {
+        let mut s = open(Some(engine(true, false, Some("ffmpeg not found in PATH"))));
+        lines(&mut s, &[YT]);
+        ctrl(&mut s, 's');
+        let cmds = key(&mut s, 'f');
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::VideoProbe(VideoProbeParams {
+                url: YT.into(),
+                playlist: false,
+                cookies_from_browser: None,
+            }))]
+        );
+        assert!(preview(&s).probing());
+        // The UI stays responsive: ticks animate, other keys are ignored.
+        assert!(
+            !update(&mut s, Msg::Tick)
+                .iter()
+                .any(|c| matches!(c, Cmd::Quit))
+        );
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        deliver(&mut s, YT, false, Ok(probe()));
+        let ProbeFetch::Done(ui) = &preview(&s).probe else {
+            panic!("not probed")
+        };
+        assert_eq!(ui.plans.len(), 4, "the alternative is a row of its own");
+        assert_eq!(ui.formats.len(), 3, "storyboards are left out");
+        // Choose the alternative (separate streams) of 1080p: rows best, 1080p, 1080p alt.
+        key(&mut s, 'j');
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        let p = add_call(&code(&mut s, KeyCode::Enter));
+        let AddSource::Video { url, video } = &p.sources[0] else {
+            panic!("{:?}", p.sources)
+        };
+        assert_eq!(url, YT);
+        assert_eq!(video.quality.as_deref(), Some("1080p"));
+        assert!(video.allow_separate_streams);
+        assert_eq!(video.format_id, None);
+    }
+
+    #[test]
+    fn choosing_a_format_sets_format_id() {
+        let mut s = probed();
+        // Plans -> Formats, second row (137).
+        code(&mut s, KeyCode::Tab);
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        let p = add_call(&code(&mut s, KeyCode::Enter));
+        let AddSource::Video { video, .. } = &p.sources[0] else {
+            panic!()
+        };
+        assert_eq!(video.format_id.as_deref(), Some("137"));
+        assert_eq!(video.quality, None);
+        // Choosing nothing keeps the form's options.
+        let mut s = probed();
+        let p = add_call(&code(&mut s, KeyCode::Enter));
+        assert_eq!(
+            p.sources[0],
+            AddSource::Video {
+                url: YT.into(),
+                video: Box::default()
+            }
+        );
+    }
+
+    #[test]
+    fn playlist_items_follow_the_checkboxes() {
+        let url = "https://www.youtube.com/playlist?list=PL1";
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[url]);
+        focus(&mut s, Field::VPlaylist);
+        key(&mut s, ' ');
+        ctrl(&mut s, 's');
+        let cmds = key(&mut s, 'f');
+        assert_eq!(
+            cmds,
+            vec![Cmd::Api(ApiCall::VideoProbe(VideoProbeParams {
+                url: url.into(),
+                playlist: true,
+                cookies_from_browser: None,
+            }))]
+        );
+        deliver(&mut s, url, true, Ok(playlist_probe()));
+        let ProbeFetch::Done(ui) = &preview(&s).probe else {
+            panic!()
+        };
+        assert_eq!(ui.section, Section::Entries);
+        assert_eq!(ui.chosen_entries(), [1, 2, 3, 4, 5]);
+        // Uncheck 2 (the cursor then moves on to 3), then 4.
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        let p = add_call(&code(&mut s, KeyCode::Enter));
+        let AddSource::Video { video, .. } = &p.sources[0] else {
+            panic!()
+        };
+        assert!(video.playlist);
+        assert_eq!(video.playlist_items.as_deref(), Some("1,3,5"));
+        // None selected blocks adding; all selected means the whole playlist.
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[url]);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        deliver(&mut s, url, false, Ok(playlist_probe()));
+        key(&mut s, 'a');
+        assert_eq!(
+            preview(&s).blocker(),
+            Some("select at least one playlist entry")
+        );
+        assert!(code(&mut s, KeyCode::Enter).is_empty());
+        key(&mut s, 'a');
+        let p = add_call(&code(&mut s, KeyCode::Enter));
+        let AddSource::Video { video, .. } = &p.sources[0] else {
+            panic!()
+        };
+        assert!(video.playlist && video.playlist_items.is_none());
+    }
+
+    #[test]
+    fn esc_cancels_the_probe_and_drops_its_answer() {
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[YT]);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        assert!(code(&mut s, KeyCode::Esc).is_empty());
+        assert_eq!(preview(&s).probe, ProbeFetch::Idle);
+        deliver(&mut s, YT, false, Ok(probe()));
+        assert_eq!(preview(&s).probe, ProbeFetch::Idle);
+        // Probing again works; a failure is shown and can be retried.
+        key(&mut s, 'f');
+        deliver(
+            &mut s,
+            YT,
+            false,
+            Err("Video probe failed: unsupported URL".into()),
+        );
+        assert!(matches!(&preview(&s).probe, ProbeFetch::Failed(e) if e.contains("unsupported")));
+        assert!(!key(&mut s, 'f').is_empty());
+        // Losing the connection ends a running probe.
+        disconnect(&mut s);
+        assert!(matches!(preview(&s).probe, ProbeFetch::Failed(_)));
+    }
+
+    #[test]
+    fn probe_is_only_offered_for_a_single_video() {
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[YT, "https://www.youtube.com/watch?v=zzz"]);
+        ctrl(&mut s, 's');
+        assert!(!preview(&s).probeable());
+        assert!(key(&mut s, 'f').is_empty());
+    }
+
+    #[test]
+    fn add_result_removes_added_video_lines() {
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[YT]);
+        ctrl(&mut s, 's');
+        code(&mut s, KeyCode::Enter);
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::Add(Box::default_params()),
+                result: Ok(ApiReply::Added(vec![AddOutcome::Added {
+                    id: JobId(9),
+                    extra_ids: vec![],
+                }])),
+            },
+        );
+        assert!(matches!(s.view(), View::Downloads));
+    }
+
+    trait DefaultParams {
+        fn default_params() -> Self;
+    }
+    impl DefaultParams for Box<AddParams> {
+        fn default_params() -> Self {
+            Box::new(AddParams {
+                sources: vec![],
+                options: dman_proto::JobOptions::default(),
+                paused: false,
+            })
+        }
+    }
+
+    #[test]
+    fn video_jobs_are_marked_and_http_jobs_hide_torrent_tabs() {
+        let mut s = state();
+        let screen = render(&mut s, 80, 24);
+        assert!(screen.contains("▶ Big Buck Bunny"), "{screen}");
+        // HTTP job: no Peers/Trackers/Pieces.
+        open_detail(&mut s, 2);
+        let screen = render(&mut s, 80, 24);
+        assert!(
+            !screen.contains("Peers") && !screen.contains("Pieces"),
+            "{screen}"
+        );
+        assert!(screen.contains("5 Speed"));
+        key(&mut s, '2');
+        assert!(status_text(&s).contains("only shown for torrents"));
+        // Tab skips the hidden ones: Files -> Speed -> Options -> Files.
+        code(&mut s, KeyCode::Tab);
+        assert_eq!(top_tab(&s), crate::views::detail::Tab::Speed);
+        code(&mut s, KeyCode::Tab);
+        code(&mut s, KeyCode::Tab);
+        assert_eq!(top_tab(&s), crate::views::detail::Tab::Files);
+        // A video job hides them too; a torrent keeps them.
+        let mut s = state();
+        open_detail(&mut s, 4);
+        assert!(!render(&mut s, 80, 24).contains("Peers"));
+        let mut s = state();
+        open_detail(&mut s, 1);
+        assert!(render(&mut s, 80, 24).contains("2 Peers"));
+        assert_eq!(s.jobs[&JobId(4)].kind, SourceKind::Video);
+    }
+
+    fn top_tab(s: &State) -> crate::views::detail::Tab {
+        match s.view() {
+            View::Detail(d) => d.tab,
+            v => panic!("{v:?}"),
+        }
+    }
+
+    #[test]
+    fn daemon_refusals_of_rename_and_options_reach_the_status_line() {
+        let mut s = state();
+        open_detail(&mut s, 4);
+        let call = ApiCall::Rename {
+            id: JobId(4),
+            name: "x.mp4".into(),
+            file_index: None,
+        };
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call,
+                result: Err("video jobs cannot be renamed while downloading".into()),
+            },
+        );
+        assert_eq!(
+            status_text(&s),
+            "Rename failed: video jobs cannot be renamed while downloading"
+        );
+        update(
+            &mut s,
+            Msg::ActionResult {
+                call: ApiCall::SetOptions {
+                    id: JobId(4),
+                    options: Box::default(),
+                },
+                result: Err("option split does not apply to video jobs".into()),
+            },
+        );
+        assert!(status_text(&s).contains("does not apply to video jobs"));
+    }
+
+    // ---------------------------------------------------------- snapshots
+
+    fn snap_form(w: u16, h: u16, f: Field) -> String {
+        let mut s = open(Some(engine(true, false, Some("ffmpeg not found in PATH"))));
+        lines(&mut s, &[YT, OTHER, "https://example.org/a.iso"]);
+        ctrl(&mut s, 'g');
+        set(&mut s, Field::VQuality, "1080p");
+        set(&mut s, Field::VSubs, "en,de");
+        focus(&mut s, f);
+        render(&mut s, w, h)
+    }
+
+    #[test]
+    fn snapshot_add_video_80x24() {
+        insta::assert_snapshot!(snap_form(80, 24, Field::VQuality));
+    }
+
+    #[test]
+    fn snapshot_add_video_120x40() {
+        insta::assert_snapshot!(snap_form(120, 40, Field::VQuality));
+    }
+
+    #[test]
+    fn snapshot_add_video_unavailable_80x24() {
+        let mut s = open(Some(engine(false, false, Some("yt-dlp not found in PATH"))));
+        lines(&mut s, &[YT]);
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_probe_running_80x24() {
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[YT]);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_probe_plans_and_formats_80x24() {
+        let mut s = probed();
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        insta::assert_snapshot!(render(&mut s, 80, 24));
+    }
+
+    #[test]
+    fn snapshot_probe_formats_120x40() {
+        let mut s = probed();
+        code(&mut s, KeyCode::Tab);
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        insta::assert_snapshot!(render(&mut s, 120, 40));
+    }
+
+    #[test]
+    fn snapshot_probe_playlist_80x24() {
+        let url = "https://www.youtube.com/playlist?list=PL1";
+        let mut s = open(Some(engine(true, true, None)));
+        lines(&mut s, &[url]);
+        ctrl(&mut s, 's');
+        key(&mut s, 'f');
+        deliver(&mut s, url, false, Ok(playlist_probe()));
+        key(&mut s, 'j');
+        key(&mut s, ' ');
+        insta::assert_snapshot!(render(&mut s, 80, 24));
     }
 }

@@ -11,10 +11,10 @@ publish.workspace = true
 dman-proto.workspace = true
 dman-config.workspace = true
 dman-aria2.workspace = true
-dman-store = { path = "../dman-store" }
+dman-store.workspace = true
 dman-torrent.workspace = true
-dman-search = { path = "../dman-search" }
-dman-ytdlp = { path = "../dman-ytdlp" }
+dman-search.workspace = true
+dman-ytdlp.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "time", "fs", "net", "process"] }
@@ -37,7 +37,7 @@ notify-rust.workspace = true
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 
 [dev-dependencies]
-dman-client = { path = "../dman-client" }
+dman-client.workspace = true
 tempfile = "3"
 wiremock = "0.6"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }

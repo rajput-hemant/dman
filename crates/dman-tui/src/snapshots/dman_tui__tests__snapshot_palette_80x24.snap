@@ -10,7 +10,7 @@ expression: "render(&mut s, 80, 24)"
   big-dataset-2026.tar.zst   active  ░░░░░░░░  10%   3.0 MiB/s  1h42m   20.0 GiB
   debian-13.2.0-amd64-netin… seeding ████████ 100%           -      -  700.0 MiB
   Waiting (2)
-  Big Bu┌ Command palette ─────────────────────────────────────────────┐       -
+  ▶ Big ┌ Command palette ─────────────────────────────────────────────┐       -
   archli│> pause                                                       │ 1.2 GiB
   Stoppe│Pause                                           p             │
   report│Pause all                                       P             │ 3.0 MiB

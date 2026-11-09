@@ -10,7 +10,7 @@ expression: "render(&mut s, 120, 40)"
   big-dataset-2026.tar.zst                 active  ░░░░░░░░  10%   3.0 MiB/s           -  1h42m   20.0 GiB       8     -
   debian-13.2.0-amd64-netinst.iso          seeding ████████ 100%           - 256.0 KiB/s      -  700.0 MiB    5/40  1.50
   Waiting (2)
-  Big Buck Bunny (1080p).mp4               waiting ░░░░░░░░    -           -           -      -          -       -     -
+  ▶ Big Buck Bunny (1080p).mp4             waiting ░░░░░░░░    -           -           -      -          -       -     -
   archlinux-2026.11.01-x86_64.iso          paused  ██░░░░░░  25%           -           -      -    1.2 GiB     0/0     -
   Stopped (2)
   report-q3.pdf                            done    ████████ 100%           -           -      -    3.0 MiB       -     -

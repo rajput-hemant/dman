@@ -11,7 +11,7 @@ expression: "render(&mut s, 80, 24)"
 │      Dir  /home/me/Downloads                                                 │
 │   Source  https://example.org/missing-file.zip                               │
 │    Error  404 Not Found                                                      │
-│ 1 Files │ 2 Peers │ 3 Trackers │ 4 Pieces │ 5 Speed │ 6 Options              │
+│ 1 Files │ 5 Speed │ 6 Options                                                │
 │Loading…                                                                      │
 │                                                                              │
 │                                                                              │

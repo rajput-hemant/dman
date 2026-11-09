@@ -1,0 +1,44 @@
+---
+source: crates/dman-tui/src/tests.rs
+expression: "render(&mut s, 120, 40)"
+---
+ dman [local]  ▼ 15.0 MiB/s ▲ 1.0 MiB/s  3 active · 2 waiting · 2 stopped                                      ● online
+ sort queue  limit ▼ unlimited ▲ 2.0 MiB/s  max 5                                                        250.0 GiB free
+┌ Sources · 1 item ────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│https://w┌ Preview ─────────────────────────────────────────────────────────────────────────────────────────┐    video│
+│         │Add 1 download to the profile's directory                                                         │         │
+│         │                                                                                                  │         │
+│         │1. [video] Big Buck Bunny                                                                         │         │
+│         │     by Blender Foundation · 9:56 · ffmpeg missing                                                │         │
+│         │     subtitles: en de · automatic: none                                                           │         │
+│         │     Selected: format 137 (mp4 1920x1080)                                                         │         │
+│         │                                                                                                  │         │
+│         │   Quality plans                                                                                  │         │
+│         │     ( ) best        single    best single-file format                                            │         │
+│         │     ( ) 1080p       single    ffmpeg missing: best single-file format 720p; separate 1080p strea…│         │
+│         │     ( ) ↳ 1080p     separate  1080p video and audio as two files                                 │         │
+└─────────│     ( ) audio:m4a   audio     audio only (m4a)                                                   │─────────┘
+ ffmpeg mi│                                                                                                  │.
+┌ Options │   Formats · 3                                                                                    │─────────┐
+│  Mirror │          id       ext   size       fps  vcodec/acodec          bytes kind                        │         │
+│  Directo│     ( ) 18       mp4   640x360    30   avc1/mp4a           34.3 MiB video+audio                  │         │
+│  Output │   ▸ (•) 137      mp4   1920x1080  30   avc1/-             103.0 MiB video                        │         │
+│  Start p│     ( ) 140      m4a   audio      -    -/mp4a              97.7 KiB audio                        │         │
+│  Down li│                                                                                                  │         │
+│  Up limi│Enter add   Space choose   Tab next list   Esc back                                               │         │
+│  Conn/se│                                                                                                  │         │
+│  Split  │                                                                                                  │         │
+│  Seed ra│                                                                                                  │         │
+│  Seed mi│                                                                                                  │         │
+│  Sequent│                                                                                                  │         │
+│  Select │                                                                                                  │         │
+│  User ag│                                                                                                  │         │
+│  Referer│                                                                                                  │         │
+│  Headers│                                                                                                  │         │
+│  Proxy  │                                                                                                  │         │
+│  Checksu│                                                                                                  │         │
+│  Engine │                                                                                                  │         │
+│── Video └──────────────────────────────────────────────────────────────────────────────────────────────────┘         │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ Connected to daemon 0.1.0
+ Enter add  Space choose  Tab next list  Esc back to form  ↑↓ scroll

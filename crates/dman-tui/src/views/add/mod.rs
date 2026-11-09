@@ -21,6 +21,7 @@ pub mod browser;
 pub mod options;
 pub mod preview;
 pub mod source;
+pub mod video;
 
 use std::collections::{HashMap, HashSet};
 
@@ -34,7 +35,8 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use self::browser::{DirOutcome, DirPicker, FileBrowser, FileOutcome, LocalListing};
 use self::options::{Field, OptionsForm};
 use self::preview::{Fetch, Loaded, MagnetFiles, Planned, Preview, PreviewOutcome};
-use self::source::{PathStatus, Severity, Token};
+use self::source::{Kind, PathStatus, Severity, Token, VideoCtx};
+use self::video::ProbeFetch;
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
 use crate::app::{Cmd, State};
@@ -51,6 +53,7 @@ pub const FOOTER: &[Action] = &[
     Action::AddBrowseFiles,
     Action::AddPasteClipboard,
     Action::AddToggleMirror,
+    Action::AddToggleVideo,
     Action::AddPickDir,
     Action::Back,
 ];
@@ -92,6 +95,8 @@ pub struct AddState {
     pub pending_plan: Option<Vec<Planned>>,
     /// Source texts behind each source of the request in flight.
     pub submitting: Option<Vec<Vec<String>>>,
+    /// The video engine and the per-URL "try as video" choices.
+    pub video: VideoCtx,
 }
 
 impl Default for AddState {
@@ -104,6 +109,7 @@ impl Default for AddState {
             paths: HashMap::new(),
             pending_plan: None,
             submitting: None,
+            video: VideoCtx::default(),
         }
     }
 }
@@ -127,8 +133,76 @@ impl AddState {
         self.sources
             .lines()
             .iter()
-            .flat_map(|l| source::tokens(l))
+            .flat_map(|l| source::tokens_with(l, &self.video))
             .collect()
+    }
+
+    /// Whether any source goes to the video engine.
+    pub fn has_video(&self) -> bool {
+        self.all_tokens().iter().any(|t| t.kind.is_video())
+    }
+
+    /// The fields shown: the video section only with a video source.
+    pub fn visible_fields(&self) -> Vec<Field> {
+        if self.has_video() {
+            Field::FULL.to_vec()
+        } else {
+            Field::ALL.to_vec()
+        }
+    }
+
+    /// A hint about the video engine (never blocks anything), when the
+    /// sources include something that looks like a video.
+    pub fn engine_hint(&self) -> Option<(String, Severity)> {
+        if !self.video.known {
+            return None;
+        }
+        let tokens = self.all_tokens();
+        if !self.video.available {
+            return tokens.iter().any(|t| t.kind == Kind::VideoUnavailable).then(|| {
+                let why = self.video.reason.as_deref().unwrap_or("not found");
+                (
+                    format!(
+                        "yt-dlp is unavailable ({why}): video links are added as plain downloads of the page."
+                    ),
+                    Severity::Warn,
+                )
+            });
+        }
+        if !self.video.ffmpeg && tokens.iter().any(|t| t.kind.is_video()) {
+            let why = self.video.reason.as_deref().unwrap_or("ffmpeg not found");
+            return Some((
+                format!(
+                    "ffmpeg missing ({why}): no merging, conversion or embedding; separate streams need consent."
+                ),
+                Severity::Warn,
+            ));
+        }
+        None
+    }
+
+    /// Toggle "try as video" for the http(s) URLs of the cursor line.
+    fn toggle_video_line(&mut self) -> Result<(), String> {
+        if !self.video.known || !self.video.available {
+            return Err(match &self.video.reason {
+                Some(r) => format!("yt-dlp is unavailable: {r}"),
+                None => "yt-dlp is not available on the daemon host".into(),
+            });
+        }
+        let (row, _) = self.sources.cursor();
+        let line = self.sources.lines().get(row).cloned().unwrap_or_default();
+        let toks = source::tokens_with(&line, &self.video);
+        let urls: Vec<&Token> = toks
+            .iter()
+            .filter(|t| t.kind.is_video() || matches!(t.kind, Kind::Http | Kind::Https))
+            .collect();
+        if urls.is_empty() {
+            return Err("Put the cursor on an http(s) URL to try it as video".into());
+        }
+        for t in urls {
+            self.video.forced.insert(t.text.clone(), !t.kind.is_video());
+        }
+        Ok(())
     }
 
     /// Form and plan problems, in form order.
@@ -136,6 +210,9 @@ impl AddState {
         let parsed = self.form.parse();
         let mut e = parsed.errors.clone();
         let tokens = self.all_tokens();
+        if tokens.iter().any(|t| t.kind.is_video()) {
+            e.extend(parsed.video_errors.clone());
+        }
         if !tokens.is_empty() {
             e.extend(preview::plan_errors(
                 &preview::plan(&tokens, parsed.mirror),
@@ -195,13 +272,17 @@ impl AddState {
     }
 
     fn step_focus(&mut self, forward: bool) {
-        self.focus = match (self.focus, forward) {
-            (Focus::Sources, true) => Focus::Field(Field::ALL[0]),
-            (Focus::Sources, false) => Focus::Field(Field::ALL[Field::ALL.len() - 1]),
-            (Focus::Field(f), true) if f == Field::ALL[Field::ALL.len() - 1] => Focus::Sources,
-            (Focus::Field(f), false) if f == Field::ALL[0] => Focus::Sources,
-            (Focus::Field(f), true) => Focus::Field(f.next()),
-            (Focus::Field(f), false) => Focus::Field(f.prev()),
+        let fields = self.visible_fields();
+        let last = fields.len() - 1;
+        self.focus = match self.focus {
+            Focus::Sources if forward => Focus::Field(fields[0]),
+            Focus::Sources => Focus::Field(fields[last]),
+            Focus::Field(f) => match fields.iter().position(|x| *x == f) {
+                Some(i) if forward && i == last => Focus::Sources,
+                Some(0) if !forward => Focus::Sources,
+                Some(i) => Focus::Field(fields[if forward { i + 1 } else { i - 1 }]),
+                None => Focus::Sources,
+            },
         };
     }
 
@@ -345,6 +426,19 @@ fn overlay_key(state: &mut State, key: KeyEvent) -> Vec<Cmd> {
         },
         Overlay::Preview(p) => match p.key(key) {
             PreviewOutcome::Stay | PreviewOutcome::CancelFetch => {}
+            PreviewOutcome::Probe(params) => {
+                let cmds = state.call_quiet(ApiCall::VideoProbe(params));
+                if cmds.is_empty() {
+                    // Offline: the call was refused (the status line says why).
+                    if let Overlay::Preview(p) = &mut overlay {
+                        p.probe = ProbeFetch::Idle;
+                    }
+                }
+                if let Some(a) = add_mut(state) {
+                    a.overlay = Some(overlay);
+                }
+                return cmds;
+            }
             PreviewOutcome::Back => return cmds,
             PreviewOutcome::Fetch(uri) => {
                 let cmds = state.call_quiet(ApiCall::PreviewMagnet { uri });
@@ -397,6 +491,13 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::AddToggleMirror => {
             if let Some(a) = add_mut(state) {
                 a.form.toggle(Field::Mirror);
+            }
+            Vec::new()
+        }
+        Action::AddToggleVideo => {
+            let r = add_mut(state).map(AddState::toggle_video_line);
+            if let Some(Err(msg)) = r {
+                state.status.warn(msg);
             }
             Vec::new()
         }
@@ -469,7 +570,7 @@ fn prepare(a: &mut AddState) -> Result<Vec<Cmd>, String> {
         .iter()
         .filter_map(|p| match p {
             Planned::File(t) => Some(t.text.clone()),
-            Planned::Uris(_) => None,
+            Planned::Uris(_) | Planned::Video(_) => None,
         })
         .collect();
     if files.is_empty() {
@@ -537,10 +638,13 @@ pub fn on_tick(state: &mut State) -> bool {
 /// The connection dropped: a running fetch will never be answered.
 pub fn on_disconnect(state: &mut State) {
     for a in add_views(state) {
-        if let Some(Overlay::Preview(p)) = &mut a.overlay
-            && p.fetching()
-        {
-            p.fetch = Fetch::Failed("lost the connection to the daemon".into());
+        if let Some(Overlay::Preview(p)) = &mut a.overlay {
+            if p.fetching() {
+                p.fetch = Fetch::Failed("lost the connection to the daemon".into());
+            }
+            if p.probing() {
+                p.probe = ProbeFetch::Failed("lost the connection to the daemon".into());
+            }
         }
     }
 }
@@ -567,6 +671,50 @@ pub fn on_magnet_preview(state: &mut State, uri: &str, result: &Result<ApiReply,
             Err(e) => Fetch::Failed(e.clone()),
         };
         p.scroll = 0;
+    }
+}
+
+/// The daemon answered `video.probe`. A probe that was cancelled (or whose
+/// preview was closed) is no longer running, so its answer is dropped.
+pub fn on_video_probe(
+    state: &mut State,
+    params: &dman_proto::VideoProbeParams,
+    result: &Result<ApiReply, String>,
+) {
+    for a in add_views(state) {
+        let Some(Overlay::Preview(p)) = &mut a.overlay else {
+            continue;
+        };
+        if !matches!(&p.probe, ProbeFetch::Running { url, .. } if *url == params.url) {
+            continue;
+        }
+        p.probe = match result {
+            Ok(ApiReply::VideoProbe(v)) => {
+                ProbeFetch::Done(Box::new(video::ProbeUi::new((**v).clone())))
+            }
+            Ok(_) => ProbeFetch::Failed("unexpected reply".into()),
+            Err(e) => ProbeFetch::Failed(e.clone()),
+        };
+        p.scroll = 0;
+    }
+}
+
+/// Re-read the video engine from the engine statuses (after every update).
+pub fn sync_engine(state: &mut State) {
+    let engines = state.engines.clone();
+    for a in add_views(state) {
+        let ctx = a.video.from_engines(&engines);
+        if !ctx.same_engine(&a.video) {
+            a.video = VideoCtx {
+                forced: std::mem::take(&mut a.video.forced),
+                ..ctx
+            };
+        }
+        if let Focus::Field(f) = a.focus
+            && !a.visible_fields().contains(&f)
+        {
+            a.focus = Focus::Sources;
+        }
     }
 }
 
@@ -687,10 +835,19 @@ fn severity_style(theme: &Theme, s: Severity) -> ratatui::style::Style {
 }
 
 fn line_label(a: &AddState, line: &str) -> Option<(String, Severity)> {
-    let t = source::tokens(line);
+    let t = source::tokens_with(line, &a.video);
     match t.len() {
         0 => None,
-        1 => Some(source::describe(&t[0], &a.paths)),
+        1 => {
+            let (mut text, mut sev) = source::describe(&t[0], &a.paths);
+            if matches!(t[0].kind, Kind::Http | Kind::Https) && a.video.available {
+                text.push_str(" · Ctrl-g: try as video");
+            }
+            if t[0].kind == Kind::VideoUnavailable {
+                sev = Severity::Warn;
+            }
+            Some((text, sev))
+        }
         n => {
             let worst = t.iter().map(|t| source::describe(t, &a.paths).1).fold(
                 Severity::Ok,
@@ -796,7 +953,13 @@ fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState
     let errors = a.errors();
     let mut lines: Vec<Line<'static>> = Vec::new();
     let mut focus_line = 0;
-    for f in Field::ALL {
+    for f in a.visible_fields() {
+        if f == Field::VIDEO[0] {
+            lines.push(Line::styled(
+                "── Video (yt-dlp) ──".to_owned(),
+                theme.accent,
+            ));
+        }
         let focused = a.focus == Focus::Field(f) && a.overlay.is_none();
         let marker = if focused { "▸ " } else { "  " };
         let label = Span::styled(
@@ -885,8 +1048,23 @@ fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, a: &AddState) {
     let t = &state.theme;
     let src_h = (area.height * 2 / 5).clamp(5, 14);
-    let [src, opt] = Layout::vertical([Constraint::Length(src_h), Constraint::Fill(1)]).areas(area);
+    let hint = a.engine_hint();
+    let [src, hint_area, opt] = Layout::vertical([
+        Constraint::Length(src_h),
+        Constraint::Length(u16::from(hint.is_some())),
+        Constraint::Fill(1),
+    ])
+    .areas(area);
     render_sources(frame, src, t, a);
+    if let Some((text, sev)) = hint {
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                truncate(&format!(" {text}"), usize::from(area.width)),
+                severity_style(t, sev),
+            )),
+            hint_area,
+        );
+    }
     render_options(frame, opt, t, a);
     match &a.overlay {
         Some(Overlay::Files(b)) => b.render(frame, area, t),

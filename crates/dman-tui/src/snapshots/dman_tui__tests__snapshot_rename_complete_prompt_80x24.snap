@@ -10,7 +10,7 @@ expression: "render(&mut s, 80, 24)"
   big-dataset-2026.tar.zst   active  ░░░░░░░░  10%   3.0 MiB/s  1h42m   20.0 GiB
   debian-13.2.0-amd64-netin… seeding ████████ 100%           -      -  700.0 MiB
   Waiting (2)
-  Big Buck Bunny (1080p).mp4 waiting ░░░░░░░░    -           -      -          -
+  ▶ Big Buck Bunny (1080p).… waiting ░░░░░░░░    -           -      -          -
   archlinux-202┌ Rename and move on disk ───────────────────────┐   -    1.2 GiB
   Stopped (2)  │The file is moved on disk. New name:            │
   report-q3.pdf│                                                │   -    3.0 MiB

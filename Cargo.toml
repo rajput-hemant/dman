@@ -19,6 +19,9 @@ dman-client = { path = "crates/dman-client" }
 dman-tui = { path = "crates/dman-tui" }
 dman-store = { path = "crates/dman-store" }
 dman-torrent = { path = "crates/dman-torrent" }
+dman-ytdlp = { path = "crates/dman-ytdlp" }
+dman-search = { path = "crates/dman-search" }
+dman-web = { path = "crates/dman-web" }
 
 # runtime and data
 tokio = { version = "1.54", default-features = false }

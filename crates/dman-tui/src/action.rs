@@ -115,6 +115,8 @@ pub enum Action {
     AddToggleMirror,
     /// Add view: choose the download directory on the daemon host.
     AddPickDir,
+    /// Add view: try the URL under the cursor as video (or back as plain http).
+    AddToggleVideo,
     /// Open the search view.
     Search,
     /// Search view: run the query.
@@ -220,6 +222,7 @@ impl Action {
         Action::AddPasteClipboard,
         Action::AddToggleMirror,
         Action::AddPickDir,
+        Action::AddToggleVideo,
         Action::Search,
         Action::SearchRun,
         Action::SearchEdit,
@@ -301,6 +304,7 @@ impl Action {
             Action::AddPasteClipboard => "add_paste_clipboard",
             Action::AddToggleMirror => "add_toggle_mirror",
             Action::AddPickDir => "add_pick_dir",
+            Action::AddToggleVideo => "add_toggle_video",
             Action::Search => "search",
             Action::SearchRun => "search_run",
             Action::SearchEdit => "search_edit",
@@ -392,6 +396,7 @@ impl Action {
             Action::AddPasteClipboard => "Add view: paste from clipboard",
             Action::AddToggleMirror => "Add view: toggle mirrors (one download from all URLs)",
             Action::AddPickDir => "Add view: choose download directory (daemon)",
+            Action::AddToggleVideo => "Add view: try this URL as video (yt-dlp) / as plain http",
             Action::Search => "Search torrents",
             Action::SearchRun => "Search: run the query",
             Action::SearchEdit => "Search: edit the query",
@@ -474,6 +479,7 @@ impl Action {
             Action::AddPasteClipboard => "clipboard",
             Action::AddToggleMirror => "mirror",
             Action::AddPickDir => "folder",
+            Action::AddToggleVideo => "video",
             Action::Search => "search",
             Action::SearchRun => "search",
             Action::SearchEdit => "edit query",
@@ -524,6 +530,7 @@ impl Action {
             | Action::AddBrowseFiles
             | Action::AddPasteClipboard
             | Action::AddToggleMirror
+            | Action::AddToggleVideo
             | Action::AddPickDir => Context::Add,
             Action::SearchRun
             | Action::SearchEdit

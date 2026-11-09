@@ -22,6 +22,10 @@ pub enum Kind {
     TorrentFile,
     /// Local `.metalink` / `.meta4` file.
     MetalinkFile,
+    /// A video page for the yt-dlp engine (detected or forced with "try as video").
+    Video,
+    /// Looks like a video page but yt-dlp is not installed: added as plain http.
+    VideoUnavailable,
     /// Cannot be added; the text says why.
     Unsupported(&'static str),
 }
@@ -37,13 +41,25 @@ impl Kind {
             Kind::Sftp => "sftp".into(),
             Kind::TorrentFile => "torrent file".into(),
             Kind::MetalinkFile => "metalink file".into(),
+            Kind::Video => "video".into(),
+            Kind::VideoUnavailable => {
+                "video (yt-dlp not installed — will download the page)".into()
+            }
             Kind::Unsupported(why) => format!("unsupported: {why}"),
         }
     }
 
     /// A URI that can be one of several mirrors of a single download.
     pub const fn is_mirrorable(self) -> bool {
-        matches!(self, Kind::Http | Kind::Https | Kind::Ftp | Kind::Sftp)
+        matches!(
+            self,
+            Kind::Http | Kind::Https | Kind::Ftp | Kind::Sftp | Kind::VideoUnavailable
+        )
+    }
+
+    /// Goes to the yt-dlp engine.
+    pub const fn is_video(self) -> bool {
+        matches!(self, Kind::Video)
     }
 
     /// A URI of any kind (sent as `AddSource::Uris`).
@@ -96,6 +112,59 @@ pub fn classify(token: &str) -> Kind {
     }
 }
 
+/// What the add view knows about the video engine, and the user's per-URL
+/// "try as video" overrides.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct VideoCtx {
+    /// An `engine.status` entry for yt-dlp has arrived (until then nothing is
+    /// classified as video).
+    pub known: bool,
+    /// yt-dlp can run.
+    pub available: bool,
+    /// ffmpeg is usable (merging, conversion, embedding).
+    pub ffmpeg: bool,
+    /// Why yt-dlp is unavailable, or why ffmpeg is missing.
+    pub reason: Option<String>,
+    /// URL text → forced (`true` = video, `false` = plain http).
+    pub forced: std::collections::HashMap<String, bool>,
+}
+
+impl VideoCtx {
+    /// Read the yt-dlp entry of `engines`.
+    pub fn from_engines(&self, engines: &[dman_proto::method::EngineStatus]) -> Self {
+        let mut out = Self {
+            forced: self.forced.clone(),
+            ..Self::default()
+        };
+        if let Some(e) = engines
+            .iter()
+            .find(|e| e.engine == dman_proto::Engine::YtDlp)
+        {
+            out.known = true;
+            out.available = e.available;
+            out.ffmpeg = e
+                .features
+                .iter()
+                .any(|f| f == "merge" || f.starts_with("ffmpeg"));
+            out.reason = e.reason.clone();
+        }
+        out
+    }
+
+    /// The engine facts only (not the overrides) differ from `other`.
+    pub fn same_engine(&self, other: &Self) -> bool {
+        (self.known, self.available, self.ffmpeg, &self.reason)
+            == (other.known, other.available, other.ffmpeg, &other.reason)
+    }
+}
+
+/// Whether `text` looks like a video site URL (offline heuristic, D10).
+pub fn looks_like_video(text: &str) -> bool {
+    url::Url::parse(text)
+        .map(|u| dman_ytdlp::is_probably_video_url(&u))
+        .unwrap_or(false)
+}
+
 /// One source of a line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
@@ -144,6 +213,35 @@ pub fn tokens(line: &str) -> Vec<Token> {
         text: whole,
         kind: whole_kind,
     }]
+}
+
+/// Like [`tokens`], with http(s) URLs classified for the video engine.
+pub fn tokens_with(line: &str, ctx: &VideoCtx) -> Vec<Token> {
+    let mut t = tokens(line);
+    if ctx.known {
+        for tok in &mut t {
+            if matches!(tok.kind, Kind::Http | Kind::Https) {
+                tok.kind = video_kind(&tok.text, tok.kind, ctx);
+            }
+        }
+    }
+    t
+}
+
+fn video_kind(text: &str, plain: Kind, ctx: &VideoCtx) -> Kind {
+    let detected = looks_like_video(text);
+    if !ctx.available {
+        return if detected {
+            Kind::VideoUnavailable
+        } else {
+            plain
+        };
+    }
+    if ctx.forced.get(text).copied().unwrap_or(detected) {
+        Kind::Video
+    } else {
+        plain
+    }
 }
 
 /// Result of checking a local file.

@@ -433,9 +433,15 @@ fn state_style(t: &Theme, s: JobState) -> Style {
 }
 
 fn name_cell(j: &Job, t: &Theme, width: usize) -> Cell<'static> {
-    let name = format::truncate(&j.name, width);
-    let used = name.chars().count();
-    let mut spans = vec![Span::raw(name)];
+    let video = j.kind == dman_proto::SourceKind::Video || j.engine == dman_proto::Engine::YtDlp;
+    let marker = if video { "▶ " } else { "" };
+    let name = format::truncate(&j.name, width.saturating_sub(marker.chars().count()));
+    let used = name.chars().count() + marker.chars().count();
+    let mut spans = Vec::new();
+    if video {
+        spans.push(Span::styled(marker, t.accent));
+    }
+    spans.push(Span::raw(name));
     if let Some(e) = &j.error
         && used + 4 < width
     {

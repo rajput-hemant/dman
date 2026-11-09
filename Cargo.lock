@@ -919,6 +919,7 @@ dependencies = [
  "dman-config",
  "dman-proto",
  "dman-torrent",
+ "dman-ytdlp",
  "futures-util",
  "insta",
  "jiff",
@@ -929,6 +930,7 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "url",
 ]
 
 [[package]]

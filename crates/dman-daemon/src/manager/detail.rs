@@ -3,7 +3,7 @@
 
 use dman_aria2::{DownloadStatus, Gid, Peer, Status};
 use dman_proto::{
-    FileInfo, JobDetail, JobId, PeerInfo, PieceMap, RpcError, SourceKind, TrackerInfo,
+    FileInfo, JobDetail, JobId, PeerInfo, PieceMap, RenameEntry, RpcError, SourceKind, TrackerInfo,
     TrackerStatus,
 };
 use dman_store::JobRecord;
@@ -43,6 +43,17 @@ impl Manager {
             comment: None,
             options: rec.options.clone(),
             speed_history: self.history.job(id),
+            renames: self
+                .db(move |s| s.renames(id))
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|r| RenameEntry {
+                    from: r.from,
+                    to: r.to,
+                    at: r.at,
+                })
+                .collect(),
         };
         let (Some(client), Some(gid)) = (self.client.clone(), rec.gid.clone()) else {
             return Ok(d);
@@ -57,8 +68,18 @@ impl Manager {
         }
         match client.get_files(&gid).await {
             Ok(files) => {
-                let live = files_from_aria2(&files);
+                let mut live = files_from_aria2(&files);
                 if !live.is_empty() {
+                    // aria2 keeps reporting the original paths of finished
+                    // downloads; dman's record knows about renames on disk.
+                    if rec.state.is_stopped() {
+                        let stored = stored_files(&rec);
+                        if stored.len() == live.len() {
+                            for (l, s) in live.iter_mut().zip(stored) {
+                                l.path = s.path;
+                            }
+                        }
+                    }
                     d.files = live;
                 }
             }

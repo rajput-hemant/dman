@@ -33,7 +33,7 @@ pub struct DeleteReport {
 
 /// Where a candidate path really lives: canonical parent joined with the file
 /// name (so the entry itself is addressed, not a symlink target).
-fn locate(path: &Path) -> io::Result<PathBuf> {
+pub(crate) fn locate(path: &Path) -> io::Result<PathBuf> {
     let name = path
         .file_name()
         .filter(|n| *n != "." && *n != "..")

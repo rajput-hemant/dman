@@ -22,6 +22,7 @@ pub mod engine;
 pub mod history;
 pub mod manager;
 pub mod ops;
+pub mod preview;
 pub mod queue;
 mod reconcile;
 pub mod server;
@@ -149,6 +150,9 @@ pub async fn run(opts: DaemonOptions) -> anyhow::Result<()> {
     };
     let (engine, engine_rx, engine_task) = engine::spawn(make_settings, engine::RETRY_EVERY).await;
 
+    let previews = preview::PreviewRegistry::new(paths.state_dir().join("metadata"));
+    previews.reset_dir();
+    let preview = Arc::new(preview::Preview::new(previews.clone(), engine_rx.clone()));
     let (events, _) = broadcast::channel(EVENT_CAPACITY);
     let (manager, manager_task) = Manager::spawn(ManagerConfig {
         store,
@@ -161,6 +165,7 @@ pub async fn run(opts: DaemonOptions) -> anyhow::Result<()> {
         tick: Duration::from_millis(config.aria2.tick_ms.max(50)),
         events: events.clone(),
         engine: engine_rx,
+        previews,
     });
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -173,6 +178,7 @@ pub async fn run(opts: DaemonOptions) -> anyhow::Result<()> {
         shutdown: shutdown_rx.clone(),
         shutdown_request: request_tx,
         engine: engine.clone(),
+        preview,
     });
     let mut graceful = shutdown_rx.clone();
     let mut server = tokio::spawn(async move {

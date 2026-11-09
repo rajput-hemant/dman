@@ -244,6 +244,22 @@ impl Client {
             .map_err(|e| ClientError::Protocol(format!("{method}: malformed result: {e}")))
     }
 
+    /// Like [`Client::call`] with a custom timeout for this call only.
+    ///
+    /// # Errors
+    /// As [`Client::call`].
+    pub async fn call_with_timeout<P: Serialize, R: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: P,
+        timeout: Duration,
+    ) -> Result<R, ClientError> {
+        self.clone()
+            .with_timeout(timeout)
+            .call(method, params)
+            .await
+    }
+
     /// Start receiving events (sends `session.subscribe` once per connection) and
     /// return a receiver. The daemon's first event is a `Snapshot`; the receiver
     /// is created before subscribing so it is never missed. Further calls just
@@ -287,6 +303,48 @@ macro_rules! typed_api {
         /// `jobs.detail`: files, peers, trackers, pieces and speed history of one job.
         pub async fn detail(&self, id: JobId) -> Result<dman_proto::JobDetail, ClientError> {
             self.call(method::JOBS_DETAIL, IdParams { id }).await
+        }
+
+        /// `jobs.rename`: new output name (waiting/paused) or move on disk
+        /// (completed). `file_index` is 1-based and selects a file of a
+        /// multi-file job.
+        pub async fn rename(
+            &self,
+            id: JobId,
+            name: &str,
+            file_index: Option<u32>,
+        ) -> Result<(), ClientError> {
+            self.call::<_, Value>(
+                method::JOBS_RENAME,
+                method::RenameParams {
+                    id,
+                    name: name.to_owned(),
+                    file_index,
+                },
+            )
+            .await
+            .map(drop)
+        }
+
+        /// `jobs.preview_magnet`: fetch the file list of a magnet without
+        /// starting it. Can take up to `timeout_secs` (default 120 s); the call
+        /// waits that long plus a margin.
+        pub async fn preview_magnet(
+            &self,
+            uri: &str,
+            timeout_secs: Option<u32>,
+        ) -> Result<method::MagnetPreview, ClientError> {
+            let wait = u64::from(timeout_secs.unwrap_or(120).min(600)) + 30;
+            self.call_with_timeout(
+                method::JOBS_PREVIEW_MAGNET,
+                method::PreviewMagnetParams {
+                    uri: uri.to_owned(),
+                    dir: None,
+                    timeout_secs,
+                },
+                Duration::from_secs(wait),
+            )
+            .await
         }
 
         /// `jobs.pause`

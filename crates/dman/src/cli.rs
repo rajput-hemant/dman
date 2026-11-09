@@ -43,6 +43,25 @@ pub enum Command {
         #[arg(long)]
         peers: bool,
     },
+    /// Rename a download (waiting/paused: new output name; complete: move on disk).
+    Rename {
+        /// Job ID.
+        id: JobId,
+        /// New file name (no `/`); for a completed multi-file torrent without
+        /// --file, the new top-level directory name.
+        name: String,
+        /// File of a multi-file download (1-based).
+        #[arg(long, value_name = "N")]
+        file: Option<u32>,
+    },
+    /// Show the files of a magnet link without downloading it.
+    Preview {
+        /// Magnet link.
+        magnet: String,
+        /// Give up after this many seconds (default 120).
+        #[arg(long, value_name = "SECS")]
+        timeout: Option<u32>,
+    },
     /// Pause downloads.
     Pause(TargetArgs),
     /// Resume downloads.

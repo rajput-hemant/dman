@@ -114,3 +114,14 @@ fn gen_config_reports_existing() {
         .success()
         .stdout(predicate::str::contains("already exists"));
 }
+
+#[test]
+fn rename_and_preview_need_a_daemon_and_arguments() {
+    let dir = config_dir();
+    dman(&dir).args(["rename", "1"]).assert().code(2);
+    dman(&dir).args(["rename", "1", "new.bin"]).assert().code(3);
+    dman(&dir)
+        .args(["preview", "magnet:?xt=urn:btih:abc", "--timeout", "5"])
+        .assert()
+        .code(3);
+}

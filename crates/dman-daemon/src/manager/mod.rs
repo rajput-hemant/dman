@@ -12,6 +12,7 @@ mod events;
 mod fs;
 mod poll;
 mod remove;
+mod rename;
 mod scheduler;
 mod util;
 
@@ -26,7 +27,7 @@ use dman_aria2::{Aria2Client, Aria2Notification, DownloadStatus, EngineState};
 use dman_config::Profile;
 use dman_proto::method::{
     BatchResult, EngineStatus, Event, FsListParams, Level, LimitsUpdate, ListParams, RemoveParams,
-    ReorderParams, SetOptionsParams,
+    RenameParams, ReorderParams, SetOptionsParams,
 };
 use dman_proto::{AddParams, Engine, ErrorCode, Job, JobId, JobState, Limits, RpcError};
 use dman_store::{Desired, JobRecord, LiveFigures, Store};
@@ -60,6 +61,8 @@ pub enum Request {
     Reorder(ReorderParams),
     /// `jobs.set_options`
     SetOptions(SetOptionsParams),
+    /// `jobs.rename`
+    Rename(RenameParams),
     /// `queue.pause_all`
     PauseAll,
     /// `queue.resume_all`
@@ -130,6 +133,8 @@ pub struct ManagerConfig {
     pub events: broadcast::Sender<Event>,
     /// Engine state published by the supervisor.
     pub engine: watch::Receiver<EngineState>,
+    /// Magnet previews running in aria2; never adopted as jobs.
+    pub previews: std::sync::Arc<crate::preview::PreviewRegistry>,
 }
 
 /// In-memory state of one job.
@@ -205,6 +210,7 @@ pub struct Manager {
     pub(crate) urgent: bool,
     poll_failing: bool,
     pub(crate) history: crate::history::History,
+    pub(crate) previews: std::sync::Arc<crate::preview::PreviewRegistry>,
 }
 
 fn to_value<T: Serialize>(v: T) -> Result<Value, RpcError> {
@@ -241,6 +247,7 @@ impl Manager {
             urgent: false,
             poll_failing: false,
             history: crate::history::History::default(),
+            previews: cfg.previews,
         };
         let task = tokio::spawn(mgr.run(rx, cfg.engine));
         (ManagerHandle { tx }, task)
@@ -469,6 +476,11 @@ impl Manager {
             }
             Request::SetOptions(p) => {
                 self.set_options(p).await?;
+                self.emit_changes();
+                Ok(Value::Null)
+            }
+            Request::Rename(p) => {
+                self.rename(p).await?;
                 self.emit_changes();
                 Ok(Value::Null)
             }

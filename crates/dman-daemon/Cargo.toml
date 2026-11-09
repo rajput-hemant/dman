@@ -12,6 +12,7 @@ dman-proto.workspace = true
 dman-config.workspace = true
 dman-aria2.workspace = true
 dman-store = { path = "../dman-store" }
+dman-torrent.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "time", "fs", "net"] }

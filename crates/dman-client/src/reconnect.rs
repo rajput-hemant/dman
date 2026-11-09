@@ -154,6 +154,22 @@ impl ReconnectingClient {
             .await
     }
 
+    /// Like [`ReconnectingClient::call`] with a custom timeout for this call.
+    ///
+    /// # Errors
+    /// As [`ReconnectingClient::call`].
+    pub async fn call_with_timeout<P: Serialize, R: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: P,
+        timeout: Duration,
+    ) -> Result<R, ClientError> {
+        self.client()
+            .ok_or(ClientError::Disconnected)?
+            .call_with_timeout(method, params, timeout)
+            .await
+    }
+
     typed_api!();
 }
 

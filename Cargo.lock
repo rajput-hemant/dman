@@ -635,6 +635,7 @@ dependencies = [
  "dman-config",
  "dman-proto",
  "dman-store",
+ "dman-torrent",
  "futures-util",
  "nix",
  "secrecy",
@@ -668,6 +669,13 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tracing",
+]
+
+[[package]]
+name = "dman-torrent"
+version = "0.1.0"
+dependencies = [
+ "sha1 0.11.0",
 ]
 
 [[package]]

@@ -196,6 +196,15 @@ pub fn file_table(files: &[FileInfo]) -> String {
     table(["#", "DONE", "SIZE", "SEL", "PATH"], &rows, &[3])
 }
 
+/// File list of a magnet preview: `#  SIZE  PATH`.
+pub fn preview_table(files: &[FileInfo]) -> String {
+    let rows: Vec<[String; 3]> = files
+        .iter()
+        .map(|f| [f.index.to_string(), size(f.length), f.path.clone()])
+        .collect();
+    table(["#", "SIZE", "PATH"], &rows, &[])
+}
+
 /// Peer table: `ADDRESS  PROGRESS  DOWN  UP  FLAGS`.
 pub fn peer_table(peers: &[PeerInfo]) -> String {
     let rows: Vec<[String; 5]> = peers

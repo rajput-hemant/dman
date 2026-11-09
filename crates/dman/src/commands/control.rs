@@ -36,6 +36,17 @@ fn join_ids(ids: &[JobId]) -> String {
         .join(", ")
 }
 
+pub async fn rename(ctx: &Ctx, id: JobId, name: &str, file: Option<u32>) -> Result<i32, CliError> {
+    let client = ctx.connect().await?;
+    client.rename(id, name, file).await?;
+    if ctx.json {
+        print_json(&serde_json::json!({ "renamed": id, "name": name }))?;
+    } else {
+        println!("renamed {id} to {name}");
+    }
+    Ok(0)
+}
+
 pub async fn pause(ctx: &Ctx, a: &TargetArgs) -> Result<i32, CliError> {
     let client = ctx.connect().await?;
     if a.all {

@@ -175,7 +175,11 @@ impl Manager {
                     st.status,
                     Some(DownloadStatus::Active | DownloadStatus::Waiting | DownloadStatus::Paused)
                 );
-                if running && !following_known && st.belongs_to.is_none() {
+                if running
+                    && !following_known
+                    && st.belongs_to.is_none()
+                    && !self.previews.is_preview_gid(&gid)
+                {
                     adopt.push(gid);
                 }
                 continue;

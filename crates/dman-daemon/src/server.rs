@@ -45,6 +45,8 @@ pub struct ServerState {
     pub shutdown_request: mpsc::Sender<()>,
     /// The engine owner (`engine.restart`).
     pub engine: crate::engine::EngineHandle,
+    /// Magnet previews (`jobs.preview_magnet`).
+    pub preview: Arc<crate::preview::Preview>,
 }
 
 /// The axum router serving the API.
@@ -98,6 +100,7 @@ fn to_request(method: &str, params: Value) -> Result<Request, WireError> {
         method::JOBS_PURGE => p(parse::<method::IdsParams>(params).map(|x| Request::Purge(x.ids)))?,
         method::JOBS_REORDER => p(parse(params).map(Request::Reorder))?,
         method::JOBS_SET_OPTIONS => p(parse(params).map(Request::SetOptions))?,
+        method::JOBS_RENAME => p(parse(params).map(Request::Rename))?,
         method::QUEUE_PAUSE_ALL => Request::PauseAll,
         method::QUEUE_RESUME_ALL => Request::ResumeAll,
         method::LIMITS_GET => Request::LimitsGet,
@@ -193,6 +196,8 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
     let mut authed = false;
     let mut forwarder: Option<tokio::task::JoinHandle<()>> = None;
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    // Magnet previews are cancelled (and cleaned up) when the connection ends.
+    let mut previews: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     loop {
         let msg = tokio::select! {
             m = stream.next() => m,
@@ -282,6 +287,25 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
                 tracing::info!("shutdown requested over the API");
                 let _ = state.shutdown_request.try_send(());
             }
+            method::JOBS_PREVIEW_MAGNET => {
+                let params = match parse::<method::PreviewMagnetParams>(req.params) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        reply(Response::err(id, e)).await;
+                        continue;
+                    }
+                };
+                let preview = state.preview.clone();
+                let out = out_tx.clone();
+                previews.retain(|t| !t.is_finished());
+                previews.push(tokio::spawn(async move {
+                    let resp = match preview.run(params).await {
+                        Ok(v) => Response::ok(id, json!(v)),
+                        Err(e) => Response::err(id, e),
+                    };
+                    let _ = out.send(encode(&resp)).await;
+                }));
+            }
             method::ENGINE_RESTART => {
                 let engine = state.engine.clone();
                 let out = out_tx.clone();
@@ -313,6 +337,9 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
     }
     if let Some(f) = forwarder {
         f.abort();
+    }
+    for t in &previews {
+        t.abort();
     }
     // Let in-flight requests answer briefly, then close.
     for t in tasks {

@@ -211,6 +211,29 @@ pub async fn run(ctx: &Ctx, args: &AddArgs) -> Result<i32, CliError> {
     report(&labels, &outcomes, ctx.json)
 }
 
+/// `dman preview <magnet>`: the files of a magnet link, without downloading.
+pub async fn preview(ctx: &Ctx, magnet: &str, timeout: Option<u32>) -> Result<i32, CliError> {
+    let client = ctx.connect().await?;
+    if !ctx.json {
+        eprintln!("fetching metadata (this needs peers; Ctrl-C to cancel)...");
+    }
+    let p = client.preview_magnet(magnet, timeout).await?;
+    if ctx.json {
+        super::print_json(&p)?;
+        return Ok(0);
+    }
+    println!("name:       {}", p.name);
+    println!("info hash:  {}", p.info_hash);
+    println!(
+        "size:       {} in {} file(s)",
+        crate::format::size(p.total_bytes),
+        p.files.len()
+    );
+    println!();
+    print!("{}", crate::format::preview_table(&p.files));
+    Ok(0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

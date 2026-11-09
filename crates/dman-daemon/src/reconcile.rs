@@ -249,6 +249,11 @@ impl Manager {
                 return;
             }
         };
+        if st.dir.as_deref().is_some_and(|d| self.previews.owns_dir(d)) {
+            // A magnet preview (e.g. left behind by a crashed daemon): not a job.
+            let _ = client.force_remove(&g).await;
+            return;
+        }
         let Some(status) = st.status else { return };
         if status == DownloadStatus::Waiting && pause_gid(client, &g).await.is_err() {
             return;

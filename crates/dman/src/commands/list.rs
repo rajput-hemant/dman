@@ -92,16 +92,19 @@ async fn watch(ctx: &Ctx, client: &Client, states: &[JobState]) -> Result<i32, C
 
 pub async fn get(ctx: &Ctx, id: JobId, files: bool, peers: bool) -> Result<i32, CliError> {
     let client = ctx.connect().await?;
-    if !files && !peers && !ctx.json {
-        print!("{}", details(&client.get(id).await?));
-        return Ok(0);
-    }
     let d = client.detail(id).await?;
     if ctx.json {
         print_json(&d)?;
         return Ok(0);
     }
     print!("{}", details(&d.job));
+    if !d.renames.is_empty() {
+        println!();
+        println!("renames:");
+        for r in &d.renames {
+            println!("  {} -> {}  (at {})", r.from, r.to, r.at);
+        }
+    }
     if files {
         println!();
         if d.files.is_empty() {

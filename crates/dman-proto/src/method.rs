@@ -18,6 +18,8 @@ pub const JOBS_REMOVE: &str = "jobs.remove";
 pub const JOBS_PURGE: &str = "jobs.purge";
 pub const JOBS_REORDER: &str = "jobs.reorder";
 pub const JOBS_SET_OPTIONS: &str = "jobs.set_options";
+pub const JOBS_RENAME: &str = "jobs.rename";
+pub const JOBS_PREVIEW_MAGNET: &str = "jobs.preview_magnet";
 pub const QUEUE_PAUSE_ALL: &str = "queue.pause_all";
 pub const QUEUE_RESUME_ALL: &str = "queue.resume_all";
 pub const LIMITS_GET: &str = "limits.get";
@@ -103,6 +105,48 @@ pub struct ReorderParams {
 pub struct SetOptionsParams {
     pub id: JobId,
     pub options: JobOptions,
+}
+
+/// `jobs.rename`. Waiting/paused jobs get a new output name (applied by the
+/// engine when the download starts); completed jobs are moved on disk and the
+/// rename is recorded. Active transfers are refused.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RenameParams {
+    pub id: JobId,
+    /// New file name (or, for completed multi-file torrents without
+    /// `file_index`, new top-level directory name). A plain name: no `/`, no `..`.
+    pub name: String,
+    /// 1-based file to rename in a multi-file job; required while the job has
+    /// not completed and has several files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file_index: Option<u32>,
+}
+
+/// `jobs.preview_magnet`: fetch a magnet's metadata (file list) without
+/// starting a download.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PreviewMagnetParams {
+    pub uri: String,
+    /// Reserved; the metadata is always fetched into a dman-private directory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dir: Option<String>,
+    /// Give up after this many seconds (default 120, at most 600).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u32>,
+}
+
+/// Result of `jobs.preview_magnet`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MagnetPreview {
+    /// Lower-case hex info hash.
+    pub info_hash: String,
+    pub name: String,
+    pub total_bytes: u64,
+    /// Files in torrent order; `index` is 1-based, all `selected`.
+    pub files: Vec<crate::FileInfo>,
+    /// The `.torrent` file, base64. Pass it to `jobs.add` as
+    /// `AddSource::Torrent` together with `select_files`.
+    pub torrent_base64: String,
 }
 
 /// Per-item outcome of batch operations such as pause/resume/remove.
@@ -229,6 +273,16 @@ mod tests {
         assert_eq!(v, serde_json::json!({"how":"by","value":-2}));
         let v = serde_json::to_value(Reorder::Top).unwrap();
         assert_eq!(v, serde_json::json!({"how":"top"}));
+    }
+
+    #[test]
+    fn rename_and_preview_wire_format() {
+        let r: RenameParams = serde_json::from_str(r#"{"id":3,"name":"x"}"#).unwrap();
+        assert_eq!(r.file_index, None);
+        let v = serde_json::to_value(&r).unwrap();
+        assert!(v.get("file_index").is_none());
+        let p: PreviewMagnetParams = serde_json::from_str(r#"{"uri":"magnet:?xt=a"}"#).unwrap();
+        assert_eq!((p.dir, p.timeout_secs), (None, None));
     }
 
     #[test]

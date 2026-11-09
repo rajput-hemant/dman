@@ -31,6 +31,12 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Command::Get { id, files, peers } => {
             list::get(&Ctx::load(&cli)?, *id, *files, *peers).await
         }
+        Command::Rename { id, name, file } => {
+            control::rename(&Ctx::load(&cli)?, *id, name, *file).await
+        }
+        Command::Preview { magnet, timeout } => {
+            add::preview(&Ctx::load(&cli)?, magnet, *timeout).await
+        }
         Command::Pause(a) => control::pause(&Ctx::load(&cli)?, a).await,
         Command::Resume(a) => control::resume(&Ctx::load(&cli)?, a).await,
         Command::Remove(a) => control::remove(&Ctx::load(&cli)?, a).await,

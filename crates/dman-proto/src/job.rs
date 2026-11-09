@@ -327,6 +327,20 @@ pub struct JobDetail {
     /// Oldest first; only kept while the job runs, not persisted.
     #[serde(default)]
     pub speed_history: Vec<SpeedSample>,
+    /// Renames of the completed output on disk, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub renames: Vec<RenameEntry>,
+}
+
+/// One recorded rename of a completed job's output (`jobs.detail`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RenameEntry {
+    /// Previous path (relative to the job directory).
+    pub from: String,
+    /// New path (relative to the job directory).
+    pub to: String,
+    /// Unix seconds.
+    pub at: i64,
 }
 
 /// Aggregate figures shown in status lines and `dman stats`.
@@ -462,6 +476,11 @@ mod tests {
                 t: 1,
                 down: 2,
                 up: 3,
+            }],
+            renames: vec![RenameEntry {
+                from: "a".into(),
+                to: "b".into(),
+                at: 5,
             }],
         };
         let v = serde_json::to_value(&d).unwrap();

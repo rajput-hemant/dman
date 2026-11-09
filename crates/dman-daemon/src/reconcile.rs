@@ -159,6 +159,8 @@ impl Manager {
         let mut opts = job_options_to_aria2(&rec.options).map_err(|e| e.to_string())?;
         opts.set("dir", rec.dir.clone());
         opts.set("pause", "true");
+        // Jobs stored without explicit seed settings follow the current default.
+        crate::manager::seeding::apply_policy(&mut opts, &rec.options, &self.torrents, rec.kind);
         if rec.completed_at.is_some()
             && matches!(rec.kind, SourceKind::Torrent | SourceKind::Magnet)
         {

@@ -348,6 +348,17 @@ on = ["completed", "failed", "seed_completed"]
 # timeout_secs = 60
 
 [torrents]
+# Seeding is OFF by default: a torrent is complete as soon as it has downloaded.
+# Set seed = true to keep seeding until the ratio or time below is reached. A
+# single download can override this (and giving one a seed ratio/time turns
+# seeding on for it).
+# seed = true
+# Stop seeding at this upload/download ratio (0 = no ratio limit); used only
+# when seeding is on.
+# seed_ratio = 1.0
+# Stop seeding after this many minutes (0 = no time limit); used only when
+# seeding is on.
+# seed_time_minutes = 0
 # When a torrent with deselected files completes: "never" (default) or "ask"
 # (dman tells you and asks before deleting their partial files; never automatic).
 remove_unselected = "never"

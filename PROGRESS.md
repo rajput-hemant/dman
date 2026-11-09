@@ -106,7 +106,7 @@ commit this file together with the code it describes.
 ### UX pass (requested by the user, 2026-11-09)
 - [ ] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
 - [ ] CLI: dynamic completions (job IDs, providers, profiles), `dman completions install`, help examples, SIGPIPE-safe output
-- [ ] Seeding OFF by default (`[torrents] seed = false`; per-job `seed` override; setting a seed ratio/time on a job implies seeding)
+- [x] Seeding OFF by default (`[torrents] seed = false`; per-job `seed` override; setting a seed ratio/time on a job implies seeding)
 - [ ] Web UI overhaul: paste-to-add + drag & drop, cards with progress bars, compact filters, bulk actions, one-click download from search, magnet file picker, folder picker, live detail, grouped settings, toasts, accessible responsive design
 
 ### M8 — Remote and release (11 %)

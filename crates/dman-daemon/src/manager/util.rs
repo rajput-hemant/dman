@@ -97,6 +97,7 @@ pub(super) fn merge_options(base: &JobOptions, new: &JobOptions) -> JobOptions {
         max_download_limit,
         max_upload_limit,
         select_files,
+        seed,
         seed_ratio,
         seed_time,
         sequential,

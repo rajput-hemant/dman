@@ -233,6 +233,9 @@ impl Manager {
             .await?;
         }
 
+        let mut aopts = aopts.clone();
+        super::seeding::apply_policy(&mut aopts, options, &self.torrents, kind);
+        let aopts = &aopts;
         let added = match (kind, &blob) {
             (SourceKind::Torrent, Some(b)) => client
                 .add_torrent(b, &[], aopts, None)

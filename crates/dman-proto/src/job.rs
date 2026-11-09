@@ -167,6 +167,10 @@ pub struct JobOptions {
     /// Per-file output names keyed by 1-based index.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub file_names: BTreeMap<u32, String>,
+    /// Explicit seeding switch. `None` follows `[torrents] seed`, except that a
+    /// positive `seed_ratio` / `seed_time` on the job implies seeding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed_ratio: Option<f64>,
     /// Minutes.

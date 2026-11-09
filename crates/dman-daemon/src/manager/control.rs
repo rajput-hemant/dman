@@ -192,7 +192,18 @@ impl Manager {
         }
         let merged = merge_options(&e.rec.options, &delta);
         job_options_to_aria2(&merged).map_err(|e| RpcError::invalid(e.to_string()))?;
-        let changes = job_options_to_aria2(&delta).map_err(|e| RpcError::invalid(e.to_string()))?;
+        let mut changes =
+            job_options_to_aria2(&delta).map_err(|e| RpcError::invalid(e.to_string()))?;
+        let kind = e.rec.kind;
+        if super::seeding::seeds(&e.rec.options, &self.torrents)
+            != super::seeding::seeds(&merged, &self.torrents)
+            || delta.seed_ratio.is_some()
+            || delta.seed_time.is_some()
+        {
+            // Switching seeding on/off (or its limits) reaches aria2 too; a seeding
+            // job that no longer seeds is stopped by the next poll.
+            super::seeding::apply_policy(&mut changes, &merged, &self.torrents, kind);
+        }
         let active =
             e.running_in_engine() || matches!(e.rec.state, JobState::Active | JobState::Seeding);
         if active && let Some(k) = changes.0.keys().find(|k| requires_pause(k)) {

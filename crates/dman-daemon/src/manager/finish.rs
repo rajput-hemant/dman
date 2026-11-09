@@ -44,6 +44,11 @@ pub(crate) fn mark_completed(rec: &mut JobRecord) {
     mark(rec, "completed");
 }
 
+/// Records that no `SeedCompleted` is wanted (seeding was switched off).
+pub(crate) fn mark_seed_completed(rec: &mut JobRecord) {
+    mark(rec, "seed_completed");
+}
+
 /// A retry of a failed job may fail (and be announced) again.
 pub(crate) fn clear_failed(rec: &mut JobRecord) {
     unmark(rec, "failed");

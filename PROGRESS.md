@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 5 %** · Current milestone: **M1 — foundation** · Last updated: 2026-11-09
+**Overall: 20 %** · Current milestone: **M2 — TUI core** · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -9,15 +9,17 @@ commit this file together with the code it describes.
 
 - Local repository only (no remote yet). Toolchain: Rust 1.97 stable, musl target.
 - Engines available in the dev container: aria2c 1.37.0, yt-dlp 2026.10.26, ffmpeg.
-- Done: proto, config, aria2 RPC client, API client. Next: aria2 supervisor/options, store, daemon, CLI.
+- M1 done: daemon (aria2 supervisor, dman-owned queue, disk guard, reconcile after restart, redb store, WS API with token auth) + CLI (add/list/get/pause/resume/remove/purge/reorder/limit/stats/daemon …). Verified end to end with the real binary.
+- Dev quick start: `cargo build -p dman`, then `DMAN_CONFIG_DIR=/tmp/x target/debug/dman daemon gen-config` (edit listen/rpc_port/download_dir), `dman daemon start`, `dman add <url>`, `dman list`.
+- Real-engine tests: `DMAN_TEST_ARIA2=1 cargo test --workspace -- --include-ignored --test-threads=1`.
 
 ## Milestones and weights (sum = 100 %)
 
 | Milestone | Weight | Status |
 | --- | --- | --- |
 | M0 Spikes (de-risk aria2/yt-dlp behaviour, size baseline) | 5 | done |
-| M1 Foundation (workspace, proto, config, aria2 client, daemon lifecycle, API, basic CLI) | 15 | in progress |
-| M2 TUI core (loop, keymap, palette, downloads view, add view, confirmations) | 12 | — |
+| M1 Foundation (workspace, proto, config, aria2 client, daemon lifecycle, API, basic CLI) | 15 | done |
+| M2 TUI core (loop, keymap, palette, downloads view, add view, confirmations) | 12 | in progress |
 | M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | — |
 | M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | — |
 | M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | — |
@@ -39,13 +41,29 @@ commit this file together with the code it describes.
 - [x] `dman-aria2`: typed JSON-RPC/WebSocket client, notifications, multicall
 - [x] `dman-aria2` supervisor + adapter: JobOptions→aria2 option mapping, capability detection (getVersion features), spawn/attach, port probe, generated aria2 config, restart with backoff, clean shutdown
 - [x] `dman-store` (redb, pulled forward from M4 because the store is authoritative): jobs, blobs (.torrent), meta counters
-- [ ] `dman-daemon` skeleton: job manager (GID↔JobId), tick poller + deltas, event bus, API server (JSON-RPC over WS + POST), token auth
+- [x] `dman-daemon` skeleton: job manager (GID↔JobId), tick poller + deltas, event bus, API server (JSON-RPC over WS + POST), token auth
 - [x] `dman-client`: WebSocket JSON-RPC client, hello/auth, typed methods, subscribe, ReconnectingClient (no queued actions)
-- [ ] CLI (`dman` binary): `daemon start|stop|restart|status|run|gen-config`, `add`, `list`, `get`, `pause`, `resume`, `remove`, `purge`, `--json`, exit codes
+- [x] CLI (`dman` binary): `daemon start|stop|restart|status|run|gen-config`, `add`, `list`, `get`, `pause`, `resume`, `remove`, `purge`, `--json`, exit codes
 
-### M2 … M8
-Detailed task lists are written when the previous milestone finishes (see the milestone
-table above and decisions below for scope).
+### M2 — TUI core (12 %)
+- [ ] `dman-tui` crate skeleton: Elm-style App (state/msg/update/view), terminal setup/restore (panic-safe), event loop merging crossterm input + ReconnectingClient events + ticks, render only when dirty (≤ 20 fps)
+- [ ] Keymap system: Action enum, per-view contexts, vim + arrow defaults, config overrides (crokey), help screen (`?`), contextual footer; test: every Action has a binding and a palette entry
+- [ ] Downloads view: table (name, status, progress, speed, ETA, sizes, peers/seeds, ratio, dir, source), sort keys, fuzzy filter (nucleo-matcher), multi-select, paged stopped section, global status line (speeds, counts, last result/error, disk free)
+- [ ] Command palette (fuzzy, every operation) + confirmation dialogs (double confirm for delete-files)
+- [ ] Add view: text input (tui-input, bracketed paste), multiple links, file browser for .torrent/.metalink starting at cwd, clipboard (arboard), per-add options form, preview before confirm
+- [ ] Disconnected state (greyed, actions disabled), engine-unavailable banner, theme + NO_COLOR, optional mouse
+- [ ] Wire bare `dman` to start/attach the daemon and open the TUI; insta snapshot tests at 80×24 and 120×40
+
+### M3 … M8
+Detailed task lists are written when the previous milestone finishes.
+
+### Follow-ups noted during M1
+- Split `crates/dman-daemon/src/manager.rs` (~2000 lines) into smaller modules.
+- `AddOutcome::Added` carries one id; metalinks that create several jobs report only the first → extend proto (`ids`).
+- `limits.set` is runtime-only; persist to config via ConfigDoc (M3 settings work).
+- If aria2c is missing at daemon start, the daemon never retries; add an `engine.restart` method / retry when the binary appears (M3).
+- Magnet follow-up, seeding, metalink and adoption paths are not yet tested against real aria2 (needs local tracker + seeder fixture from spikes/aria2/lib.py idea) — add in M4.
+- cargo-deny config (M8).
 
 ## Confirmed decisions (do not re-ask)
 
@@ -139,4 +157,4 @@ scraper 0.29 · quick-xml 0.42 · redb 4.5 · notify-rust 4.19 · insta · asser
 
 ## Session log
 
-- 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 started.
+- 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 done; M1 done (135 tests).

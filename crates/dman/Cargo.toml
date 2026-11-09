@@ -1,0 +1,39 @@
+[package]
+name = "dman"
+description = "dman: terminal download manager (CLI, TUI and daemon launcher)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "dman"
+path = "src/main.rs"
+
+[dependencies]
+dman-proto.workspace = true
+dman-client.workspace = true
+dman-config.workspace = true
+dman-daemon.workspace = true
+clap = { version = "4.6", default-features = false, features = ["std", "derive", "env", "help", "usage", "color", "suggestions", "error-context"] }
+clap_complete = "4.6"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time", "process", "io-std", "io-util"] }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+secrecy.workspace = true
+url.workspace = true
+bytesize.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+base64 = "0.22"
+nix = { version = "0.31", default-features = false, features = ["process"] }
+
+[dev-dependencies]
+assert_cmd = "2.2"
+predicates = "3"
+tempfile = "3"
+
+[lints]
+workspace = true

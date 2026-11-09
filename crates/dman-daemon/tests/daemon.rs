@@ -388,6 +388,36 @@ async fn engine_restart_without_binary_keeps_serving() {
     d.stop(&c).await;
 }
 
+/// A client that subscribes after the daemon started still learns which engines
+/// are available (engine events are otherwise only sent on changes).
+#[tokio::test(flavor = "multi_thread")]
+async fn subscribe_sends_engine_status_after_snapshot() {
+    let root = tempfile::tempdir().unwrap();
+    let cfg = config(
+        root.path(),
+        "/nonexistent/aria2c",
+        DiskThreshold::Absolute(0),
+    );
+    let d = Daemon::start(root.path(), cfg).await;
+    // Let any startup engine events pass before this client subscribes.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let c = d.client().await;
+    let expected = c.engine_status().await.unwrap();
+    let mut events = c.subscribe().await.unwrap();
+    let first = wait_event(&mut events, 5, |_| true).await;
+    assert!(matches!(first, Some(Event::Snapshot { .. })), "{first:?}");
+    let mut seen = Vec::new();
+    for _ in 0..expected.len() {
+        match wait_event(&mut events, 5, |e| matches!(e, Event::Engine { .. })).await {
+            Some(Event::Engine { status }) => seen.push(status.engine),
+            other => panic!("expected an engine event, got {other:?}"),
+        }
+    }
+    let want: Vec<_> = expected.iter().map(|s| s.engine).collect();
+    assert_eq!(seen, want);
+    d.stop(&c).await;
+}
+
 /// Full lifecycle against a real aria2c.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs aria2c; run with DMAN_TEST_ARIA2=1 and --include-ignored"]

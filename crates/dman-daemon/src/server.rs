@@ -211,6 +211,20 @@ async fn snapshot(manager: &ManagerHandle) -> Option<String> {
     notification(&e)
 }
 
+/// The current status of every engine, as `Event::Engine` notifications.
+async fn engine_events(manager: &ManagerHandle) -> Vec<String> {
+    let Ok(v) = manager.call(Request::EngineStatus).await else {
+        return Vec::new();
+    };
+    let Ok(statuses) = serde_json::from_value::<Vec<dman_proto::method::EngineStatus>>(v) else {
+        return Vec::new();
+    };
+    statuses
+        .into_iter()
+        .filter_map(|status| notification(&Event::Engine { status }))
+        .collect()
+}
+
 /// Forwards broadcast events to one subscriber; on lag sends a new snapshot.
 async fn forward(
     mut rx: broadcast::Receiver<Event>,
@@ -332,6 +346,11 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
                     reply(Response::ok(id, Value::Null)).await;
                     if let Some(s) = snapshot(&state.manager).await {
                         let _ = out_tx.send(s).await;
+                    }
+                    // Engine events are only broadcast on changes, so a client that
+                    // connects later would never learn which engines are available.
+                    for frame in engine_events(&state.manager).await {
+                        let _ = out_tx.send(frame).await;
                     }
                     forwarder = Some(tokio::spawn(forward(
                         rx,

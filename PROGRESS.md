@@ -30,7 +30,7 @@ commit this file together with the code it describes.
 ### M0 — spikes (5 %)
 - [ ] aria2 behaviour spike: changeOption `out`/`index-out`/`bt-tracker` on paused items; magnet metadata-only → re-add with `select-file`; `bt-detach-seed-only`; session restore of paused items; upload counters after restart
 - [x] yt-dlp spike: `--progress-template` JSON lines, kill + `--continue` resume, format choice without ffmpeg
-- [ ] Size baseline: ratatui + axum + reqwest(rustls/ring) + scraper + redb on musl, stripped
+- [x] Size baseline: ratatui + axum + reqwest(rustls/ring) + scraper + redb on musl, stripped
 
 ### M1 — foundation (15 %)
 - [x] Workspace skeleton, lints, release profile, check script (`scripts/check.sh`) — cargo-deny config still to add in M8
@@ -107,6 +107,17 @@ scraper 0.29 · quick-xml 0.42 · redb 4.5 · notify-rust 4.19 · insta · asser
 - Exit codes: 0 ok, 1 on any failure (404, refused).
 - dman must detect ffmpeg itself: use `bv*+ba/b` only with ffmpeg; without it use `b`, and treat exit 0 with `.fN.` split files as "separate streams" (offered explicitly, D-fallback), never silently.
 - Download template: `yt-dlp --newline --no-colors --no-playlist --continue --part [--limit-rate N] -f SEL -o DIR/TEMPLATE --print-to-file after_move:filepath DIR/.dman-ID.final --progress-template "download:%(progress)j" -- URL`.
+
+### Size baseline — done
+- Stripped binary using ratatui, axum(ws), reqwest, rustls/ring, scraper, redb, quick-xml, clap, tokio-tungstenite:
+  gnu O3 5.4 MB · musl O3 5.5 MB · musl opt-level "s" 4.4 MB (trivial usage; real app will be larger).
+- Largest contributors (.text): std, redb 563 KiB, rustls 383 KiB, ring 273 KiB, clap 190 KiB, html5ever 125 KiB.
+- reqwest 0.13 has no ring feature: use `default-features = false, features = ["rustls-no-provider", ...]` plus
+  `rustls = { default-features = false, features = ["ring","std","tls12","logging"] }` and call
+  `rustls::crypto::ring::default_provider().install_default()` at startup (else reqwest panics). aws-lc-rs absent.
+- tokio-tungstenite with default-features off needs `connect` (+ `handshake`). axum 0.8.9 pulls tungstenite 0.29 —
+  align our direct tokio-tungstenite version with axum's to avoid two copies (do when adding axum).
+- musl builds need `musl-tools` (apt) and `CC_x86_64_unknown_linux_musl=musl-gcc` (ring's C code).
 
 ## Session log
 

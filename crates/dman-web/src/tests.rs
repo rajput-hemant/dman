@@ -60,6 +60,7 @@ impl Fake {
             jobs: vec![
                 job(1, "ubuntu.iso", JobState::Active, 250),
                 job(2, EVIL, JobState::Paused, 0),
+                job(3, "gone.bin", JobState::Removed, 1000),
             ],
             video,
         })
@@ -98,7 +99,10 @@ impl Backend for Fake {
                 }
                 "jobs.detail" if params["id"] != 1 => Err(RpcError::not_found("job")),
                 "jobs.detail" => ok(JobDetail {
-                    job: jobs[0].clone(),
+                    job: Job {
+                        kind: SourceKind::Magnet,
+                        ..jobs[0].clone()
+                    },
                     files: vec![FileInfo {
                         index: 1,
                         path: "a/b.bin".into(),
@@ -139,6 +143,28 @@ impl Backend for Fake {
                     id: JobId(99),
                     extra_ids: vec![],
                 }]),
+                "jobs.preview_magnet" => ok(json!({
+                    "info_hash": "ab",
+                    "name": "Big <b>Pack</b>",
+                    "total_bytes": 30,
+                    "files": [
+                        {"index":1,"path":"a.mkv","length":10,"completed":0,"selected":true},
+                        {"index":2,"path":EVIL,"length":20,"completed":0,"selected":true}
+                    ],
+                    "torrent_base64": "ZDQ6aW5mb2U="
+                })),
+                "fs.list" if params["path"] == "/nope" => {
+                    Err(RpcError::not_found("no such folder"))
+                }
+                "fs.list" => ok(json!({
+                    "path": params["path"].as_str().unwrap_or("/data"),
+                    "parent": "/",
+                    "entries": [
+                        {"name":"movies","is_dir":true},
+                        {"name":EVIL,"is_dir":true},
+                        {"name":"file.txt","is_dir":false,"size":3}
+                    ]
+                })),
                 "jobs.pause" | "jobs.resume" | "jobs.remove" | "jobs.purge" => ok(BatchResult {
                     ok: vec![JobId(1)],
                     failed: vec![],
@@ -408,7 +434,7 @@ async fn cross_origin_and_tokenless_posts_are_refused() {
         send(&app, post_form("/queue/pause-all", &token, ""))
             .await
             .status,
-        StatusCode::OK
+        StatusCode::SEE_OTHER
     );
     let field = Request::post("/search/history/clear")
         .header(header::HOST, "localhost")
@@ -466,7 +492,8 @@ async fn downloads_page_lists_jobs_and_escapes_titles() {
     assert_eq!(r.status, StatusCode::OK);
     assert!(r.body.contains("ubuntu.iso"));
     assert!(r.body.contains("25.0%"));
-    assert!(r.body.contains("Active (1)") && r.body.contains("Paused (1)"));
+    assert!(r.body.contains("id=\"job-1\"") && r.body.contains("id=\"job-2\""));
+    assert!(r.body.contains(">Downloading<") && r.body.contains(">Paused<"));
     assert!(!r.body.contains(EVIL), "raw script tag leaked");
     assert!(r.body.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
     // Filter and sort via the table fragment.
@@ -494,12 +521,17 @@ async fn actions_call_the_backend() {
     let fake = Fake::new(true);
     let app = app_with(&fake, None, "/");
     let t = csrf(&app).await;
-    let mut hx = post_form("/jobs/1/pause", &t, "");
+    let mut hx = post_form("/jobs/1/pause", &t, "q=ubuntu");
     hx.headers_mut()
         .insert("hx-request", "true".parse().unwrap());
+    hx.headers_mut()
+        .insert("hx-target", "jobs".parse().unwrap());
     let r = send(&app, hx).await;
     assert_eq!(r.status, StatusCode::OK);
-    assert!(r.body.contains("<tr id=\"job-1\""));
+    // The table comes back with the filter applied, plus a toast out of band.
+    assert!(r.body.contains("id=\"jobs\"") && r.body.contains("id=\"job-1\""));
+    assert!(!r.body.contains("id=\"job-2\""), "filter kept");
+    assert!(r.body.contains("hx-swap-oob") && r.body.contains("Paused \u{201c}ubuntu.iso\u{201d}"));
     assert_eq!(fake.calls("jobs.pause"), vec![json!({"ids":[1]})]);
 
     send(&app, post_form("/jobs/2/resume", &t, "")).await;
@@ -550,51 +582,56 @@ async fn actions_call_the_backend() {
 }
 
 #[tokio::test]
-async fn remove_requires_checkbox_and_typed_delete_for_files() {
+async fn deleting_files_needs_the_explicit_flag_of_the_confirmation() {
     let fake = Fake::new(true);
     let app = app_with(&fake, None, "/");
     let t = csrf(&app).await;
+    // The plain remove confirmation never carries the delete flag ...
     let r = send(&app, get("/jobs/1/remove")).await;
-    assert!(r.body.contains("name=\"delete_files\"") && r.body.contains("name=\"confirm\""));
-
-    // Plain removal keeps the files.
-    let r = send(&app, post_form("/jobs/1/remove", &t, "")).await;
-    assert_eq!(r.status, StatusCode::SEE_OTHER);
-    assert_eq!(
-        fake.calls("jobs.remove"),
-        vec![json!({"ids":[1],"delete_files":false,"force":false})]
+    assert!(r.body.contains("from the list?") && r.body.contains("stay on disk"));
+    assert!(!r.body.contains("name=\"delete_files\""));
+    // ... the "Delete files" confirmation does, once, with no extra checkbox or word.
+    let r = send(&app, get("/jobs/1/remove?delete=1")).await;
+    assert!(r.body.contains("permanently delete the files of"));
+    assert!(r.body.contains("name=\"delete_files\" value=\"true\""));
+    assert!(
+        !r.body.contains("name=\"confirm\"")
+            && !r.body.contains("type=\"checkbox\" name=\"delete_files\"")
     );
-    // Checkbox alone, wrong word, or the word alone: nothing happens or files stay.
+
+    // Plain removal keeps the files, whatever else is sent.
     for form in [
+        "",
+        "confirm=DELETE",
         "delete_files=1",
-        "delete_files=1&confirm=delete",
-        "delete_files=1&confirm=",
-        "delete_files=on&confirm=DELETE%20ALL",
+        "delete_files=on&confirm=DELETE",
     ] {
         let r = send(&app, post_form("/jobs/1/remove", &t, form)).await;
-        assert_eq!(r.status, StatusCode::BAD_REQUEST, "{form}");
+        assert_eq!(r.status, StatusCode::SEE_OTHER, "{form}");
+        assert_eq!(r.headers[header::LOCATION], "/?done=removed", "{form}");
     }
-    assert_eq!(
-        fake.calls("jobs.remove").len(),
-        1,
-        "refused requests must not reach the daemon"
-    );
-    let r = send(&app, post_form("/jobs/1/remove", &t, "confirm=DELETE")).await;
-    assert_eq!(r.status, StatusCode::SEE_OTHER);
-    assert_eq!(fake.calls("jobs.remove")[1]["delete_files"], false);
-    // Both together delete.
-    let r = send(
-        &app,
-        post_form("/jobs/1/remove", &t, "delete_files=1&confirm=DELETE"),
-    )
-    .await;
-    assert_eq!(r.status, StatusCode::SEE_OTHER);
     let calls = fake.calls("jobs.remove");
-    assert_eq!(calls.len(), 3);
+    assert_eq!(calls.len(), 4);
+    assert!(calls.iter().all(|c| c["delete_files"] == false));
     assert_eq!(
-        calls[2],
+        calls[0],
+        json!({"ids":[1],"delete_files":false,"force":false})
+    );
+    // Only the confirmation's explicit flag deletes.
+    let r = send(&app, post_form("/jobs/1/remove", &t, "delete_files=true")).await;
+    assert_eq!(r.headers[header::LOCATION], "/?done=removed-files");
+    assert_eq!(
+        fake.calls("jobs.remove")[4],
         json!({"ids":[1],"delete_files":true,"force":false})
     );
+    // Still CSRF-protected.
+    let r = send(
+        &app,
+        post_form("/jobs/1/remove", "forged", "delete_files=true"),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    assert_eq!(fake.calls("jobs.remove").len(), 5);
 }
 
 #[tokio::test]
@@ -604,8 +641,8 @@ async fn add_posts_one_source_per_line() {
     let t = csrf(&app).await;
     let form = "uris=magnet%3A%3Fxt%3Durn%3Abtih%3Aabc%0D%0Ahttps%3A%2F%2Fe.org%2Fa.iso&paused=1&dir=%2Fsrv";
     let r = send(&app, post_form("/add", &t, form)).await;
-    assert_eq!(r.status, StatusCode::OK);
-    assert!(r.body.contains("Added 1 download"));
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    assert_eq!(r.headers[header::LOCATION], "/?added=99");
     assert_eq!(
         fake.calls("jobs.add"),
         vec![json!({
@@ -708,10 +745,10 @@ async fn video_options_follow_engine_status() {
     let r = send(&app, get("/add")).await;
     assert_eq!(r.status, StatusCode::OK);
     assert!(r.body.contains("name=\"uris\""));
-    assert!(!r.body.contains("video_url") && !r.body.contains("Quality"));
+    assert!(!r.body.contains("as_video") && !r.body.contains("Quality"));
     let app = app_with(&Fake::new(true), None, "/");
     let r = send(&app, get("/add")).await;
-    assert!(r.body.contains("name=\"video_url\"") && r.body.contains("Quality"));
+    assert!(r.body.contains("name=\"as_video\"") && r.body.contains("Quality"));
 }
 
 #[tokio::test]
@@ -735,7 +772,8 @@ async fn search_start_and_add_from_results() {
         post_form("/search/add", &t, "magnet=magnet%3A%3Fxt%3Dabc"),
     )
     .await;
-    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    assert_eq!(r.headers[header::LOCATION], "/?added=99");
     assert_eq!(
         fake.calls("jobs.add")[0]["sources"][0],
         json!({"type":"uris","uris":["magnet:?xt=abc"]})
@@ -785,7 +823,8 @@ async fn sse_pushes_changed_rows_and_layout_changes() {
         })
         .unwrap();
     let seen = next_frame_containing(&mut stream, "55.5%").await;
-    assert!(seen.contains("event: job-1") && seen.contains("<tr id=\"job-1\""));
+    assert!(seen.contains("event: job-1") && seen.contains("id=\"live-1\""));
+    assert!(seen.contains("<progress id=\"pb-1\""));
     assert!(!seen.contains("jobs-changed"));
 
     // A new job changes the layout: the table is told to reload.
@@ -870,7 +909,16 @@ async fn csp_and_security_headers_present() {
     }
     // Pages never carry inline scripts or style attributes.
     let app = app_with(&Fake::new(true), None, "/");
-    for uri in ["/", "/add", "/search", "/settings", "/jobs/1"] {
+    for uri in [
+        "/",
+        "/?removed=1",
+        "/add",
+        "/search",
+        "/settings",
+        "/jobs/1",
+        "/jobs/1/remove",
+        "/fs",
+    ] {
         let r = send(&app, get(uri)).await;
         assert_eq!(r.status, StatusCode::OK, "{uri}");
         assert!(
@@ -918,6 +966,14 @@ fn embedded_asset_sizes() {
     assert_eq!(total, crate::embedded_asset_bytes());
     assert!(list.iter().any(|(n, _)| n == "htmx.min.js"));
     assert!(total < 150_000, "assets grew to {total} bytes");
+    // Our own stylesheet and script stay small (htmx and its SSE extension excluded).
+    let own: usize = list
+        .iter()
+        .filter(|(n, _)| n == "app.css" || n == "app.js")
+        .map(|(_, s)| s)
+        .sum();
+    println!("app.css + app.js: {own} bytes");
+    assert!(own < 25_000, "app.css + app.js grew to {own} bytes");
 }
 
 #[tokio::test]
@@ -940,7 +996,7 @@ async fn add_accepts_a_download_limit() {
         ),
     )
     .await;
-    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
     assert_eq!(
         fake.calls("jobs.add")[0]["options"],
         json!({"max_download_limit": 512_000})
@@ -955,6 +1011,8 @@ async fn add_accepts_a_download_limit() {
     )
     .await;
     assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    // The form comes back with the value kept and the error next to the field.
+    assert!(r.body.contains("is not a speed") && r.body.contains("value=\"fast\""));
     assert_eq!(fake.calls("jobs.add").len(), 1);
 }
 
@@ -962,5 +1020,373 @@ async fn add_accepts_a_download_limit() {
 async fn search_page_explains_when_no_provider_is_enabled() {
     let app = app_with(&Fake::new(false), None, "/");
     let r = send(&app, get("/search")).await;
-    assert!(r.body.contains("No search providers are enabled"));
+    assert!(r.body.contains("Turn on a search provider first"));
+}
+
+fn hx(mut r: Request<Body>, target: &str) -> Request<Body> {
+    r.headers_mut()
+        .insert("hx-request", "true".parse().unwrap());
+    if !target.is_empty() {
+        r.headers_mut().insert("hx-target", target.parse().unwrap());
+    }
+    r
+}
+
+#[tokio::test]
+async fn removed_jobs_are_hidden_with_a_toggle_and_can_be_cleared() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let r = send(&app, get("/")).await;
+    assert!(
+        !r.body.contains("gone.bin"),
+        "removed job listed by default"
+    );
+    assert!(r.body.contains("Show removed (1)"));
+    assert!(r.body.contains("Clear removed"));
+    let r = send(&app, get("/downloads/table?removed=1")).await;
+    assert!(r.body.contains("gone.bin") && r.body.contains("Hide removed"));
+    let t = csrf(&app).await;
+    let r = send(&app, hx(post_form("/jobs/clear-removed", &t, ""), "jobs")).await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(fake.calls("jobs.purge"), vec![json!({"ids":[3]})]);
+    assert!(r.body.contains("Cleared 1 removed download from the list"));
+}
+
+#[tokio::test]
+async fn remove_and_delete_are_distinct_and_say_what_happened() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let page = send(&app, get("/")).await.body;
+    assert!(page.contains("Remove from list\u{2026}") && page.contains("Delete files\u{2026}"));
+    let r = send(&app, hx(get("/jobs/1/remove"), "modal-body")).await;
+    assert!(!r.body.contains("<html"), "modal gets a fragment");
+    assert!(r.body.contains(">Remove from list<") && r.body.contains(">Cancel<"));
+    let r = send(&app, hx(get("/jobs/1/remove?delete=1"), "modal-body")).await;
+    assert!(r.body.contains("btn danger") && r.body.contains(">Delete files<"));
+
+    let r = send(&app, hx(post_form("/jobs/1/remove", &t, ""), "")).await;
+    assert!(
+        r.body
+            .contains("Removed \u{201c}ubuntu.iso\u{201d} (files kept)."),
+        "{}",
+        r.body
+    );
+    assert_eq!(r.headers["hx-trigger"], "dman-close, dman-clear-sel");
+    let r = send(
+        &app,
+        hx(post_form("/jobs/1/remove", &t, "delete_files=true"), ""),
+    )
+    .await;
+    assert!(
+        r.body
+            .contains("Removed \u{201c}ubuntu.iso\u{201d} and deleted its files.")
+    );
+    assert_eq!(fake.calls("jobs.remove")[1]["delete_files"], true);
+
+    // From the detail page the browser goes back to the list with a notice.
+    let r = send(&app, hx(post_form("/jobs/1/remove", &t, "back=detail"), "")).await;
+    assert_eq!(r.headers["hx-redirect"], "/?done=removed");
+    let r = send(&app, get("/?done=removed")).await;
+    assert!(r.body.contains("Removed (files kept on disk)."));
+    let r = send(&app, get("/jobs/1")).await;
+    assert!(r.body.contains("/jobs/1/remove?back=detail&amp;delete=1"));
+}
+
+#[tokio::test]
+async fn bulk_actions_take_the_selected_ids() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let r = send(
+        &app,
+        hx(
+            post_form("/jobs/bulk", &t, "action=pause&ids=1&ids=2"),
+            "jobs",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(fake.calls("jobs.pause"), vec![json!({"ids":[1,2]})]);
+    assert!(r.body.contains("Paused 1 download") || r.body.contains("Paused 2 downloads"));
+    assert_eq!(r.headers["hx-trigger"], "dman-clear-sel");
+    send(&app, post_form("/jobs/bulk", &t, "action=resume&ids=2")).await;
+    assert_eq!(fake.calls("jobs.resume"), vec![json!({"ids":[2]})]);
+    // Nothing ticked: a message, no call.
+    let r = send(
+        &app,
+        hx(post_form("/jobs/bulk", &t, "action=pause"), "jobs"),
+    )
+    .await;
+    assert!(r.body.contains("Tick one or more downloads first"));
+    assert_eq!(fake.calls("jobs.pause").len(), 1);
+    // Bulk remove: confirmation lists the (escaped) names, then removes all.
+    let r = send(&app, hx(get("/jobs/bulk/remove?ids=1&ids=2"), "modal-body")).await;
+    assert!(
+        r.body.contains("Remove 2 downloads from the list?") && r.body.contains("&lt;script&gt;")
+    );
+    assert!(!r.body.contains(EVIL));
+    let r = send(
+        &app,
+        hx(post_form("/jobs/bulk/remove", &t, "ids=1&ids=2"), ""),
+    )
+    .await;
+    assert!(r.body.contains("Removed 2 downloads (files kept)."));
+    assert_eq!(
+        fake.calls("jobs.remove")[0],
+        json!({"ids":[1,2],"delete_files":false,"force":false})
+    );
+}
+
+#[tokio::test]
+async fn paste_box_adds_and_returns_the_highlighted_table() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let page = send(&app, get("/")).await.body;
+    assert!(
+        page.contains("id=\"paste-in\"")
+            && page.contains("Paste a magnet, link or drop a .torrent file")
+    );
+    assert!(page.contains("+ Add download") && page.contains("aria-current=\"page\""));
+    let r = send(
+        &app,
+        hx(
+            post_form(
+                "/add",
+                &t,
+                "from=downloads&uris=https%3A%2F%2Fe.org%2Fa.iso",
+            ),
+            "jobs",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert!(r.body.contains("id=\"jobs\"") && r.body.contains("hx-swap-oob"));
+    assert_eq!(r.headers["x-dman-added"], "99");
+    assert!(
+        r.headers["hx-trigger"]
+            .to_str()
+            .unwrap()
+            .contains("dman-added")
+    );
+    // Not a link: an error toast, nothing sent.
+    let r = send(&app, hx(post_form("/add", &t, "uris=ubuntu"), "jobs")).await;
+    assert!(r.body.contains("is not a link"));
+    assert_eq!(r.headers["hx-retarget"], "#toasts");
+    assert_eq!(fake.calls("jobs.add").len(), 1);
+    // The redirect target highlights the new job and toasts.
+    let r = send(&app, get("/?added=1")).await;
+    assert!(
+        r.body.contains("job st-active fresh")
+            && r.body.contains("Added \u{201c}ubuntu.iso\u{201d}.")
+    );
+}
+
+#[tokio::test]
+async fn seed_checkbox_sets_the_seed_option() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    assert!(send(&app, get("/add")).await.body.contains("name=\"seed\""));
+    send(
+        &app,
+        post_form("/add", &t, "uris=magnet%3A%3Fxt%3Dabc&seed=1"),
+    )
+    .await;
+    assert_eq!(fake.calls("jobs.add")[0]["options"], json!({"seed": true}));
+}
+
+#[tokio::test]
+async fn magnet_file_selection_adds_the_torrent_with_selected_files() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    // More than one link: explained, no preview started.
+    let r = send(
+        &app,
+        hx(
+            post_form("/add/preview", &t, "uris=magnet%3A%3Fa+magnet%3A%3Fb"),
+            "preview",
+        ),
+    )
+    .await;
+    assert!(r.body.contains("one magnet link at a time"));
+    assert!(fake.calls("jobs.preview_magnet").is_empty());
+    let r = send(
+        &app,
+        hx(
+            post_form("/add/preview", &t, "uris=magnet%3A%3Fxt%3Dabc"),
+            "preview",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert_eq!(
+        fake.calls("jobs.preview_magnet")[0]["uri"],
+        "magnet:?xt=abc"
+    );
+    assert!(r.body.contains("Big &lt;b&gt;Pack&lt;/b&gt;") && !r.body.contains(EVIL));
+    assert!(r.body.contains("name=\"select\" value=\"2\" checked"));
+    let key = "name=\"preview_id\" value=\"";
+    let i = r.body.find(key).unwrap() + key.len();
+    let id = &r.body[i..i + r.body[i..].find('"').unwrap()];
+    let form =
+        format!("uris=magnet%3A%3Fxt%3Dabc%0Ahttps%3A%2F%2Fe.org%2Fb&preview_id={id}&select=2");
+    let r = send(&app, post_form("/add", &t, &form)).await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    let call = &fake.calls("jobs.add")[0];
+    assert_eq!(call["sources"][0]["type"], "torrent");
+    assert_eq!(call["sources"][0]["data_base64"], "ZDQ6aW5mb2U=");
+    assert_eq!(
+        call["sources"][1],
+        json!({"type":"uris","uris":["https://e.org/b"]})
+    );
+    assert_eq!(
+        call["sources"].as_array().unwrap().len(),
+        2,
+        "magnet not added twice"
+    );
+    assert_eq!(call["options"]["select_files"], json!([2]));
+    // Used up: a second submit explains instead of guessing.
+    let r = send(&app, post_form("/add", &t, &form)).await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    assert!(r.body.contains("file list has expired"));
+}
+
+#[tokio::test]
+async fn folder_picker_lists_daemon_folders() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let r = send(&app, hx(get("/fs?dir=%2Fsrv"), "fs-picker")).await;
+    assert_eq!(
+        fake.calls("fs.list")[0],
+        json!({"path":"/srv","dirs_only":true})
+    );
+    assert!(r.body.contains("data-pick=\"/srv\"") && r.body.contains("movies/"));
+    assert!(r.body.contains("hx-get=\"/fs?path=%2Fsrv%2Fmovies\""));
+    assert!(!r.body.contains(EVIL) && !r.body.contains("file.txt"));
+    // A folder that does not exist falls back to the default with a note.
+    let r = send(&app, hx(get("/fs?dir=%2Fnope"), "fs-picker")).await;
+    assert!(
+        r.body.contains("Showing the default folder") && r.body.contains("data-pick=\"/data\"")
+    );
+}
+
+#[tokio::test]
+async fn multipart_form_carries_the_csrf_field() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let body = |tok: &str| {
+        format!(
+            "--XX\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{tok}\r\n--XX\r\nContent-Disposition: form-data; name=\"uris\"\r\n\r\nhttps://e.org/a\r\n--XX\r\nContent-Disposition: form-data; name=\"file\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n--XX--\r\n"
+        )
+    };
+    let req = |tok: &str| {
+        Request::post("/add")
+            .header(header::HOST, "localhost")
+            .header(header::ORIGIN, "http://localhost")
+            .header(header::CONTENT_TYPE, "multipart/form-data; boundary=XX")
+            .body(Body::from(body(tok)))
+            .unwrap()
+    };
+    assert_eq!(
+        send(&app, req("forged")).await.status,
+        StatusCode::FORBIDDEN
+    );
+    assert!(fake.calls("jobs.add").is_empty());
+    let r = send(&app, req(&t)).await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER, "{}", r.body);
+    assert_eq!(
+        fake.calls("jobs.add")[0]["sources"],
+        json!([{"type":"uris","uris":["https://e.org/a"]}])
+    );
+}
+
+#[tokio::test]
+async fn search_download_toasts_with_the_escaped_title() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let form = format!(
+        "magnet=magnet%3A%3Fxt%3Dabc&title={}",
+        url::form_urlencoded::byte_serialize(EVIL.as_bytes()).collect::<String>()
+    );
+    let r = send(&app, hx(post_form("/search/add", &t, &form), "toasts")).await;
+    assert!(r.body.contains("Started \u{201c}&lt;script&gt;"));
+    assert!(!r.body.contains(EVIL) && r.body.contains("href=\"/jobs/99\""));
+}
+
+#[tokio::test]
+async fn detail_is_live_over_sse() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let page = send(&app, get("/jobs/1")).await.body;
+    assert!(page.contains("sse-connect=\"/events?job=1\""));
+    assert!(page.contains("sse-swap=\"detail\"") && !page.contains("every 3s"));
+    assert!(page.contains("Downloading \u{b7} 2 peers"));
+    let r = app.clone().oneshot(get("/events?job=1")).await.unwrap();
+    let mut stream = r.into_body().into_data_stream();
+    let seen = next_frame_containing(&mut stream, "event: extra").await;
+    assert!(seen.contains("event: detail") && seen.contains("id=\"dhead\""));
+    fake.tx
+        .send(Event::JobsUpdated {
+            jobs: vec![job(1, "ubuntu.iso", JobState::Paused, 600)],
+        })
+        .unwrap();
+    let seen = next_frame_containing(&mut stream, "60.0%").await;
+    assert!(seen.contains("Paused \u{2014} press Resume"));
+}
+
+#[tokio::test]
+async fn settings_limits_send_only_changes_and_explain_errors() {
+    let fake = Fake::new(true);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let r = send(&app, get("/settings")).await;
+    for want in [
+        "Speed limits",
+        "Queue",
+        "Schedule",
+        "Search providers",
+        "Web access",
+        "Engines",
+        "yt-dlp",
+    ] {
+        assert!(r.body.contains(want), "{want}");
+    }
+    // Unchanged values: nothing to set.
+    send(
+        &app,
+        post_form(
+            "/settings/limits",
+            &t,
+            "download=&o_download=&upload=&o_upload=",
+        ),
+    )
+    .await;
+    assert!(fake.calls("limits.set").is_empty());
+    let r = send(
+        &app,
+        post_form(
+            "/settings/limits",
+            &t,
+            "max_concurrent=5&o_max_concurrent=3",
+        ),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    assert_eq!(
+        fake.calls("limits.set"),
+        vec![json!({"download":null,"upload":null,"max_concurrent":5})]
+    );
+    let r = send(
+        &app,
+        post_form("/settings/limits", &t, "download=fast&o_download="),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::BAD_REQUEST);
+    assert!(r.body.contains("is not a speed") && r.body.contains("value=\"fast\""));
+    assert_eq!(fake.calls("limits.set").len(), 1);
 }

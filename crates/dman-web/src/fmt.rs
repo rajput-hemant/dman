@@ -28,6 +28,22 @@ pub fn speed(n: u64) -> String {
     }
 }
 
+/// Bytes per second; zero shows as `0 B/s`.
+pub fn speed0(n: u64) -> String {
+    format!("{}/s", bytes(n))
+}
+
+/// A rate as typed into a form: `""` for no limit, else `2M`, `500K` or bytes.
+pub fn rate_input(n: u64) -> String {
+    const K: u64 = 1024;
+    match n {
+        0 => String::new(),
+        n if n % (K * K) == 0 => format!("{}M", n / (K * K)),
+        n if n % K == 0 => format!("{}K", n / K),
+        n => n.to_string(),
+    }
+}
+
 /// Seconds as `1h 02m`, `3m 04s` or `12s`.
 pub fn eta(secs: Option<u64>) -> String {
     let Some(s) = secs else {
@@ -97,6 +113,11 @@ mod tests {
         assert_eq!(bytes(1536), "1.5 KiB");
         assert_eq!(bytes(5), "5 B");
         assert_eq!(speed(0), "-");
+        assert_eq!(speed0(0), "0 B/s");
+        assert_eq!(rate_input(0), "");
+        assert_eq!(rate_input(2 * 1024 * 1024), "2M");
+        assert_eq!(rate_input(512_000), "500K");
+        assert_eq!(rate_input(1000), "1000");
         assert_eq!(eta(Some(3725)), "1h 02m");
         assert_eq!(timestamp(0), "1970-01-01 00:00");
         assert_eq!(timestamp(1_700_000_000), "2023-11-14 22:13");

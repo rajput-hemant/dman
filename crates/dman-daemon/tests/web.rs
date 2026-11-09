@@ -242,11 +242,15 @@ async fn login_cookie_csrf_actions_and_events() {
     let r = http(port, "POST", "/queue/pause-all", &hdr(None), "").await;
     assert_eq!(r.status, 403);
     // ... and then reaches the daemon.
-    let r = http(port, "POST", "/queue/pause-all", &hdr(Some(&csrf)), "").await;
+    // htmx requests get a toast fragment ...
+    let mut htmx = hdr(Some(&csrf));
+    htmx.push(("HX-Request", "true".to_owned()));
+    let r = http(port, "POST", "/queue/pause-all", &htmx, "").await;
     assert_eq!(r.status, 200, "{}", r.body);
     assert!(r.body.contains("paused"), "{}", r.body);
+    // ... and plain form posts (no JavaScript) are redirected back to the list.
     let r = http(port, "POST", "/queue/resume-all", &hdr(Some(&csrf)), "").await;
-    assert_eq!(r.status, 200);
+    assert_eq!(r.status, 303, "{}", r.body);
 
     // SSE: the stream starts with the stats line.
     let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();

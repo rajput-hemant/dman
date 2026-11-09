@@ -5,8 +5,9 @@
 //! mounts [`router`] on its HTTP listener.
 //!
 //! * Pages: downloads, detail, search, add, settings, login.
-//! * Live updates: `GET {base}/events` pushes changed table rows, the stats line and
-//!   status messages, throttled to two batches per second per client.
+//! * Live updates: `GET {base}/events` pushes changed download cards, the detail
+//!   header, search results, the stats bar and status messages, throttled to two
+//!   batches per second per client.
 //! * Auth: optional access token; session cookie or `Authorization: Bearer`; CSRF
 //!   protection (Origin check plus a per-session token) on every state-changing request.
 //! * No inline scripts or styles: the CSP is `default-src 'self'`.
@@ -90,6 +91,8 @@ pub(crate) struct AppState {
     pub open_csrf: String,
     /// Last yt-dlp availability read from `engine.status`.
     pub video_cache: Mutex<Option<(std::time::Instant, bool)>>,
+    /// Magnet file lists fetched for the add form, by random id.
+    pub previews: Mutex<HashMap<String, pages::StoredPreview>>,
 }
 
 impl AppState {
@@ -137,13 +140,20 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         sessions: Mutex::new(HashMap::new()),
         open_csrf: auth::random_id(),
         video_cache: Mutex::new(None),
+        previews: Mutex::new(HashMap::new()),
     });
     let r = |p: &str| format!("{base}{p}");
+    let upload_limit = || DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 256 * 1024);
     let mut app = Router::new()
         .route(&r("/"), get(pages::downloads))
         .route(&r("/downloads/table"), get(pages::table))
+        .route(&r("/jobs/bulk"), post(pages::bulk))
+        .route(&r("/jobs/clear-removed"), post(pages::clear_removed))
+        .route(
+            &r("/jobs/bulk/remove"),
+            get(pages::bulk_remove_form).post(pages::bulk_remove),
+        )
         .route(&r("/jobs/{id}"), get(pages::detail))
-        .route(&r("/jobs/{id}/live"), get(pages::detail_live))
         .route(
             &r("/jobs/{id}/remove"),
             get(pages::remove_form).post(pages::remove),
@@ -156,13 +166,19 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         .route(&r("/jobs/{id}/limits"), post(pages::job_limits))
         .route(&r("/queue/pause-all"), post(pages::pause_all))
         .route(&r("/queue/resume-all"), post(pages::resume_all))
-        .route(&r("/add"), get(pages::add_form).post(pages::add))
         .route(
-            &r("/add/upload"),
-            post(pages::upload).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 64 * 1024)),
+            &r("/add"),
+            get(pages::add_form).post(pages::add).layer(upload_limit()),
         )
+        .route(&r("/add/upload"), post(pages::add).layer(upload_limit()))
+        .route(
+            &r("/add/preview"),
+            post(pages::preview).layer(upload_limit()),
+        )
+        .route(&r("/fs"), get(pages::fs))
         .route(&r("/search"), get(pages::search).post(pages::search_start))
         .route(&r("/search/add"), post(pages::search_add))
+        .route(&r("/search/resolve"), get(pages::search_resolve))
         .route(
             &r("/search/history/clear"),
             post(pages::search_history_clear),

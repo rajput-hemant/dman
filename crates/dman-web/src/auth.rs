@@ -6,7 +6,8 @@
 //! * CSRF, two independent layers on every state-changing request: the `Origin`
 //!   (or `Referer`, or `Sec-Fetch-Site`) must not point at another site, and a
 //!   per-session secret must come back in `X-CSRF-Token` (htmx adds it through
-//!   `hx-headers`) or the `_csrf` form field. Bearer-authenticated requests need
+//!   `hx-headers`; `app.js` reads it from a meta tag) or the `_csrf` form field
+//!   (url-encoded or multipart). Bearer-authenticated requests need
 //!   no CSRF token: browsers never attach that header on their own.
 //! * The token is compared in constant time and never logged.
 
@@ -201,18 +202,27 @@ async fn guarded(st: &Arc<AppState>, mut req: Request, next: Next, path: &str) -
 
     if changing && !public && !bearer_ok {
         let from_header = header_str(req.headers(), "x-csrf-token").map(str::to_owned);
-        let urlencoded = header_str(req.headers(), header::CONTENT_TYPE)
-            .is_some_and(|c| c.starts_with("application/x-www-form-urlencoded"));
+        let ctype = header_str(req.headers(), header::CONTENT_TYPE).unwrap_or("");
+        let urlencoded = ctype.starts_with("application/x-www-form-urlencoded");
+        let boundary = multipart_boundary(ctype);
         let provided = match from_header {
             Some(t) => Some(t),
-            None if urlencoded => {
+            None if urlencoded || boundary.is_some() => {
+                let limit = if urlencoded {
+                    1024 * 1024
+                } else {
+                    crate::MAX_UPLOAD_BYTES + 256 * 1024
+                };
                 let (parts, body) = req.into_parts();
-                let Ok(bytes) = axum::body::to_bytes(body, 1024 * 1024).await else {
+                let Ok(bytes) = axum::body::to_bytes(body, limit).await else {
                     return plain(StatusCode::PAYLOAD_TOO_LARGE, "request too large");
                 };
-                let t = url::form_urlencoded::parse(&bytes)
-                    .find(|(k, _)| k == "_csrf")
-                    .map(|(_, v)| v.into_owned());
+                let t = match &boundary {
+                    Some(b) => multipart_text(&bytes, b, "_csrf"),
+                    None => url::form_urlencoded::parse(&bytes)
+                        .find(|(k, _)| k == "_csrf")
+                        .map(|(_, v)| v.into_owned()),
+                };
                 req = Request::from_parts(parts, Body::from(bytes));
                 t
             }
@@ -225,6 +235,56 @@ async fn guarded(st: &Arc<AppState>, mut req: Request, next: Next, path: &str) -
 
     req.extensions_mut().insert(ctx);
     next.run(req).await
+}
+
+/// `boundary` parameter of a `multipart/form-data` content type.
+fn multipart_boundary(ctype: &str) -> Option<String> {
+    let (kind, params) = ctype.split_once(';')?;
+    if !kind.trim().eq_ignore_ascii_case("multipart/form-data") {
+        return None;
+    }
+    params.split(';').find_map(|p| {
+        let (k, v) = p.trim().split_once('=')?;
+        k.trim()
+            .eq_ignore_ascii_case("boundary")
+            .then(|| v.trim().trim_matches('"').to_string())
+            .filter(|b| !b.is_empty())
+    })
+}
+
+fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
+    hay.get(from..)?
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .map(|i| i + from)
+}
+
+/// Value of the plain (non-file) part `name` of a multipart body. A minimal scan:
+/// it only has to find the CSRF field, and anything it misreads fails closed.
+fn multipart_text(body: &[u8], boundary: &str, name: &str) -> Option<String> {
+    let delim = format!("--{boundary}");
+    let want = format!("name=\"{name}\"");
+    let mut pos = find(body, delim.as_bytes(), 0)?;
+    loop {
+        let start = pos + delim.len();
+        let next = find(body, delim.as_bytes(), start)?;
+        let part = &body[start..next];
+        if let Some(h_end) = find(part, b"\r\n\r\n", 0) {
+            let head = String::from_utf8_lossy(&part[..h_end]);
+            let disposition = head
+                .lines()
+                .find(|l| l.to_ascii_lowercase().starts_with("content-disposition:"));
+            if let Some(d) = disposition
+                && d.split(';').any(|p| p.trim() == want)
+                && !d.contains("filename=")
+            {
+                let value = &part[h_end + 4..];
+                let value = value.strip_suffix(b"\r\n").unwrap_or(value);
+                return std::str::from_utf8(value).ok().map(str::to_owned);
+            }
+        }
+        pos = next;
+    }
 }
 
 fn set_cookie(st: &AppState, h: &HeaderMap, value: &str, max_age: u64) -> HeaderValue {

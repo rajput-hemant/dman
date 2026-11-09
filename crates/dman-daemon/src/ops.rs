@@ -56,6 +56,17 @@ fn control_file(p: &Path) -> PathBuf {
 /// empty. Never deletes anything outside `dir`, never `dir` itself, never a
 /// directory tree.
 pub fn delete_job_files(dir: &Path, files: &[PathBuf]) -> DeleteReport {
+    delete_files(dir, files, true)
+}
+
+/// Like [`delete_job_files`] but touches exactly the listed files: `.aria2`
+/// control files are left alone (used for unselected-file cleanup, where the
+/// job itself stays).
+pub fn delete_exact_files(dir: &Path, files: &[PathBuf]) -> DeleteReport {
+    delete_files(dir, files, false)
+}
+
+fn delete_files(dir: &Path, files: &[PathBuf], with_control: bool) -> DeleteReport {
     let mut report = DeleteReport::default();
     let root = match std::fs::canonicalize(dir) {
         Ok(r) => r,
@@ -78,7 +89,11 @@ pub fn delete_job_files(dir: &Path, files: &[PathBuf]) -> DeleteReport {
         } else {
             dir.join(f)
         };
-        for candidate in [abs.clone(), control_file(&abs)] {
+        let mut candidates = vec![abs.clone()];
+        if with_control {
+            candidates.push(control_file(&abs));
+        }
+        for candidate in candidates {
             let meta = match std::fs::symlink_metadata(&candidate) {
                 Ok(m) => m,
                 Err(e) if e.kind() == io::ErrorKind::NotFound => continue,

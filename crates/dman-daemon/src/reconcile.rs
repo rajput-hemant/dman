@@ -159,6 +159,14 @@ impl Manager {
         let mut opts = job_options_to_aria2(&rec.options).map_err(|e| e.to_string())?;
         opts.set("dir", rec.dir.clone());
         opts.set("pause", "true");
+        if rec.completed_at.is_some()
+            && matches!(rec.kind, SourceKind::Torrent | SourceKind::Magnet)
+        {
+            // A torrent that finished before (it was seeding) has all its data
+            // but no `.aria2` control file; without a hash check aria2 refuses
+            // to touch the existing files ("control file does not exist").
+            opts.set("check-integrity", "true");
+        }
         tokio::fs::create_dir_all(&rec.dir)
             .await
             .map_err(|e| format!("cannot create {}: {e}", rec.dir))?;

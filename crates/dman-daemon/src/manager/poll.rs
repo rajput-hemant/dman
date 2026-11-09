@@ -39,6 +39,8 @@ impl Manager {
                 }
             }
         }
+        self.enforce_seeding().await;
+        self.flag_cleanups().await;
         self.pump_videos();
         let client = self.client.clone();
         self.schedule(client.as_ref()).await;

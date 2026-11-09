@@ -107,6 +107,15 @@ pub enum ApiCall {
     },
     /// `providers.remove` (custom providers only).
     ProvidersRemove(String),
+    /// `jobs.cleanup_unselected`; `dry_run` only lists the files (to ask first).
+    Cleanup {
+        /// The finished torrent.
+        id: JobId,
+        /// List instead of delete.
+        dry_run: bool,
+    },
+    /// `config.reload`.
+    ReloadConfig,
     /// `daemon.shutdown`.
     Shutdown,
 }
@@ -151,6 +160,9 @@ impl ApiCall {
             ApiCall::ProvidersImport(_) => "Importing providers".into(),
             ApiCall::ProvidersExport { .. } => "Exporting providers".into(),
             ApiCall::ProvidersRemove(n) => format!("Removing {n}"),
+            ApiCall::Cleanup { dry_run: true, .. } => "Looking for unselected files".into(),
+            ApiCall::Cleanup { .. } => "Deleting unselected partial files".into(),
+            ApiCall::ReloadConfig => "Reloading config".into(),
             ApiCall::Shutdown => "Shutting down the daemon".into(),
         }
     }
@@ -186,6 +198,8 @@ impl ApiCall {
             ApiCall::ProvidersImport(_) => "Import providers",
             ApiCall::ProvidersExport { .. } => "Export providers",
             ApiCall::ProvidersRemove(_) => "Remove provider",
+            ApiCall::Cleanup { .. } => "Cleanup",
+            ApiCall::ReloadConfig => "Reload config",
             ApiCall::Shutdown => "Shutdown",
         }
     }
@@ -268,6 +282,14 @@ impl ApiCall {
                 .providers_remove(&name)
                 .await
                 .map(|()| ApiReply::Done),
+            ApiCall::Cleanup { id, dry_run } => client
+                .cleanup_unselected(id, dry_run)
+                .await
+                .map(|r| ApiReply::Cleanup(Box::new(r))),
+            ApiCall::ReloadConfig => client
+                .config_reload()
+                .await
+                .map(|r| ApiReply::Reloaded(Box::new(r))),
             ApiCall::Shutdown => client.shutdown().await.map(|()| ApiReply::Done),
         };
         r.map_err(|e| e.to_string())
@@ -313,6 +335,10 @@ pub enum ApiReply {
     Imported(ProvidersImported),
     /// TOML of the exported providers.
     Exported(String),
+    /// Unselected partial files found (dry run) or deleted.
+    Cleanup(Box<dman_proto::method::CleanupResult>),
+    /// Outcome of a config reload.
+    Reloaded(Box<dman_proto::method::ReloadResult>),
 }
 
 /// Severity of a status message.
@@ -371,11 +397,38 @@ pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome,
             format!("Imported {}", plural(i.names.len(), "provider")),
         ),
         Ok(ApiReply::Exported(_)) => (Outcome::Ok, "Providers exported".into()),
+        Ok(ApiReply::Cleanup(r)) => (
+            Outcome::Ok,
+            format!(
+                "Deleted {} unselected partial files ({})",
+                r.deleted,
+                crate::format::size(r.bytes)
+            ),
+        ),
+        Ok(ApiReply::Reloaded(r)) => reload_summary(r),
 
         Ok(ApiReply::Done) if matches!(call, ApiCall::SetOptions { .. }) => {
             (Outcome::Ok, "Option saved".into())
         }
         Ok(ApiReply::Done) => (Outcome::Ok, format!("{verb}: done")),
+    }
+}
+
+/// Status line for a config reload.
+pub fn reload_summary(r: &dman_proto::method::ReloadResult) -> (Outcome, String) {
+    let mut text = if r.applied.is_empty() {
+        "Config reloaded: no live changes".to_owned()
+    } else {
+        format!("Config reloaded: applied {}", r.applied.join(", "))
+    };
+    if r.restart_required.is_empty() {
+        (Outcome::Ok, text)
+    } else {
+        text.push_str(&format!(
+            "; restart needed for {}",
+            r.restart_required.join(", ")
+        ));
+        (Outcome::Partial, text)
     }
 }
 

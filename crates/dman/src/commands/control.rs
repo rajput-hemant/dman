@@ -47,6 +47,45 @@ pub async fn rename(ctx: &Ctx, id: JobId, name: &str, file: Option<u32>) -> Resu
     Ok(0)
 }
 
+/// `dman cleanup <id>`: list the unselected partial files, ask, delete.
+pub async fn cleanup(ctx: &Ctx, id: JobId, yes: bool) -> Result<i32, CliError> {
+    let client = ctx.connect().await?;
+    let found = client.cleanup_unselected(id, true).await?;
+    if found.files.is_empty() {
+        if ctx.json {
+            print_json(&found)?;
+        } else {
+            println!("no unselected partial files to delete");
+        }
+        return Ok(0);
+    }
+    if !ctx.json {
+        for f in &found.files {
+            println!("{:>10}  {}", crate::format::size(f.bytes), f.path);
+        }
+    }
+    confirm(
+        &format!(
+            "Delete {} unselected partial file(s) ({})?",
+            found.files.len(),
+            crate::format::size(found.bytes)
+        ),
+        yes,
+        false,
+    )?;
+    let done = client.cleanup_unselected(id, false).await?;
+    if ctx.json {
+        print_json(&done)?;
+    } else {
+        println!(
+            "deleted {} file(s) ({})",
+            done.deleted,
+            crate::format::size(done.bytes)
+        );
+    }
+    Ok(0)
+}
+
 pub async fn pause(ctx: &Ctx, a: &TargetArgs) -> Result<i32, CliError> {
     let client = ctx.connect().await?;
     if a.all {

@@ -6,6 +6,7 @@
 //! time, so no state is shared and no lock is ever held across an await.
 
 mod add;
+mod cleanup;
 mod control;
 mod detail;
 mod events;
@@ -15,6 +16,7 @@ mod poll;
 mod remove;
 mod rename;
 mod scheduler;
+pub mod seeding;
 mod timetable;
 mod util;
 pub(crate) mod video;
@@ -78,6 +80,10 @@ pub enum Request {
     LimitsSet(LimitsUpdate),
     /// `schedule.get`
     ScheduleGet,
+    /// `jobs.cleanup_unselected`
+    Cleanup(dman_proto::method::CleanupParams),
+    /// `config.reload`: apply the live-reloadable settings.
+    ApplySettings(Box<Settings>),
     /// `stats.get`
     Stats,
     /// `stats.history`
@@ -126,6 +132,19 @@ impl ManagerHandle {
     }
 }
 
+/// The settings of the manager that `config.reload` can change at runtime.
+#[derive(Debug, Clone)]
+pub struct Settings {
+    /// Base limits (`[limits]`).
+    pub limits: Limits,
+    /// `[[schedule]]` windows.
+    pub schedule: Vec<dman_config::ScheduleWindow>,
+    /// `[torrents]`.
+    pub torrents: dman_config::Torrents,
+    /// `[video]` defaults.
+    pub video: dman_config::Video,
+}
+
 /// Static inputs of the manager.
 pub struct ManagerConfig {
     /// The authoritative store.
@@ -152,6 +171,8 @@ pub struct ManagerConfig {
     pub trackers: std::sync::Arc<crate::search::Trackers>,
     /// `[video]` defaults applied to new video jobs.
     pub video: dman_config::Video,
+    /// `[torrents]` settings.
+    pub torrents: dman_config::Torrents,
     /// Detected yt-dlp / ffmpeg (re-detected on `engine.restart`).
     pub video_tools: watch::Receiver<dman_ytdlp::Tools>,
 }
@@ -250,6 +271,7 @@ pub struct Manager {
     pub(crate) previews: std::sync::Arc<crate::preview::PreviewRegistry>,
     pub(crate) trackers: std::sync::Arc<crate::search::Trackers>,
     pub(crate) video_cfg: dman_config::Video,
+    pub(crate) torrents: dman_config::Torrents,
     /// yt-dlp / ffmpeg as detected now.
     pub(crate) tools: dman_ytdlp::Tools,
     pub(crate) video_tx: video::VideoTx,
@@ -304,6 +326,7 @@ impl Manager {
             previews: cfg.previews,
             trackers: cfg.trackers,
             video_cfg: cfg.video,
+            torrents: cfg.torrents,
             tools,
             video_tx,
             video_runs: 0,
@@ -606,6 +629,19 @@ impl Manager {
                 to_value(l)
             }
             Request::ScheduleGet => to_value(self.schedule_status()),
+            Request::Cleanup(p) => {
+                let dry = p.dry_run;
+                let r = self.cleanup_unselected(p).await;
+                if !dry {
+                    self.emit_changes();
+                }
+                to_value(r?)
+            }
+            Request::ApplySettings(s) => {
+                self.apply_settings(*s).await;
+                self.tick().await;
+                Ok(Value::Null)
+            }
             Request::Stats => to_value(self.stats()),
             Request::StatsHistory => to_value(self.history.global()),
             Request::EngineStatus => to_value(vec![
@@ -616,6 +652,7 @@ impl Manager {
             Request::Snapshot => {
                 // Bring every subscriber's baseline in line with what was sent.
                 self.emit_changes();
+                self.announce_pending_cleanups();
                 to_value(Event::Snapshot {
                     jobs: self.all_jobs(),
                     stats: self.stats(),

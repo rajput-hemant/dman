@@ -623,6 +623,22 @@ fn apply_event(state: &mut State, event: Event) -> Vec<Cmd> {
             state.engines.retain(|e| e.engine != status.engine);
             state.engines.push(status);
         }
+        Event::CleanupPending {
+            id,
+            name,
+            count,
+            bytes,
+        } => {
+            // List the files first; the answer opens the confirmation unless
+            // another dialog is open by then.
+            if state.connected() && state.modal.is_none() {
+                return state.call_quiet(ApiCall::Cleanup { id, dry_run: true });
+            }
+            state.status.info(format!(
+                "{name}: {count} unselected partial files ({}) can be deleted (palette: cleanup)",
+                crate::format::size(bytes)
+            ));
+        }
         Event::SearchUpdate {
             search_id,
             provider,
@@ -710,6 +726,38 @@ fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String
         .or_else(|| views::providers::on_result(state, call, result))
     {
         return cmds;
+    }
+    if let ApiCall::Cleanup { id, dry_run: true } = call {
+        return match result {
+            Ok(ApiReply::Cleanup(r)) if r.files.is_empty() => {
+                state.status.info("No unselected partial files to delete");
+                Vec::new()
+            }
+            Ok(ApiReply::Cleanup(_)) if state.modal.is_some() => {
+                state
+                    .status
+                    .info("Unselected partial files can be deleted (palette: cleanup)");
+                Vec::new()
+            }
+            Ok(ApiReply::Cleanup(r)) => {
+                let name = state
+                    .jobs
+                    .get(id)
+                    .map(|j| j.name.clone())
+                    .unwrap_or_default();
+                let files: Vec<(String, u64)> =
+                    r.files.iter().map(|f| (f.path.clone(), f.bytes)).collect();
+                state.modal = Some(Modal::Confirm(views::downloads::cleanup_confirm(
+                    *id, &name, &files,
+                )));
+                Vec::new()
+            }
+            Err(e) => {
+                state.status.error(format!("Cleanup failed: {e}"));
+                Vec::new()
+            }
+            Ok(_) => Vec::new(),
+        };
     }
     if let Ok(ApiReply::Limits(l)) = result {
         state.limits = l.clone();

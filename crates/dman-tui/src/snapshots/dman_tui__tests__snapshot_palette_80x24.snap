@@ -9,14 +9,14 @@ expression: "render(&mut s, 80, 24)"
   ubuntu-24.04.1-desktop-am… active  █████░░░  66%  12.0 MiB/s  2m51s    6.0 GiB
   big-dataset-2026.tar.zst   active  ░░░░░░░░  10%   3.0 MiB/s  1h42m   20.0 GiB
   debian-13.2.0-amd64-netin… seeding ████████ 100%           -      -  700.0 MiB
-  Waiting (2)
-  ▶ Big ┌ Command palette ─────────────────────────────────────────────┐       -
-  archli│> pause                                                       │ 1.2 GiB
-  Stoppe│Pause                                           p             │
-  report│Pause all                                       P             │ 3.0 MiB
-  missin│Detail: toggle the file under the cursor (wait… Space         │       -
-        │Detail: select / deselect all files (waiting/p… a             │
+  Waitin┌ Command palette ─────────────────────────────────────────────┐
+  ▶ Big │> pause                                                       │       -
+  archli│Pause                                           p             │ 1.2 GiB
+  Stoppe│Pause all                                       P             │
+  report│Detail: toggle the file under the cursor (wait… Space         │ 3.0 MiB
+  missin│Detail: select / deselect all files (waiting/p… a             │       -
         │Providers: remove a custom provider             D, Del        │
+        │Delete unselected partial files of a finished … C             │
         └──────────────────────────────────────────────────────────────┘
 
 

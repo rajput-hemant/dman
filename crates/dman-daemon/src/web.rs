@@ -85,7 +85,7 @@ impl WebHost {
         }
     }
 
-    fn settings(&self) -> Web {
+    pub(crate) fn settings(&self) -> Web {
         self.settings.lock().map(|s| s.clone()).unwrap_or_default()
     }
 

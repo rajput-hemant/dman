@@ -2,7 +2,15 @@
 
 Usage: seeder.py WORKDIR
 Prints one JSON line {"magnet", "info_hash", "files": {path: size}} once the
-seeder is ready, then runs until stdin is closed. Stdlib only.
+seeder is ready, then serves commands, one per stdin line (each answered with
+one JSON line), until stdin is closed. Stdlib only.
+
+Commands:
+  stop-seeder           force-shut the seeder's aria2c down (the tracker stays),
+                        so a downloader can only get data from other peers
+  leecher DIR           (re)start a leecher aria2c downloading the magnet into
+                        DIR (an earlier leecher is stopped first)
+  leecher-status        {"status", "completed", "total"} of the leecher
 """
 import base64, hashlib, http.server, json, os, socket, struct, subprocess, sys, threading, time, urllib.request
 from urllib.parse import parse_qs, quote_from_bytes, urlparse
@@ -103,7 +111,67 @@ def main(work):
         magnet = f"magnet:?xt=urn:btih:{ih}&dn={name}&tr={quote_from_bytes(announce.encode())}"
         print(json.dumps({"magnet": magnet, "info_hash": ih,
                           "files": {k: len(v) for k, v in files.items()}, "name": name}), flush=True)
-        sys.stdin.read()  # until the test closes our stdin
+        leech = {"proc": None, "rpc": None, "gid": None}
+
+        def lcall(method, *params):
+            body = {"jsonrpc": "2.0", "id": "x", "method": "aria2." + method, "params": ["token:t", *params]}
+            req = urllib.request.Request(f"http://127.0.0.1:{leech['rpc']}/jsonrpc", json.dumps(body).encode(),
+                                         {"Content-Type": "application/json"})
+            return json.load(urllib.request.urlopen(req, timeout=10))["result"]
+
+        def stop_leecher():
+            if leech["proc"] is not None:
+                try:
+                    lcall("forceShutdown")
+                except Exception:
+                    pass
+                try:
+                    leech["proc"].wait(5)
+                except Exception:
+                    leech["proc"].kill()
+                leech["proc"] = None
+
+        def start_leecher(ldir):
+            stop_leecher()
+            leech["rpc"] = free_port()
+            os.makedirs(ldir, exist_ok=True)
+            leech["proc"] = subprocess.Popen(
+                ["aria2c", "--enable-rpc", f"--rpc-listen-port={leech['rpc']}", "--rpc-secret=t", f"--dir={ldir}",
+                 "--enable-dht=false", "--enable-dht6=false", "--bt-enable-lpd=false",
+                 "--enable-peer-exchange=false", f"--listen-port={free_port()}", "--file-allocation=none",
+                 "--check-integrity=false", "--seed-time=0", "--summary-interval=0",
+                 "--bt-tracker-connect-timeout=3", "--bt-request-peer-speed-limit=0"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            for _ in range(100):
+                try:
+                    lcall("getVersion")
+                    break
+                except Exception:
+                    time.sleep(0.1)
+            leech["gid"] = lcall("addUri", [magnet])
+
+        for line in sys.stdin:
+            cmd = line.split(None, 1)
+            if not cmd:
+                continue
+            try:
+                if cmd[0] == "stop-seeder":
+                    call("forceShutdown")
+                    seed.wait(5)
+                    out = {"ok": True}
+                elif cmd[0] == "leecher":
+                    start_leecher(cmd[1].strip())
+                    out = {"ok": True}
+                elif cmd[0] == "leecher-status":
+                    st = lcall("tellStatus", leech["gid"], ["status", "completedLength", "totalLength"])
+                    out = {"status": st["status"], "completed": int(st["completedLength"]),
+                           "total": int(st["totalLength"])}
+                else:
+                    out = {"error": "unknown command"}
+            except Exception as e:
+                out = {"error": str(e)}
+            print(json.dumps(out), flush=True)
+        stop_leecher()
     finally:
         try:
             call("forceShutdown")

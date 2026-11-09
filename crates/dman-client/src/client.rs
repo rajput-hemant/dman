@@ -426,6 +426,25 @@ macro_rules! typed_api {
             self.call(method::SCHEDULE_GET, ()).await
         }
 
+        /// `jobs.cleanup_unselected`: delete (or with `dry_run` only list) the partial
+        /// files of a torrent's deselected files.
+        pub async fn cleanup_unselected(
+            &self,
+            id: JobId,
+            dry_run: bool,
+        ) -> Result<method::CleanupResult, ClientError> {
+            self.call(
+                method::JOBS_CLEANUP_UNSELECTED,
+                method::CleanupParams { id, dry_run },
+            )
+            .await
+        }
+
+        /// `config.reload`: re-read `config.toml` and apply what can be applied live.
+        pub async fn config_reload(&self) -> Result<method::ReloadResult, ClientError> {
+            self.call(method::CONFIG_RELOAD, ()).await
+        }
+
         /// `stats.get`
         pub async fn stats(&self) -> Result<GlobalStats, ClientError> {
             self.call(method::STATS_GET, ()).await

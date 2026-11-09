@@ -54,6 +54,19 @@ pub enum Command {
         #[arg(long, value_name = "N")]
         file: Option<u32>,
     },
+    /// Delete the partial files of a finished torrent's deselected files (asks first).
+    Cleanup {
+        /// Job ID.
+        id: JobId,
+        /// Do not ask for confirmation.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+    /// Daemon configuration.
+    Config {
+        #[command(subcommand)]
+        cmd: ConfigCmd,
+    },
     /// Show the formats, subtitles and quality plans of a video URL (yt-dlp).
     Probe {
         /// Video page or stream URL.
@@ -431,6 +444,13 @@ pub struct TargetArgs {
     /// Apply to every job.
     #[arg(long, conflicts_with = "ids")]
     pub all: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ConfigCmd {
+    /// Re-read config.toml in the running daemon and apply what can change live
+    /// (limits, schedule, notifications, search, torrents, video defaults).
+    Reload,
 }
 
 #[derive(Args, Debug)]

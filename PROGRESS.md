@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 84 %** · Current milestone: **M7 — web UI** (M4 has a few leftovers) · Last updated: 2026-11-09
+**Overall: 87 %** · Current milestone: **M7 — web UI leftovers, then M8** · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -21,7 +21,7 @@ commit this file together with the code it describes.
 | M1 Foundation (workspace, proto, config, aria2 client, daemon lifecycle, API, basic CLI) | 15 | done |
 | M2 TUI core (loop, keymap, palette, downloads view, add view, confirmations) | 12 | done |
 | M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | done |
-| M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | in progress |
+| M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | done |
 | M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | done |
 | M6 Video engine (yt-dlp adapter, probe UI, options, fallbacks) | 10 | done |
 | M7 Web UI (htmx views, live updates, upload, auth, responsive) | 12 | in progress |
@@ -68,13 +68,14 @@ commit this file together with the code it describes.
 - [x] dman-owned queue, disk guard (start refusal + pause/auto-resume), redb store, history across restarts (done in M1)
 - [x] Schedule windows `[[schedule]]` (run/pause, per-window limits, DST-safe via jiff), `schedule.get`, CLI `dman schedule`
 - [x] Schedule brief pushed with stats and shown in the TUI header
-- [ ] `dman limit` / `dman stats` show the active window and its overrides
+- [x] `dman limit` / `dman stats` show the active window and its overrides
 - [x] Hooks on completion / error / end of seeding (`[notify.hooks]` commands, env DMAN_EVENT/ID/NAME/PATH/STATUS/ENGINE/SIZE, timeout, no shell unless configured), webhook POST with retry (`[notify.webhook]`), events `JobCompleted/JobFailed/SeedCompleted` (additive)
 - [x] Desktop notifications (notify-rust) shown by the TUI client (D20); optional on daemon host (`[notify] desktop_on_daemon = true`)
 - [x] Tracker-list source (done with M5 search integration)
-- [ ] Remove-unselected-files cleanup (D28: opt-in + confirmation) after torrent completion
-- [ ] Real-aria2 tests for seeding/ratio stop (D12) using the local seeder fixture (crates/dman-daemon/tests/fixtures/seeder.py)
-- [ ] Hot reload of `[[schedule]]`/limits when config.toml changes (`config.reload` API + TUI settings later)
+- [x] Remove-unselected-files cleanup (D28: opt-in + confirmation) after torrent completion
+- [x] Real-aria2 tests for seeding/ratio stop (dman now enforces seed ratio/time itself; fixed re-add of completed torrents with check-integrity) (D12) using the local seeder fixture (crates/dman-daemon/tests/fixtures/seeder.py)
+- [x] `config.reload` (limits, schedule, torrents, notify, search, video live; aria2/web/profile need restart)
+- [ ] Follow-up: store .torrent metadata for magnet jobs on follow-up so seeding survives restarts; web UI for cleanup/reload
 
 ### M5 — Search (12 %)
 - [x] `dman-search` library: declarative provider defs (torznab/feed/html/json), built-ins (Nyaa, YTS, TPB, Knaben, 1337x, Torznab template; all off, unverified against live sites), concurrent fan-out with per-provider timeout/rate limit/cap, dedupe by info-hash, ranking, test_provider, import/export, tracker-list fetch
@@ -103,7 +104,14 @@ commit this file together with the code it describes.
 - [ ] Missing web features vs TUI: magnet file selection (preview_magnet), daemon folder picker (fs.list), multi-select
 
 ### M8 — Remote and release (11 %)
-Task list is written when M7 finishes.
+- [ ] Built-in TLS (D24) for the API listener and web listener (rustls, user cert/key paths in config; `wss://`/`https://` in client + remote profiles) + docs for SSH tunnel / reverse proxy
+- [ ] Remote profiles end to end: TUI/CLI against a remote daemon (paths are daemon-side; uploads for local .torrent), reconnect hardening tests (kill/restart daemon while TUI attached)
+- [ ] CLI robustness: SIGPIPE-safe output, consistent exit codes audit
+- [ ] Packaging: cargo-dist config (Linux musl x86_64/aarch64, macOS universal), Homebrew tap formula, install receipt; `dman update` with install-method detection (D22) + `--check`; opt-in update check (D27)
+- [ ] cargo-deny (licenses permissive only — Q8, advisories), CI workflow (GitHub Actions: fmt, clippy, test, gated aria2/yt-dlp jobs, size report)
+- [ ] README (install, quick start, config reference, security notes), `dman --help` polish, man page optional
+- [ ] Security review: secrets never logged (grep logs in tests), path traversal (rename/delete/cleanup), webhook SSRF note, web auth, CSP; fix findings
+- [ ] Final size pass: measure, consider optional features (notify-rust/web/search/video as cargo features, default all on)
 
 ### Follow-ups noted during M1
 - [x] Split `crates/dman-daemon/src/manager.rs` into `manager/` modules (largest 524 lines).

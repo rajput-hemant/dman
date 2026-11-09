@@ -422,6 +422,85 @@ pub fn schedule_text(s: &ScheduleStatus, now: i64) -> String {
     )
 }
 
+/// `HH:MM` (or `Tue 07:00` when not today) of unix time `at` in `zone`.
+fn until_clock(at: i64, zone: &str, now: i64) -> String {
+    let tz = jiff::tz::TimeZone::get(zone).unwrap_or(jiff::tz::TimeZone::UTC);
+    let conv = |s: i64| jiff::Timestamp::from_second(s).map(|t| t.to_zoned(tz.clone()));
+    match (conv(at), conv(now)) {
+        (Ok(a), Ok(n)) if a.date() == n.date() => a.strftime("%H:%M").to_string(),
+        (Ok(a), _) => a.strftime("%a %H:%M").to_string(),
+        _ => at.to_string(),
+    }
+}
+
+/// Limit lines for `dman limit` / `dman stats`: the effective value of each
+/// limit, and when the active window overrides it, which window, until when
+/// and what the base limit is, e.g.
+/// `10.0 MiB/s (window 'night' until 07:00; base: unlimited)`.
+pub fn limit_lines(
+    l: &dman_proto::Limits,
+    s: Option<&ScheduleStatus>,
+    now: i64,
+) -> Vec<(&'static str, String)> {
+    let mut out = vec![
+        ("download", limit(l.download)),
+        ("upload", limit(l.upload)),
+        ("max-concurrent", l.max_concurrent.to_string()),
+    ];
+    let Some(s) = s else { return out };
+    let Some(active) = s.active.as_deref() else {
+        return out;
+    };
+    let Some(w) = s.windows.iter().find(|w| w.name == active) else {
+        return out;
+    };
+    let until = s
+        .next_change
+        .map(|t| format!(" until {}", until_clock(t, &s.time_zone, now)))
+        .unwrap_or_default();
+    let note = |base: Option<String>| {
+        let base = base.map(|b| format!("; base: {b}")).unwrap_or_default();
+        format!(" (window '{active}'{until}{base})")
+    };
+    if s.paused {
+        out.push((
+            "schedule",
+            format!("downloads paused by window '{active}'{until}"),
+        ));
+        return out;
+    }
+    let b = s.base.as_ref();
+    if w.download_limit.is_some() {
+        out[0].1 += &note(b.map(|b| limit(b.download)));
+    }
+    if w.upload_limit.is_some() {
+        out[1].1 += &note(b.map(|b| limit(b.upload)));
+    }
+    if w.max_concurrent.is_some() {
+        out[2].1 += &note(b.map(|b| b.max_concurrent.to_string()));
+    }
+    if w.download_limit.is_none() && w.upload_limit.is_none() && w.max_concurrent.is_none() {
+        out.push((
+            "schedule",
+            format!("window '{active}'{until}: no limit overrides"),
+        ));
+    }
+    out
+}
+
+/// `dman config reload` output.
+pub fn reload_text(r: &dman_proto::method::ReloadResult) -> String {
+    let mut out = if r.applied.is_empty() {
+        "configuration reloaded: no live changes\n".to_owned()
+    } else {
+        format!("configuration reloaded: applied {}\n", r.applied.join(", "))
+    };
+    for item in &r.restart_required {
+        out.push_str(&format!("restart required: {item}\n"));
+    }
+    out
+}
+
 /// `2024-05-01` (UTC), or `-` when unknown.
 pub fn date(secs: Option<i64>) -> String {
     secs.and_then(|s| jiff::Timestamp::from_second(s).ok())
@@ -820,6 +899,7 @@ mod tests {
             time_zone: "UTC".into(),
             paused: false,
             override_active: false,
+            base: None,
         };
         let t = schedule_text(&st, 0);
         assert!(t.contains("active:") && t.contains("night"), "{t}");
@@ -828,5 +908,62 @@ mod tests {
         assert!(t.contains("weekdays") && t.contains("pause"), "{t}");
         assert!(t.contains("down 10.0 MiB/s, max 5"), "{t}");
         assert!(schedule_text(&ScheduleStatus::default(), 0).contains("no schedule windows"));
+    }
+
+    #[test]
+    fn reload_text_lists_applied_and_restart() {
+        let r = dman_proto::method::ReloadResult {
+            applied: vec!["limits".into(), "notify".into()],
+            restart_required: vec!["aria2 (path)".into()],
+        };
+        assert_eq!(
+            reload_text(&r),
+            "configuration reloaded: applied limits, notify\nrestart required: aria2 (path)\n"
+        );
+        assert!(reload_text(&Default::default()).contains("no live changes"));
+    }
+
+    #[test]
+    fn limit_lines_show_window_and_base() {
+        let win = |dl: Option<u64>, action: &str| WindowInfo {
+            name: "night".into(),
+            days: vec![],
+            start: "22:00".into(),
+            end: "07:00".into(),
+            action: action.into(),
+            download_limit: dl,
+            upload_limit: None,
+            max_concurrent: None,
+        };
+        let mut st = ScheduleStatus {
+            windows: vec![win(Some(10 << 20), "run")],
+            active: Some("night".into()),
+            next_change: Some(7 * 3600),
+            time_zone: "UTC".into(),
+            base: Some(dman_proto::Limits {
+                download: 0,
+                upload: 0,
+                max_concurrent: 3,
+            }),
+            ..ScheduleStatus::default()
+        };
+        let eff = dman_proto::Limits {
+            download: 10 << 20,
+            upload: 0,
+            max_concurrent: 3,
+        };
+        let l = limit_lines(&eff, Some(&st), 0);
+        assert_eq!(
+            l[0].1,
+            format!(
+                "{} (window 'night' until 07:00; base: unlimited)",
+                limit(10 << 20)
+            )
+        );
+        assert_eq!(l[1].1, limit(0));
+        assert_eq!(limit_lines(&eff, None, 0).len(), 3);
+        st.paused = true;
+        let l = limit_lines(&eff, Some(&st), 0);
+        assert!(l[3].1.contains("paused by window 'night'"), "{l:?}");
     }
 }

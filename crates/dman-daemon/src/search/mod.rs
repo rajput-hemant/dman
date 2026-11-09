@@ -12,7 +12,8 @@ mod providers;
 pub mod trackers;
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::Duration;
 
 use dman_config::{Config, Paths, Secrets};
@@ -55,17 +56,27 @@ struct State {
 
 /// The search service shared by the API handlers.
 pub struct SearchService {
-    searcher: Searcher,
+    /// Replaced as a whole when `config.reload` changes the proxy.
+    searcher: RwLock<Searcher>,
     paths: Paths,
     /// Released by [`SearchService::close`] so the database can be reopened
     /// right after the daemon returned.
     store: Mutex<Option<Store>>,
     events: broadcast::Sender<Event>,
-    history_size: usize,
+    history_size: AtomicUsize,
+    /// The running tracker-list refresher.
+    tracker_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     state: Mutex<State>,
     /// Serialises read-modify-write cycles of `config.toml`.
     config_lock: tokio::sync::Mutex<()>,
     trackers: Arc<Trackers>,
+}
+
+/// A validated search reload, see [`SearchService::prepare_reload`].
+pub struct PreparedSearch {
+    searcher: Searcher,
+    history_size: usize,
+    tracker_list: dman_config::TrackerList,
 }
 
 /// Whether `method` is served by [`SearchService::call`].
@@ -147,11 +158,12 @@ impl SearchService {
         providers::apply_secrets(&searcher, secrets, &defs);
         searcher.set_providers(defs);
         Ok(Arc::new(Self {
-            searcher,
+            searcher: RwLock::new(searcher),
             paths,
             store: Mutex::new(Some(store)),
             events,
-            history_size: config.search.history_size,
+            history_size: AtomicUsize::new(config.search.history_size),
+            tracker_task: Mutex::new(None),
             state: Mutex::new(State::default()),
             config_lock: tokio::sync::Mutex::new(()),
             trackers: Arc::new(Trackers::new(config.search.tracker_list.clone())),
@@ -163,17 +175,81 @@ impl SearchService {
         self.trackers.clone()
     }
 
-    /// Starts fetching the tracker list (nothing when it is disabled).
-    pub fn spawn_tracker_refresher(&self) -> Option<tokio::task::JoinHandle<()>> {
-        self.trackers.refresher(
-            self.searcher.clone(),
-            self.paths.data_dir().join("trackers.txt"),
-        )
+    /// The current searcher (cheap clone).
+    pub(crate) fn searcher(&self) -> Searcher {
+        self.searcher
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn history_size(&self) -> usize {
+        self.history_size.load(Ordering::Relaxed)
+    }
+
+    /// Starts fetching the tracker list (nothing when it is disabled); the
+    /// service owns the task and stops it on [`SearchService::close`].
+    pub fn spawn_tracker_refresher(&self) {
+        let task = self
+            .trackers
+            .refresher(self.searcher(), self.paths.data_dir().join("trackers.txt"));
+        let old = std::mem::replace(
+            &mut *self.tracker_task.lock().unwrap_or_else(|e| e.into_inner()),
+            task,
+        );
+        if let Some(t) = old {
+            t.abort();
+        }
+    }
+
+    /// Validates the provider, proxy and tracker-list settings of `config`
+    /// without applying them.
+    ///
+    /// # Errors
+    /// Invalid provider definitions or proxy.
+    pub fn prepare_reload(
+        &self,
+        config: &Config,
+        secrets: &Secrets,
+    ) -> anyhow::Result<PreparedSearch> {
+        let searcher = Searcher::new(SearcherConfig {
+            proxy: config.search.proxy.clone(),
+            user_agent: None,
+        })
+        .map_err(|e| anyhow::anyhow!("search: {e}"))?;
+        let defs = config
+            .search
+            .effective_providers()
+            .map_err(|e| anyhow::anyhow!(e))?;
+        providers::apply_secrets(&searcher, secrets, &defs);
+        searcher.set_providers(defs);
+        Ok(PreparedSearch {
+            searcher,
+            history_size: config.search.history_size,
+            tracker_list: config.search.tracker_list.clone(),
+        })
+    }
+
+    /// Applies a prepared reload: new searcher (providers, proxy), history
+    /// size and tracker-list settings (the refresher is restarted).
+    pub fn apply_reload(&self, p: PreparedSearch) {
+        *self.searcher.write().unwrap_or_else(|e| e.into_inner()) = p.searcher;
+        self.history_size.store(p.history_size, Ordering::Relaxed);
+        self.trackers.set_config(p.tracker_list);
+        self.spawn_tracker_refresher();
     }
 
     /// Cancels running searches and releases the store (daemon shutdown).
     pub fn close(&self) {
         self.store.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(t) = self
+            .tracker_task
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            t.abort();
+        }
         for s in &self.state().searches {
             if !s.finished {
                 s.cancel.notify_one();
@@ -264,7 +340,7 @@ impl SearchService {
             providers: requested.clone(),
         };
 
-        let defs = self.searcher.providers();
+        let defs = self.searcher().providers();
         let mut names: Vec<String> = defs
             .iter()
             .filter(|d| d.enabled)
@@ -281,7 +357,7 @@ impl SearchService {
             }
         }
         // Taken now so the provider set matches `names` even if one changes later.
-        let stream = Box::pin(self.searcher.search(&query));
+        let stream = Box::pin(self.searcher().search(&query));
 
         let cancel = Arc::new(Notify::new());
         let id = {
@@ -431,7 +507,7 @@ impl SearchService {
                 at: crate::manager::now(),
                 result_count: u32::try_from(agg.len()).unwrap_or(u32::MAX),
             };
-            let keep = self.history_size;
+            let keep = self.history_size();
             if let Err(e) = self.db(move |s| s.record_search(&rec, keep)).await {
                 tracing::warn!("cannot save the search history: {}", e.message);
             }
@@ -535,7 +611,7 @@ impl SearchService {
             (Some(_), None) => return Err(RpcError::invalid("`index` needs `search_id`")),
         };
         let magnet = self
-            .searcher
+            .searcher()
             .resolve_magnet(&provider, &detail_url)
             .await
             .map_err(|e| provider_err(&e))?;
@@ -543,7 +619,7 @@ impl SearchService {
     }
 
     async fn history(&self) -> Result<Vec<SearchHistoryEntry>, RpcError> {
-        let n = self.history_size;
+        let n = self.history_size();
         let recs = self.db(move |s| s.search_history(n)).await?;
         Ok(recs
             .into_iter()

@@ -267,6 +267,100 @@ fn shutdown_confirms_and_quits_on_success() {
 }
 
 #[test]
+fn cleanup_event_lists_then_asks_then_deletes_only_after_yes() {
+    use dman_proto::method::{CleanupFile, CleanupResult};
+    let mut s = state();
+    let cmds = update(
+        &mut s,
+        Msg::Event(Event::CleanupPending {
+            id: JobId(7),
+            name: "Album".into(),
+            count: 2,
+            bytes: 8,
+        }),
+    );
+    // The daemon is asked for the real file list first; nothing is deleted.
+    let list = ApiCall::Cleanup {
+        id: JobId(7),
+        dry_run: true,
+    };
+    assert_eq!(cmds, vec![Cmd::Api(list.clone())]);
+    assert!(s.modal.is_none());
+    let found = CleanupResult {
+        files: vec![
+            CleanupFile {
+                path: "Album/sub/02.bin".into(),
+                bytes: 5,
+            },
+            CleanupFile {
+                path: "Album/03.bin".into(),
+                bytes: 3,
+            },
+        ],
+        bytes: 8,
+        deleted: 0,
+        dry_run: true,
+    };
+    update(
+        &mut s,
+        Msg::ActionResult {
+            call: list,
+            result: Ok(ApiReply::Cleanup(Box::new(found))),
+        },
+    );
+    let Some(Modal::Confirm(c)) = &s.modal else {
+        panic!("expected a confirmation dialog");
+    };
+    assert_eq!(c.title, "Delete 2 unselected partial files (8 B)?");
+    // Declining sends nothing.
+    assert!(code(&mut s, KeyCode::Esc).is_empty());
+    assert!(s.modal.is_none());
+    // The cleanup key asks the daemon for the list again.
+    let cmds = key(&mut s, 'C');
+    assert!(matches!(
+        cmds.as_slice(),
+        [Cmd::Api(ApiCall::Cleanup { dry_run: true, .. })]
+    ));
+}
+
+#[test]
+fn cleanup_confirmation_calls_the_real_delete() {
+    let mut s = state();
+    s.modal = Some(Modal::Confirm(views::downloads::cleanup_confirm(
+        JobId(7),
+        "Album",
+        &[("a.bin".into(), 10)],
+    )));
+    let cmds = key(&mut s, 'y');
+    assert_eq!(
+        cmds,
+        vec![Cmd::Api(ApiCall::Cleanup {
+            id: JobId(7),
+            dry_run: false
+        })]
+    );
+}
+
+#[test]
+fn reload_config_action_and_summary() {
+    use dman_proto::method::ReloadResult;
+    let mut s = state();
+    let cmds = crate::app::apply_action(&mut s, Action::ReloadConfig);
+    assert_eq!(cmds, vec![Cmd::Api(ApiCall::ReloadConfig)]);
+    let r = ReloadResult {
+        applied: vec!["limits".into()],
+        restart_required: vec!["aria2".into()],
+    };
+    let (o, text) =
+        crate::api::summarize(&ApiCall::ReloadConfig, &Ok(ApiReply::Reloaded(Box::new(r))));
+    assert_eq!(o, crate::api::Outcome::Partial);
+    assert_eq!(
+        text,
+        "Config reloaded: applied limits; restart needed for aria2"
+    );
+}
+
+#[test]
 fn disconnected_disables_actions_but_not_navigation() {
     let mut s = state();
     disconnect(&mut s);

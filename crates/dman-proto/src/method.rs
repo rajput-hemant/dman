@@ -19,6 +19,10 @@ pub const JOBS_PURGE: &str = "jobs.purge";
 pub const JOBS_REORDER: &str = "jobs.reorder";
 pub const JOBS_SET_OPTIONS: &str = "jobs.set_options";
 pub const JOBS_RENAME: &str = "jobs.rename";
+/// `jobs.cleanup_unselected`: [`CleanupParams`] -> [`CleanupResult`].
+pub const JOBS_CLEANUP_UNSELECTED: &str = "jobs.cleanup_unselected";
+/// `config.reload`: no params -> [`ReloadResult`].
+pub const CONFIG_RELOAD: &str = "config.reload";
 pub const JOBS_PREVIEW_MAGNET: &str = "jobs.preview_magnet";
 pub const QUEUE_PAUSE_ALL: &str = "queue.pause_all";
 pub const QUEUE_RESUME_ALL: &str = "queue.resume_all";
@@ -158,6 +162,47 @@ pub struct MagnetPreview {
     pub torrent_base64: String,
 }
 
+/// `jobs.cleanup_unselected`: delete the partial files of the deselected
+/// files of a torrent (D28). Only files of unselected indexes that exist inside
+/// the job's directory are ever touched; selected files never.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupParams {
+    pub id: JobId,
+    /// Only report what would be deleted.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// One file `jobs.cleanup_unselected` found (and deleted unless a dry run).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupFile {
+    /// Path relative to the job directory.
+    pub path: String,
+    pub bytes: u64,
+}
+
+/// Result of `jobs.cleanup_unselected`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupResult {
+    /// Files found (deleted unless `dry_run`).
+    pub files: Vec<CleanupFile>,
+    /// Sum of `files[].bytes`.
+    pub bytes: u64,
+    /// Files actually deleted (0 for a dry run).
+    pub deleted: u32,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// Result of `config.reload`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReloadResult {
+    /// Settings groups applied now (e.g. `limits`, `schedule`, `notify`).
+    pub applied: Vec<String>,
+    /// Changed settings that only take effect after a daemon restart.
+    pub restart_required: Vec<String>,
+}
+
 /// Per-item outcome of batch operations such as pause/resume/remove.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BatchResult {
@@ -225,6 +270,10 @@ pub struct ScheduleStatus {
     /// A runtime `limits.set` override is in effect until the next transition.
     #[serde(default)]
     pub override_active: bool,
+    /// Base limits (`[limits]`, outside any window); lets clients show what a
+    /// window overrides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base: Option<Limits>,
 }
 
 /// `fs.list`: list a directory of the daemon host (for directory pickers).
@@ -327,6 +376,16 @@ pub enum Event {
         /// `dir/name`.
         path: String,
         outcome: Outcome,
+    },
+    /// A completed torrent has deselected files whose partial files exist and
+    /// `[torrents] remove_unselected = "ask"` is set: clients should ask the
+    /// user, then call `jobs.cleanup_unselected`. Emitted once per job.
+    CleanupPending {
+        id: JobId,
+        name: String,
+        /// Number of partial files and their total size.
+        count: u32,
+        bytes: u64,
     },
     /// A search made progress. Sent per provider status change, at most every
     /// 250 ms; `results` is the cumulative merged list (ranked, at most

@@ -72,6 +72,8 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::RemoveDelete => confirm_remove(state, true),
         Action::Purge => confirm_purge(state),
         Action::Rename => rename_cursor(state),
+        Action::CleanupUnselected => cleanup_cursor(state),
+        Action::ReloadConfig => state.call(ApiCall::ReloadConfig),
         Action::ToggleGraph => crate::widgets::graph::toggle(state),
         Action::MoveUp => reorder(state, Reorder::By(-1)),
         Action::MoveDown => reorder(state, Reorder::By(1)),
@@ -228,6 +230,42 @@ fn rename_cursor(state: &mut State) -> Vec<Cmd> {
         Some(name) => super::rename::open(state, id, None, &name),
         None => Vec::new(),
     }
+}
+
+/// Asks the daemon which unselected partial files the cursor torrent has; the
+/// answer opens the confirmation ([`cleanup_confirm`]).
+fn cleanup_cursor(state: &mut State) -> Vec<Cmd> {
+    let Some(id) = state.list.cursor else {
+        state.status.info("No download under the cursor");
+        return Vec::new();
+    };
+    state.call(ApiCall::Cleanup { id, dry_run: true })
+}
+
+/// Confirmation before deleting the partial files of deselected torrent files
+/// (D28). `files` are relative paths with sizes; only these are deleted.
+pub fn cleanup_confirm(id: JobId, name: &str, files: &[(String, u64)]) -> ConfirmState {
+    let total: u64 = files.iter().map(|f| f.1).sum();
+    let mut lines = vec![format!("{name} (#{id})"), String::new()];
+    for (path, bytes) in files.iter().take(MAX_LISTED) {
+        lines.push(format!("{}  {}", format::size(*bytes), path));
+    }
+    if files.len() > MAX_LISTED {
+        lines.push(format!("… and {} more", files.len() - MAX_LISTED));
+    }
+    lines.push(String::new());
+    lines.push(
+        "Only files of deselected torrent files are deleted; selected files are kept.".into(),
+    );
+    ConfirmState::yes_no(
+        format!(
+            "Delete {} unselected partial files ({})?",
+            files.len(),
+            format::size(total)
+        ),
+        lines,
+        ApiCall::Cleanup { id, dry_run: false },
+    )
 }
 
 fn confirm_purge(state: &mut State) -> Vec<Cmd> {

@@ -59,6 +59,8 @@ pub enum Action {
     Purge,
     /// Rename the cursor download (or, in the detail Files tab, the file under the cursor).
     Rename,
+    /// Delete the partial files of the cursor torrent's deselected files (asks first).
+    CleanupUnselected,
     /// Move the cursor download one place towards the front of the queue.
     MoveUp,
     /// Move the cursor download one place towards the back of the queue.
@@ -163,6 +165,8 @@ pub enum Action {
     Back,
     /// Leave the TUI (the daemon keeps running).
     Quit,
+    /// Re-read config.toml in the daemon (limits, schedule, notifications, search, ...).
+    ReloadConfig,
     /// Shut the daemon and its engines down.
     Shutdown,
 }
@@ -194,6 +198,7 @@ impl Action {
         Action::RemoveDelete,
         Action::Purge,
         Action::Rename,
+        Action::CleanupUnselected,
         Action::MoveUp,
         Action::MoveDown,
         Action::MoveTop,
@@ -246,6 +251,7 @@ impl Action {
         Action::Help,
         Action::Back,
         Action::Quit,
+        Action::ReloadConfig,
         Action::Shutdown,
     ];
 
@@ -276,6 +282,7 @@ impl Action {
             Action::RemoveDelete => "remove_delete",
             Action::Purge => "purge",
             Action::Rename => "rename",
+            Action::CleanupUnselected => "cleanup_unselected",
             Action::MoveUp => "move_up",
             Action::MoveDown => "move_down",
             Action::MoveTop => "move_top",
@@ -328,6 +335,7 @@ impl Action {
             Action::Help => "help",
             Action::Back => "back",
             Action::Quit => "quit",
+            Action::ReloadConfig => "reload_config",
             Action::Shutdown => "shutdown",
         }
     }
@@ -364,6 +372,7 @@ impl Action {
             Action::RemoveDelete => "Remove and delete files",
             Action::Purge => "Purge stopped downloads (keep files)",
             Action::Rename => "Rename (not while active; file under cursor in Detail)",
+            Action::CleanupUnselected => "Delete unselected partial files of a finished torrent",
             Action::MoveUp => "Move up in queue",
             Action::MoveDown => "Move down in queue",
             Action::MoveTop => "Move to top of queue",
@@ -420,6 +429,7 @@ impl Action {
             Action::Help => "Help (key bindings)",
             Action::Back => "Back / close",
             Action::Quit => "Quit the TUI (daemon keeps running)",
+            Action::ReloadConfig => "Reload config.toml",
             Action::Shutdown => "Shut down the daemon and engines",
         }
     }
@@ -451,6 +461,7 @@ impl Action {
             Action::RemoveDelete => "remove+files",
             Action::Purge => "purge",
             Action::Rename => "rename",
+            Action::CleanupUnselected => "cleanup",
             Action::MoveUp => "queue up",
             Action::MoveDown => "queue down",
             Action::MoveTop => "queue top",
@@ -503,6 +514,7 @@ impl Action {
             Action::Help => "help",
             Action::Back => "back",
             Action::Quit => "quit",
+            Action::ReloadConfig => "reload",
             Action::Shutdown => "shutdown",
         }
     }
@@ -511,7 +523,11 @@ impl Action {
     /// in the palette.
     pub const fn home_context(self) -> Context {
         match self {
-            Action::Palette | Action::Help | Action::Quit | Action::Shutdown => Context::Global,
+            Action::Palette
+            | Action::Help
+            | Action::Quit
+            | Action::ReloadConfig
+            | Action::Shutdown => Context::Global,
             Action::Back
             | Action::DetailNextTab
             | Action::DetailPrevTab
@@ -574,6 +590,8 @@ impl Action {
                 | Action::LimitDown
                 | Action::SetMaxConcurrent
                 | Action::Rename
+                | Action::CleanupUnselected
+                | Action::ReloadConfig
                 | Action::Shutdown
                 | Action::DetailToggleFile
                 | Action::DetailToggleAllFiles

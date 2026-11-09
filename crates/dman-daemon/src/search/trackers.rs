@@ -24,7 +24,7 @@ struct Inner {
 /// Shared tracker-list state, read by the job manager and `trackers.status`.
 #[derive(Debug)]
 pub struct Trackers {
-    config: TrackerList,
+    config: Mutex<TrackerList>,
     inner: Mutex<Inner>,
 }
 
@@ -32,9 +32,21 @@ impl Trackers {
     /// State for `config`; the list stays empty until [`Trackers::refresher`] loads it.
     pub fn new(config: TrackerList) -> Self {
         Self {
-            config,
+            config: Mutex::new(config),
             inner: Mutex::new(Inner::default()),
         }
+    }
+
+    fn cfg(&self) -> TrackerList {
+        self.config
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Replaces the settings (config reload); the caller restarts the refresher.
+    pub fn set_config(&self, config: TrackerList) {
+        *self.config.lock().unwrap_or_else(|e| e.into_inner()) = config;
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -44,7 +56,8 @@ impl Trackers {
     /// Trackers to add to a new torrent or magnet: empty unless the list is
     /// enabled and `attach_to_new` is set.
     pub fn attach_list(&self) -> Vec<String> {
-        if self.config.enabled && self.config.attach_to_new {
+        let c = self.cfg();
+        if c.enabled && c.attach_to_new {
             self.lock().list.clone()
         } else {
             Vec::new()
@@ -53,10 +66,11 @@ impl Trackers {
 
     /// `trackers.status`.
     pub fn status(&self) -> TrackersStatus {
+        let c = self.cfg();
         let g = self.lock();
         TrackersStatus {
-            enabled: self.config.enabled,
-            attach_to_new: self.config.attach_to_new,
+            enabled: c.enabled,
+            attach_to_new: c.attach_to_new,
             count: u32::try_from(g.list.len()).unwrap_or(u32::MAX),
             last_refresh: g.last_refresh,
             last_error: g.last_error.clone(),
@@ -81,14 +95,14 @@ impl Trackers {
         searcher: Searcher,
         cache: PathBuf,
     ) -> Option<tokio::task::JoinHandle<()>> {
-        if !self.config.enabled {
+        if !self.cfg().enabled {
             return None;
         }
         let this = self.clone();
         Some(tokio::spawn(async move {
             this.load_cache(&cache);
-            let every = Duration::from_secs(this.config.refresh_hours.max(1) * 3600);
             loop {
+                let every = Duration::from_secs(this.cfg().refresh_hours.max(1) * 3600);
                 let wait = match this.refresh(&searcher, &cache).await {
                     Ok(()) => every,
                     Err(()) => RETRY.min(every),
@@ -118,7 +132,7 @@ impl Trackers {
     }
 
     async fn refresh(&self, searcher: &Searcher, cache: &PathBuf) -> Result<(), ()> {
-        match searcher.fetch_tracker_list(&self.config.url).await {
+        match searcher.fetch_tracker_list(&self.cfg().url).await {
             Ok(list) => {
                 tracing::info!(count = list.len(), "tracker list refreshed");
                 let mut text = list.join("\n");

@@ -31,6 +31,7 @@ pub mod ops;
 pub mod preview;
 pub mod queue;
 mod reconcile;
+pub mod reload;
 pub mod schedule;
 pub mod search;
 pub mod server;
@@ -186,7 +187,7 @@ pub async fn run_with_clock(
         &secrets,
     )
     .context("cannot set up search")?;
-    let tracker_task = search.spawn_tracker_refresher();
+    search.spawn_tracker_refresher();
     let notifier = {
         let secret = match config
             .notify
@@ -202,6 +203,7 @@ pub async fn run_with_clock(
         notify::Notifier::new(config.notify.clone(), secret, events.clone())?
     };
     let notifier_rx = events.subscribe();
+    let (notifier_tx, notifier_cur) = watch::channel(notifier);
     let (manager, manager_task) = Manager::spawn(ManagerConfig {
         store,
         profile: profile.clone(),
@@ -219,11 +221,16 @@ pub async fn run_with_clock(
         previews,
         trackers: search.trackers(),
         video: config.video.clone(),
+        torrents: config.torrents.clone(),
         video_tools: video.subscribe(),
     });
 
-    let notifier_task =
-        (!notifier.is_idle()).then(|| tokio::spawn(notifier.run(notifier_rx, manager.clone())));
+    let notifier_task = tokio::spawn(notify::Notifier::run(
+        notifier_cur,
+        notifier_rx,
+        manager.clone(),
+    ));
+    let reloader = reload::Reloader::new(paths.clone(), name.clone(), config.clone(), notifier_tx);
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (request_tx, mut request_rx) = mpsc::channel::<()>(1);
@@ -240,6 +247,7 @@ pub async fn run_with_clock(
         search,
         video,
         web: Arc::new(web::WebHost::new(paths.clone(), config.web.clone())),
+        reload: reloader,
     });
     let mut web_error = None;
     if config.web.enabled
@@ -281,12 +289,7 @@ pub async fn run_with_clock(
     web_host.stop().await;
     manager.shutdown().await;
     let _ = manager_task.await;
-    if let Some(t) = notifier_task {
-        t.abort();
-    }
-    if let Some(t) = tracker_task {
-        t.abort();
-    }
+    notifier_task.abort();
     search_close.close();
     engine.shutdown().await;
     let _ = engine_task.await;

@@ -9,6 +9,7 @@ expression: "render(&mut s, 120, 40)"
 │  : Ctrl-p              Command palette                                                                               │
 │  ? F1                  Help (key bindings)                                                                           │
 │  q Ctrl-c              Quit the TUI (daemon keeps running)                                                           │
+│  F5                    Reload config.toml                                                                            │
 │  Q                     Shut down the daemon and engines                                                              │
 │                                                                                                                      │
 │Downloads keys                                                                                                        │
@@ -36,9 +37,8 @@ expression: "render(&mut s, 120, 40)"
 │  D                     Remove and delete files                                                                       │
 │  x                     Purge stopped downloads (keep files)                                                          │
 │  n                     Rename (not while active; file under cursor in Detail)                                        │
+│  C                     Delete unselected partial files of a finished torrent                                         │
 │  w                     Show / hide the global speed graph                                                            │
-│  K                     Move up in queue                                                                              │
-│  J                     Move down in queue                                                                            │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  Connected to daemon 0.1.0
  j down  k up  PgDn pgdn  Esc back

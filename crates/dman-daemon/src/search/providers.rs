@@ -87,7 +87,7 @@ fn config_err(e: impl std::fmt::Display) -> RpcError {
 
 impl SearchService {
     fn find(&self, name: &str) -> Result<ProviderDef, RpcError> {
-        self.searcher
+        self.searcher()
             .providers()
             .into_iter()
             .find(|d| d.name.eq_ignore_ascii_case(name.trim()))
@@ -95,7 +95,7 @@ impl SearchService {
     }
 
     pub(super) fn providers_list(&self) -> Vec<ProviderInfo> {
-        self.searcher.providers().iter().map(info).collect()
+        self.searcher().providers().iter().map(info).collect()
     }
 
     /// Edits `config.toml` with `edit`, validates the result, saves it and
@@ -117,10 +117,10 @@ impl SearchService {
             .map_err(RpcError::invalid)?;
         doc.save().map_err(config_err)?;
         match Secrets::load(&self.paths) {
-            Ok(s) => apply_secrets(&self.searcher, &s, &defs),
+            Ok(s) => apply_secrets(&self.searcher(), &s, &defs),
             Err(e) => tracing::warn!("cannot reload secrets: {e}"),
         }
-        self.searcher.set_providers(defs);
+        self.searcher().set_providers(defs);
         Ok(())
     }
 
@@ -160,7 +160,7 @@ impl SearchService {
     ) -> Result<ProviderTestReport, RpcError> {
         let def = self.find(&p.name)?;
         let start = std::time::Instant::now();
-        Ok(match self.searcher.test_provider(&def).await {
+        Ok(match self.searcher().test_provider(&def).await {
             Ok(r) => ProviderTestReport {
                 name: def.name,
                 ok: true,
@@ -225,7 +225,7 @@ impl SearchService {
 
     /// TOML of the named providers, or of every custom provider.
     pub(super) fn providers_export(&self, p: ProvidersExportParams) -> Result<String, RpcError> {
-        let all = self.searcher.providers();
+        let all = self.searcher().providers();
         let chosen: Vec<ProviderDef> = match p.names.filter(|n| !n.is_empty()) {
             Some(names) => {
                 let mut out = Vec::new();

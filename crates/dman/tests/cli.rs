@@ -149,3 +149,12 @@ fn search_commands_need_a_daemon_and_arguments() {
         .code(3);
     dman(&dir).args(["trackers", "status"]).assert().code(3);
 }
+
+#[test]
+fn cleanup_and_config_reload_need_a_daemon_and_arguments() {
+    let dir = config_dir();
+    dman(&dir).args(["cleanup", "1", "--yes"]).assert().code(3);
+    dman(&dir).args(["config", "reload"]).assert().code(3);
+    dman(&dir).args(["cleanup"]).assert().code(2);
+    dman(&dir).args(["config"]).assert().failure();
+}

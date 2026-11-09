@@ -5,7 +5,7 @@ use clap_complete::Shell;
 use dman_proto::method::LimitsUpdate;
 
 use super::print_json;
-use crate::cli::{Cli, LimitArgs};
+use crate::cli::{Cli, ConfigCmd, LimitArgs};
 use crate::connect::Ctx;
 use crate::error::CliError;
 use crate::format;
@@ -15,17 +15,23 @@ pub fn completions(shell: Shell) -> Result<i32, CliError> {
     Ok(0)
 }
 
-fn print_limits(ctx: &Ctx, l: &dman_proto::Limits) -> Result<i32, CliError> {
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0))
+}
+
+fn print_limits(
+    ctx: &Ctx,
+    l: &dman_proto::Limits,
+    s: Option<&dman_proto::method::ScheduleStatus>,
+) -> Result<i32, CliError> {
     if ctx.json {
         print_json(l)?;
     } else {
         print!(
             "{}",
-            format::key_values(&[
-                ("download", format::limit(l.download)),
-                ("upload", format::limit(l.upload)),
-                ("max-concurrent", l.max_concurrent.to_string()),
-            ])
+            format::key_values(&format::limit_lines(l, s, now_secs()))
         );
     }
     Ok(0)
@@ -44,7 +50,9 @@ pub async fn limit(ctx: &Ctx, a: &LimitArgs) -> Result<i32, CliError> {
             })
             .await?
     };
-    print_limits(ctx, &limits)
+    // The schedule is informational: failures to read it are ignored.
+    let sched = client.schedule().await.ok();
+    print_limits(ctx, &limits, sched.as_ref())
 }
 
 pub async fn max_concurrent(ctx: &Ctx, n: Option<u32>) -> Result<i32, CliError> {
@@ -85,11 +93,25 @@ pub fn stats_text(s: &dman_proto::GlobalStats) -> String {
 }
 
 pub async fn stats(ctx: &Ctx) -> Result<i32, CliError> {
-    let s = ctx.connect().await?.stats().await?;
+    let client = ctx.connect().await?;
+    let s = client.stats().await?;
     if ctx.json {
         print_json(&s)?;
     } else {
         print!("{}", stats_text(&s));
+        if s.schedule.as_ref().is_some_and(|b| b.active.is_some()) {
+            // Which limits the active window overrides (informational).
+            if let (Ok(l), Ok(sc)) = (client.limits_get().await, client.schedule().await) {
+                let lines: Vec<(String, String)> = format::limit_lines(&l, Some(&sc), now_secs())
+                    .into_iter()
+                    .filter(|(_, v)| v.contains("window '"))
+                    .map(|(k, v)| (format!("{k} limit"), v))
+                    .collect();
+                let pairs: Vec<(&str, String)> =
+                    lines.iter().map(|(k, v)| (k.as_str(), v.clone())).collect();
+                print!("{}", format::key_values(&pairs));
+            }
+        }
     }
     Ok(0)
 }
@@ -99,10 +121,21 @@ pub async fn schedule(ctx: &Ctx) -> Result<i32, CliError> {
     if ctx.json {
         print_json(&s)?;
     } else {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
-        print!("{}", format::schedule_text(&s, now));
+        print!("{}", format::schedule_text(&s, now_secs()));
     }
     Ok(0)
+}
+
+pub async fn config(ctx: &Ctx, cmd: &ConfigCmd) -> Result<i32, CliError> {
+    match cmd {
+        ConfigCmd::Reload => {
+            let r = ctx.connect().await?.config_reload().await?;
+            if ctx.json {
+                print_json(&r)?;
+            } else {
+                print!("{}", format::reload_text(&r));
+            }
+            Ok(0)
+        }
+    }
 }

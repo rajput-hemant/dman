@@ -39,6 +39,8 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Command::Rename { id, name, file } => {
             control::rename(&Ctx::load(&cli)?, *id, name, *file).await
         }
+        Command::Cleanup { id, yes } => control::cleanup(&Ctx::load(&cli)?, *id, *yes).await,
+        Command::Config { cmd } => misc::config(&Ctx::load(&cli)?, cmd).await,
         Command::Probe {
             url,
             playlist,

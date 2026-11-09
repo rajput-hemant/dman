@@ -53,6 +53,8 @@ pub struct ServerState {
     pub video: Arc<crate::video::VideoService>,
     /// The browser UI listener (`web.*`).
     pub web: Arc<crate::web::WebHost>,
+    /// Live configuration reload (`config.reload`).
+    pub reload: crate::reload::Reloader,
 }
 
 /// The axum router serving the API.
@@ -107,6 +109,7 @@ fn to_request(method: &str, params: Value) -> Result<Request, WireError> {
         method::JOBS_REORDER => p(parse(params).map(Request::Reorder))?,
         method::JOBS_SET_OPTIONS => p(parse(params).map(Request::SetOptions))?,
         method::JOBS_RENAME => p(parse(params).map(Request::Rename))?,
+        method::JOBS_CLEANUP_UNSELECTED => p(parse(params).map(Request::Cleanup))?,
         method::QUEUE_PAUSE_ALL => Request::PauseAll,
         method::QUEUE_RESUME_ALL => Request::ResumeAll,
         method::LIMITS_GET => Request::LimitsGet,
@@ -150,6 +153,7 @@ pub async fn dispatch(
             let status = state.engine.restart().await?;
             Ok(json!([status, crate::video::engine_status(&tools)]))
         }
+        method::CONFIG_RELOAD => Ok(json!(state.reload.reload(state).await?)),
         method::WEB_STATUS => Ok(json!(state.web.status().await)),
         method::WEB_START => {
             let p = parse::<method::WebStartParams>(params)?;

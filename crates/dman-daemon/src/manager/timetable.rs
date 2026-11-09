@@ -58,6 +58,18 @@ impl Timetable {
         }
     }
 
+    /// Replaces the windows and base limits (config reload); the schedule is
+    /// evaluated afresh at the next tick and runtime overrides are dropped.
+    pub(crate) fn reconfigure(&mut self, windows: Vec<ScheduleWindow>, base: Limits) {
+        self.windows = windows;
+        self.base = base;
+        self.temp = LimitsUpdate::default();
+        self.active = None;
+        self.initialised = false;
+        self.next = None;
+        self.computed_at = None;
+    }
+
     fn window(&self) -> Option<&ScheduleWindow> {
         self.active.and_then(|i| self.windows.get(i))
     }
@@ -97,6 +109,7 @@ impl Timetable {
             time_zone: self.tz_name.clone(),
             paused: self.paused(),
             override_active: self.override_active(),
+            base: Some(self.base.clone()),
         }
     }
 
@@ -308,6 +321,18 @@ impl Manager {
     /// The engine (re)started: its global options are gone.
     pub(super) fn limits_not_applied(&mut self) {
         self.timetable.applied = None;
+    }
+
+    /// `config.reload`: new limits, schedule, torrent and video settings.
+    pub(super) async fn apply_settings(&mut self, s: super::Settings) {
+        self.timetable.reconfigure(s.schedule, s.limits);
+        self.torrents = s.torrents;
+        self.video_cfg = s.video;
+        if self.timetable.windows.is_empty() {
+            self.apply_effective().await;
+        }
+        self.evaluate_schedule().await;
+        self.urgent = true;
     }
 
     pub(super) fn schedule_status(&self) -> ScheduleStatus {

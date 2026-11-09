@@ -21,7 +21,7 @@ use dman_proto::method::{Event, Level, Outcome};
 use dman_proto::{Job, JobId};
 use secrecy::SecretString;
 use serde::Serialize;
-use tokio::sync::{Semaphore, broadcast};
+use tokio::sync::{Semaphore, broadcast, watch};
 
 use crate::manager::{ManagerHandle, Request};
 
@@ -115,7 +115,8 @@ fn event_of(outcome: &Outcome) -> NotifyEvent {
     }
 }
 
-/// The notification service of the daemon.
+/// The notification service of the daemon. Cheap to clone.
+#[derive(Clone)]
 pub struct Notifier {
     cfg: Notify,
     webhook: Option<Arc<WebhookSender>>,
@@ -199,8 +200,13 @@ impl Notifier {
         }
     }
 
-    /// Runs until the event bus closes.
-    pub async fn run(self, mut rx: broadcast::Receiver<Event>, manager: ManagerHandle) {
+    /// Runs until the event bus closes. The notifier in `current` is looked up
+    /// for every event, so `config.reload` can swap it at any time.
+    pub async fn run(
+        current: watch::Receiver<Notifier>,
+        mut rx: broadcast::Receiver<Event>,
+        manager: ManagerHandle,
+    ) {
         loop {
             match rx.recv().await {
                 Ok(Event::JobFinished {
@@ -209,13 +215,17 @@ impl Notifier {
                     path,
                     outcome,
                 }) => {
+                    let this = current.borrow().clone();
+                    if this.is_idle() {
+                        continue;
+                    }
                     let job = match manager.call(Request::Get(id)).await {
                         Ok(v) => serde_json::from_value::<Job>(v).ok(),
                         Err(_) => None,
                     };
                     let at = crate::manager::now();
                     let payload = Payload::new(id, &name, &path, &outcome, job.as_ref(), at);
-                    self.dispatch(payload, &outcome);
+                    this.dispatch(payload, &outcome);
                 }
                 Ok(_) => {}
                 Err(broadcast::error::RecvError::Lagged(n)) => {

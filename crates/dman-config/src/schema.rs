@@ -209,6 +209,8 @@ pub struct Config {
     pub video: crate::Video,
     /// The browser UI served by the daemon.
     pub web: crate::Web,
+    /// Torrent settings.
+    pub torrents: crate::Torrents,
     /// Sections not yet understood by this version.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -227,6 +229,7 @@ impl Default for Config {
             search: crate::Search::default(),
             video: crate::Video::default(),
             web: crate::Web::default(),
+            torrents: crate::Torrents::default(),
             extra: toml::Table::new(),
         }
     }
@@ -318,6 +321,11 @@ on = ["completed", "failed", "seed_completed"]
 # on = ["completed"]
 # command = ["/home/me/bin/on-done", "--quiet"]
 # timeout_secs = 60
+
+[torrents]
+# When a torrent with deselected files completes: "never" (default) or "ask"
+# (dman tells you and asks before deleting their partial files; never automatic).
+remove_unselected = "never"
 
 [search]
 # Number of recent queries kept (0 = keep none).

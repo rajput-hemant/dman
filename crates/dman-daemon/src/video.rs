@@ -106,8 +106,8 @@ impl VideoService {
     }
 
     /// `video.preferences.get`.
-    pub fn preferences(&self) -> VideoPreferences {
-        preferences_of(&self.config_now())
+    pub fn preferences(&self) -> Result<VideoPreferences, RpcError> {
+        Ok(preferences_of(&self.config_now()))
     }
 
     /// The engine status entry of yt-dlp.

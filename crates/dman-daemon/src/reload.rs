@@ -93,6 +93,7 @@ pub(crate) fn diff(
 
 impl Reloader {
     /// `video.preferences.set` changed `[video]`: remember it as applied.
+    #[cfg_attr(not(feature = "video"), allow(dead_code))]
     pub(crate) fn note_video(&self, video: &dman_config::Video) {
         self.running.lock().unwrap_or_else(|e| e.into_inner()).video = video.clone();
     }

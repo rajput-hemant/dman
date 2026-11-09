@@ -8,8 +8,6 @@ use url::Url;
 pub const DEFAULT_TRACKER_LIST_URL: &str =
     "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt";
 
-use crate::{engine::Searcher, error::ProviderError};
-
 /// Parse a tracker list: one URL per line; blank lines and `#` comments are
 /// skipped; only http, https, udp and wss URLs with a host are kept;
 /// duplicates are removed (order preserved).
@@ -35,8 +33,9 @@ pub fn parse_tracker_list(text: &str) -> Vec<String> {
 
 /// Download and parse a tracker list with a default searcher. Use
 /// [`Searcher::fetch_tracker_list`] to go through the configured proxy.
-pub async fn fetch_tracker_list(url: &str) -> Result<Vec<String>, ProviderError> {
-    Searcher::new(crate::SearcherConfig::default())?
+#[cfg(feature = "engine")]
+pub async fn fetch_tracker_list(url: &str) -> Result<Vec<String>, crate::ProviderError> {
+    crate::Searcher::new(crate::SearcherConfig::default())?
         .fetch_tracker_list(url)
         .await
 }

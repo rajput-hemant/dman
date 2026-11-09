@@ -19,7 +19,7 @@ thiserror.workspace = true
 toml.workspace = true
 toml_edit = "0.25"
 url.workspace = true
-rustls-pki-types = "1"
+rustls-pki-types = { version = "1", features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"

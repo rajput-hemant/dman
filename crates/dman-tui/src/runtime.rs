@@ -268,17 +268,7 @@ fn spawn_cmd(cmd: Cmd, client: &ReconnectingClient, tx: &mpsc::Sender<Msg>) {
             ),
             Cmd::Notify { title, body } => {
                 // Best effort: a headless machine has no notification service.
-                let _ = blocking(move || {
-                    if let Err(e) = notify_rust::Notification::new()
-                        .appname("dman")
-                        .summary(&title)
-                        .body(&body)
-                        .show()
-                    {
-                        tracing::debug!("desktop notification not shown: {e}");
-                    }
-                })
-                .await;
+                let _ = blocking(move || show_notification(&title, &body)).await;
                 return;
             }
             Cmd::MarkWelcomeShown(path) => {
@@ -371,6 +361,22 @@ fn write_provider_file(path: &str, content: &str) -> Result<String, String> {
         .map_err(|e| format!("{path}: {e}"))?;
     Ok(path.to_owned())
 }
+
+/// Shows a desktop notification (blocking). Without the `notify` feature nothing is shown.
+#[cfg(feature = "notify")]
+fn show_notification(title: &str, body: &str) {
+    if let Err(e) = notify_rust::Notification::new()
+        .appname("dman")
+        .summary(title)
+        .body(body)
+        .show()
+    {
+        tracing::debug!("desktop notification not shown: {e}");
+    }
+}
+
+#[cfg(not(feature = "notify"))]
+fn show_notification(_title: &str, _body: &str) {}
 
 /// Text from the system clipboard. Fails on headless hosts and
 /// over SSH, where the terminal's own paste has to be used.

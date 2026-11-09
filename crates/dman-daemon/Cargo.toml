@@ -7,17 +7,27 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+default = ["web", "search", "video", "notify"]
+# The browser UI (`dman-web`) and its listener.
+web = ["dep:dman-web"]
+# Torrent search, providers and the public tracker list.
+search = ["dep:dman-search", "dep:toml"]
+# The yt-dlp video engine.
+video = []
+# Desktop notifications on the daemon host.
+notify = ["dep:notify-rust"]
+
 [dependencies]
 dman-proto.workspace = true
 dman-config.workspace = true
 dman-aria2.workspace = true
 dman-store.workspace = true
 dman-torrent.workspace = true
-dman-search.workspace = true
+dman-search = { workspace = true, features = ["engine"], optional = true }
 dman-ytdlp.workspace = true
-dman-web.workspace = true
+dman-web = { workspace = true, optional = true }
 anyhow.workspace = true
-thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "time", "fs", "net", "process"] }
 axum = { version = "0.8", default-features = false, features = ["ws", "tokio", "http1"] }
 subtle = "2.6"
@@ -26,7 +36,7 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 serde.workspace = true
 serde_json.workspace = true
 secrecy.workspace = true
-toml.workspace = true
+toml = { workspace = true, optional = true }
 tracing.workspace = true
 url.workspace = true
 base64 = "0.22"
@@ -37,12 +47,29 @@ hyper = { version = "1", default-features = false, features = ["server", "http1"
 hyper-util = { version = "0.1", default-features = false, features = ["tokio", "service"] }
 hmac = "0.13"
 sha2 = "0.11"
-notify-rust.workspace = true
+notify-rust = { workspace = true, optional = true }
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+
+[[test]]
+name = "search"
+required-features = ["search"]
+
+[[test]]
+name = "secrets_log"
+required-features = ["web"]
+
+[[test]]
+name = "video"
+required-features = ["video"]
+
+[[test]]
+name = "web"
+required-features = ["web"]
 
 [dev-dependencies]
 dman-client.workspace = true
 tracing-subscriber.workspace = true
+toml.workspace = true
 tempfile = "3"
 wiremock = "0.6"
 rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"] }

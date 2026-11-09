@@ -142,6 +142,7 @@ fn daemon_status_exits_3() {
 }
 
 #[test]
+#[cfg(feature = "web")]
 fn serve_stop_without_daemon_and_bad_bind() {
     let dir = config_dir();
     dman(&dir)
@@ -178,6 +179,7 @@ fn rename_and_preview_need_a_daemon_and_arguments() {
 }
 
 #[test]
+#[cfg(feature = "search")]
 fn search_commands_need_a_daemon_and_arguments() {
     let dir = config_dir();
     dman(&dir).args(["search"]).assert().code(2);
@@ -480,6 +482,7 @@ fn prompts_are_never_shown_without_a_terminal() {
 }
 
 #[test]
+#[cfg(feature = "search")]
 fn ctrl_c_ends_a_blocked_command_with_130() {
     use std::io::Write as _;
     let dir = config_dir();
@@ -513,4 +516,32 @@ fn ctrl_c_ends_a_blocked_command_with_130() {
     };
     drop(stdin);
     assert_eq!(status.code(), Some(130));
+}
+
+#[test]
+#[cfg(not(feature = "web"))]
+fn serve_explains_a_build_without_the_web_ui() {
+    let dir = config_dir();
+    dman(&dir)
+        .args(["serve"])
+        .assert()
+        .code(6)
+        .stderr(predicate::str::contains("rebuild with --features web"));
+}
+
+#[test]
+#[cfg(not(feature = "search"))]
+fn search_explains_a_build_without_search() {
+    let dir = config_dir();
+    for args in [
+        ["search", "ubuntu"],
+        ["providers", "list"],
+        ["trackers", "status"],
+    ] {
+        dman(&dir)
+            .args(args)
+            .assert()
+            .code(6)
+            .stderr(predicate::str::contains("rebuild with --features search"));
+    }
 }

@@ -6,9 +6,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{
-    error::DefError, error::ProviderError, feed, html, json, result::SearchResult, torznab, util,
-};
+use crate::{error::DefError, json, util};
+#[cfg(feature = "engine")]
+use crate::{error::ProviderError, feed, html, result::SearchResult, torznab};
 
 const BUILTIN_TOML: &str = include_str!("builtin.toml");
 
@@ -254,6 +254,7 @@ impl ProviderDef {
             Kind::Feed { url } => check_url_template(n, "url", url, false)?,
             Kind::Html(h) => {
                 check_url_template(n, "search_url", &h.search_url, true)?;
+                #[cfg(feature = "engine")]
                 html::Compiled::compile(h).map_err(|(f, e)| DefError::new(n, f, e))?;
                 if h.follow_detail_for_magnet {
                     if h.detail_magnet.is_none() {
@@ -365,6 +366,7 @@ impl ProviderDef {
 }
 
 /// Parse a response body with the definition's parser (no network).
+#[cfg(feature = "engine")]
 /// `strict` turns "found nothing" situations into precise errors.
 pub fn parse_response(
     def: &ProviderDef,

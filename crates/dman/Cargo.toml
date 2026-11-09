@@ -15,6 +15,17 @@ categories = ["command-line-utilities"]
 name = "dman"
 path = "src/main.rs"
 
+[features]
+default = ["web", "search", "video", "notify"]
+# `dman serve` and the browser UI.
+web = ["dman-daemon/web"]
+# Torrent search, providers and the public tracker list.
+search = ["dman-daemon/search"]
+# The yt-dlp video engine.
+video = ["dman-daemon/video"]
+# Desktop notifications (daemon and TUI).
+notify = ["dman-daemon/notify", "dman-tui/notify"]
+
 [dependencies]
 dman-proto.workspace = true
 dman-client.workspace = true
@@ -26,7 +37,6 @@ clap = { version = "4.6", default-features = false, features = ["std", "derive",
 # Dynamic completion engine is still behind `unstable-dynamic` in clap_complete 4.6; pinned so an update cannot break it.
 clap_complete = { version = "=4.6.11", features = ["unstable-dynamic"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time", "process", "io-std", "io-util"] }
-anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 secrecy.workspace = true

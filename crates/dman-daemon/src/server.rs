@@ -160,7 +160,7 @@ pub async fn dispatch(
             let p = parse::<dman_proto::VideoProbeParams>(params)?;
             Ok(json!(state.video.probe(p).await?))
         }
-        method::VIDEO_PREFERENCES_GET => Ok(json!(state.video.preferences())),
+        method::VIDEO_PREFERENCES_GET => Ok(json!(state.video.preferences()?)),
         method::VIDEO_PREFERENCES_SET => {
             let p = parse::<dman_proto::VideoPreferencesUpdate>(params)?;
             Ok(json!(crate::video::set_preferences(state, p).await?))

@@ -33,11 +33,23 @@ pub mod queue;
 mod reconcile;
 pub mod reload;
 pub mod schedule;
+#[cfg(feature = "search")]
+pub mod search;
+#[cfg(not(feature = "search"))]
+#[path = "search_off.rs"]
 pub mod search;
 pub mod server;
 pub mod tick;
 pub mod tls;
+#[cfg(feature = "video")]
 pub mod video;
+#[cfg(not(feature = "video"))]
+#[path = "video_off.rs"]
+pub mod video;
+#[cfg(feature = "web")]
+pub mod web;
+#[cfg(not(feature = "web"))]
+#[path = "web_off.rs"]
 pub mod web;
 
 use std::io::Write as _;

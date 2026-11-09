@@ -19,8 +19,8 @@ tracing.workspace = true
 secrecy.workspace = true
 url.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
-rustls-pki-types = "1"
-webpki-roots = "0.26"
+rustls-pki-types = { version = "1", features = ["std"] }
+webpki-roots = "1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "sync"] }

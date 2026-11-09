@@ -132,7 +132,7 @@ commit this file together with the code it describes.
 - [x] cargo-deny (licenses permissive only + MPL-2.0 exception — Q8, advisories), CI workflow (GitHub Actions: fmt, clippy, test, gated aria2/yt-dlp jobs, size report)
 - [x] README (concise, root) — `dman --help` polish is part of the CLI review
 - [x] Security review (done in the review pass): secrets never logged (grep logs in tests), path traversal (rename/delete/cleanup), webhook SSRF note, web auth, CSP; fix findings
-- [ ] Final size pass: measure, consider optional features (notify-rust/web/search/video as cargo features, default all on)
+- [x] Final size pass: features `web`, `search`, `video`, `notify` (all on by default; slim builds refuse with a rebuild hint), opt-level "s"; musl stripped: default 16.9 → 12.2 MB, `--no-default-features` 9.1 MB
 
 ### Follow-ups noted during M1
 - [x] Split `crates/dman-daemon/src/manager.rs` into `manager/` modules (largest 524 lines).

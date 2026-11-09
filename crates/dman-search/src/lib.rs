@@ -2,47 +2,40 @@
 //! Torznab / RSS / Atom / HTML / JSON responses, a concurrent search engine
 //! with per-provider isolation, and result aggregation.
 //!
-//! Typical use:
+//! The searcher and its example are in `engine` (feature `engine`, on by default).
 //!
-//! ```no_run
-//! use dman_search::{builtin_providers, Aggregator, ProviderEvent, Query, Searcher, SearcherConfig};
-//! use futures_util::StreamExt;
-//!
-//! # async fn demo() -> Result<(), dman_search::ProviderError> {
-//! let searcher = Searcher::new(SearcherConfig::default())?;
-//! let mut defs = builtin_providers();
-//! defs[2].enabled = true; // Nyaa
-//! searcher.set_providers(defs);
-//! let mut agg = Aggregator::default();
-//! let mut stream = Box::pin(searcher.search(&Query::new("ubuntu")));
-//! while let Some(event) = stream.next().await {
-//!     if let ProviderEvent::Results { results, .. } = event {
-//!         agg.add(results);
-//!     }
-//! }
-//! let ranked = agg.results();
-//! # let _ = ranked;
-//! # Ok(()) }
-//! ```
+//! Without the `engine` feature only the data model is built (provider definitions,
+//! results, tracker-list parsing): enough for configuration handling, without the
+//! HTTP client and the HTML/XML parsers.
 
 pub mod aggregate;
 pub mod def;
+#[cfg(feature = "engine")]
 pub mod engine;
 pub mod error;
+#[cfg(feature = "engine")]
 pub mod feed;
+#[cfg(feature = "engine")]
 pub mod html;
 pub mod json;
 pub mod result;
+#[cfg(feature = "engine")]
 pub mod torznab;
 pub mod trackers;
 pub mod util;
 
-pub use aggregate::{Aggregator, SortKey, aggregate, sort_by};
+#[cfg(feature = "engine")]
+pub use aggregate::aggregate;
+pub use aggregate::{Aggregator, SortKey, sort_by};
+#[cfg(feature = "engine")]
+pub use def::parse_response;
 pub use def::{
     HtmlSpec, HttpMethod, JsonSpec, Kind, ProviderDef, builtin_providers, export, import,
-    parse_response,
 };
+#[cfg(feature = "engine")]
 pub use engine::{ProviderEvent, Searcher, SearcherConfig, TestReport, test_provider};
 pub use error::{DefError, ProviderError};
 pub use result::{Query, SearchResult};
-pub use trackers::{DEFAULT_TRACKER_LIST_URL, fetch_tracker_list, parse_tracker_list};
+#[cfg(feature = "engine")]
+pub use trackers::fetch_tracker_list;
+pub use trackers::{DEFAULT_TRACKER_LIST_URL, parse_tracker_list};

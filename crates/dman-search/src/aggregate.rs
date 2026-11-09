@@ -2,7 +2,9 @@
 
 use std::{cmp::Ordering, collections::HashMap};
 
-use crate::{engine::ProviderEvent, result::SearchResult};
+#[cfg(feature = "engine")]
+use crate::engine::ProviderEvent;
+use crate::result::SearchResult;
 
 /// Sort keys for result lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +136,7 @@ fn cmp_opt_asc<T: Ord>(a: Option<T>, b: Option<T>) -> Ordering {
 }
 
 /// Merge the `Results` events of a search into a deduplicated, ranked list.
+#[cfg(feature = "engine")]
 pub fn aggregate(events: impl IntoIterator<Item = ProviderEvent>) -> Vec<SearchResult> {
     let mut agg = Aggregator::default();
     for e in events {
@@ -184,7 +187,7 @@ pub fn sort_by(results: &mut [SearchResult], key: SortKey, ascending: bool) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "engine"))]
 mod tests {
     use super::*;
 

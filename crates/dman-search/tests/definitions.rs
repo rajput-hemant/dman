@@ -158,6 +158,8 @@ fn import_errors_are_clear() {
     assert!(import("not toml [").is_err());
 }
 
+// Compiling the CSS selectors needs the HTML parser.
+#[cfg(feature = "engine")]
 #[test]
 fn validation_html() {
     let mut s = html_spec();

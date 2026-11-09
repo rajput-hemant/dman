@@ -1,5 +1,7 @@
 //! Remote operation: built-in TLS on the API and web listeners, `wss://` clients with a
 //! custom CA, and reconnecting after a daemon restart. No aria2 is needed.
+// The web-over-https test is the only user of `https` and `Pki::der`.
+#![cfg_attr(not(feature = "web"), allow(dead_code))]
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -219,6 +221,7 @@ async fn https(pki: &Pki, port: u16, method: &str, path: &str, body: &str) -> (u
     (status, text)
 }
 
+#[cfg(feature = "web")]
 #[tokio::test(flavor = "multi_thread")]
 async fn web_over_https_sets_secure_cookie() {
     let root = tempfile::tempdir().unwrap();

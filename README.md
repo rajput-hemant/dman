@@ -30,6 +30,8 @@ From source:
 cargo install --locked --git https://github.com/rajput-hemant/dman dman
 ```
 
+Slimmer builds: `--no-default-features --features web,search` (features: `web`, `search`, `video`, `notify`; all on by default).
+
 Then enable shell completions:
 
 ```bash

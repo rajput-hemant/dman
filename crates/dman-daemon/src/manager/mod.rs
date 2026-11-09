@@ -21,6 +21,10 @@ mod scheduler;
 pub mod seeding;
 mod timetable;
 mod util;
+#[cfg(feature = "video")]
+pub(crate) mod video;
+#[cfg(not(feature = "video"))]
+#[path = "video_off.rs"]
 pub(crate) mod video;
 
 use util::store_err;
@@ -292,10 +296,14 @@ pub struct Manager {
     pub(crate) torrents: dman_config::Torrents,
     /// yt-dlp / ffmpeg as detected now.
     pub(crate) tools: dman_ytdlp::Tools,
+    // The three video fields are unused without the `video` feature.
+    #[cfg_attr(not(feature = "video"), allow(dead_code))]
     pub(crate) video_tx: video::VideoTx,
     /// Counter identifying yt-dlp runs (stale completions are ignored).
+    #[cfg_attr(not(feature = "video"), allow(dead_code))]
     pub(crate) video_runs: u64,
     /// Minimum time between rate-share respawns of one video job.
+    #[cfg_attr(not(feature = "video"), allow(dead_code))]
     pub(crate) respawn_min: Duration,
 }
 

@@ -14,13 +14,13 @@ publish = false
 dman-proto = { path = "crates/dman-proto" }
 dman-config = { path = "crates/dman-config" }
 dman-aria2 = { path = "crates/dman-aria2" }
-dman-daemon = { path = "crates/dman-daemon" }
+dman-daemon = { path = "crates/dman-daemon", default-features = false }
 dman-client = { path = "crates/dman-client" }
-dman-tui = { path = "crates/dman-tui" }
+dman-tui = { path = "crates/dman-tui", default-features = false }
 dman-store = { path = "crates/dman-store" }
 dman-torrent = { path = "crates/dman-torrent" }
 dman-ytdlp = { path = "crates/dman-ytdlp" }
-dman-search = { path = "crates/dman-search" }
+dman-search = { path = "crates/dman-search", default-features = false }
 dman-web = { path = "crates/dman-web" }
 
 # runtime and data
@@ -53,10 +53,15 @@ lto = "fat"
 codegen-units = 1
 strip = true
 panic = "abort"
-opt-level = 3
+# Size over speed: the transfers are I/O-bound (aria2c/yt-dlp do the heavy work); "s" makes the
+# binary about 28 % smaller than 3.
+opt-level = "s"
 
 [profile.dev]
 debug = "line-tables-only"
+# Incremental caches grew past the session disk budget; full rebuilds of
+# changed crates are fast enough.
+incremental = false
 
 # Used by cargo-dist (see dist-workspace.toml): same as release, separate target dir name.
 [profile.dist]

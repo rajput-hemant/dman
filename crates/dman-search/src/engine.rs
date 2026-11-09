@@ -1,4 +1,27 @@
 //! The search engine: concurrent, isolated, rate-limited provider queries.
+//!
+//! Typical use:
+//!
+//! ```no_run
+//! use dman_search::{builtin_providers, Aggregator, ProviderEvent, Query, Searcher, SearcherConfig};
+//! use futures_util::StreamExt;
+//!
+//! # async fn demo() -> Result<(), dman_search::ProviderError> {
+//! let searcher = Searcher::new(SearcherConfig::default())?;
+//! let mut defs = builtin_providers();
+//! defs[2].enabled = true; // Nyaa
+//! searcher.set_providers(defs);
+//! let mut agg = Aggregator::default();
+//! let mut stream = Box::pin(searcher.search(&Query::new("ubuntu")));
+//! while let Some(event) = stream.next().await {
+//!     if let ProviderEvent::Results { results, .. } = event {
+//!         agg.add(results);
+//!     }
+//! }
+//! let ranked = agg.results();
+//! # let _ = ranked;
+//! # Ok(()) }
+//! ```
 
 use std::{
     collections::HashMap,

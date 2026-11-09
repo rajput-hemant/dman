@@ -5,6 +5,8 @@ cd "$(dirname "$0")/.."
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --quiet
+cargo clippy -p dman --no-default-features --all-targets -- -D warnings
+cargo test -p dman --no-default-features --quiet
 if [[ "${1:-}" == "--size" ]]; then
   CC_x86_64_unknown_linux_musl=musl-gcc cargo build --release --target x86_64-unknown-linux-musl -p dman --quiet
   bin=target/x86_64-unknown-linux-musl/release/dman

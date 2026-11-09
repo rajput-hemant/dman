@@ -31,6 +31,13 @@ pub fn say(ctx: &Ctx, human: &str, status: &str) -> Result<(), CliError> {
     }
 }
 
+/// The error for a command whose feature was compiled out of this build.
+fn missing(what: &str, feature: &str) -> CliError {
+    CliError::refused(format!(
+        "this build of dman has no {what}; rebuild with --features {feature}"
+    ))
+}
+
 /// Prompts are shown only when both ends are a terminal (stdin to answer, stderr
 /// where the question appears). Anything else must pass `--yes` or fails.
 pub fn can_prompt() -> bool {
@@ -48,6 +55,12 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
     };
     match command {
         Command::Completions(args) => crate::completion::run(args, cli.json),
+        Command::Search(_) | Command::Providers { .. } | Command::Trackers { .. }
+            if !cfg!(feature = "search") =>
+        {
+            Err(missing("torrent search", "search"))
+        }
+        Command::Serve(_) if !cfg!(feature = "web") => Err(missing("web UI", "web")),
         Command::Search(args) => search::run(&Ctx::load(&cli)?, args).await,
         Command::Providers { cmd } => providers::run(&Ctx::load(&cli)?, cmd).await,
         Command::Trackers { cmd } => providers::trackers(&Ctx::load(&cli)?, cmd).await,

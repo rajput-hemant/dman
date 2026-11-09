@@ -58,7 +58,7 @@ commit this file together with the code it describes.
 Detailed task lists are written when the previous milestone finishes.
 
 ### Follow-ups noted during M1
-- Split `crates/dman-daemon/src/manager.rs` (~2000 lines) into smaller modules.
+- [x] Split `crates/dman-daemon/src/manager.rs` into `manager/` modules (largest 524 lines).
 - `AddOutcome::Added` carries one id; metalinks that create several jobs report only the first → extend proto (`ids`).
 - `limits.set` is runtime-only; persist to config via ConfigDoc (M3 settings work).
 - If aria2c is missing at daemon start, the daemon never retries; add an `engine.restart` method / retry when the binary appears (M3).

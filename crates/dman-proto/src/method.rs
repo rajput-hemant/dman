@@ -24,6 +24,7 @@ pub const QUEUE_PAUSE_ALL: &str = "queue.pause_all";
 pub const QUEUE_RESUME_ALL: &str = "queue.resume_all";
 pub const LIMITS_GET: &str = "limits.get";
 pub const LIMITS_SET: &str = "limits.set";
+pub const SCHEDULE_GET: &str = "schedule.get";
 pub const STATS_GET: &str = "stats.get";
 pub const STATS_HISTORY: &str = "stats.history";
 pub const FS_LIST: &str = "fs.list";
@@ -169,6 +170,53 @@ pub struct LimitsUpdate {
     pub download: Option<u64>,
     pub upload: Option<u64>,
     pub max_concurrent: Option<u32>,
+}
+
+/// One configured schedule window, as returned by `schedule.get`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowInfo {
+    pub name: String,
+    /// Weekdays the window starts on, expanded and in week order
+    /// (`"mon"`..`"sun"`).
+    pub days: Vec<String>,
+    /// `HH:MM` local time, inclusive.
+    pub start: String,
+    /// `HH:MM` local time, exclusive; earlier than `start` = crosses midnight.
+    pub end: String,
+    /// `"run"` or `"pause"`.
+    pub action: String,
+    /// Download cap (bytes/s, 0 = unlimited) applied inside the window; `None` = base limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_limit: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload_limit: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_concurrent: Option<u32>,
+}
+
+/// Result of `schedule.get`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduleStatus {
+    /// Configured windows in priority order (first match wins).
+    pub windows: Vec<WindowInfo>,
+    /// Name of the window active now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active: Option<String>,
+    /// Unix seconds of the next change of the active window.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_change: Option<i64>,
+    /// Name of the window after the next change (`None` = outside all windows).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_window: Option<String>,
+    /// Local time zone used for the windows (IANA name, or `UTC` on fallback).
+    #[serde(default)]
+    pub time_zone: String,
+    /// Downloads are currently held back by a pause window.
+    #[serde(default)]
+    pub paused: bool,
+    /// A runtime `limits.set` override is in effect until the next transition.
+    #[serde(default)]
+    pub override_active: bool,
 }
 
 /// `fs.list`: list a directory of the daemon host (for directory pickers).

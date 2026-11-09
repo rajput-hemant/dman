@@ -14,6 +14,7 @@ mod poll;
 mod remove;
 mod rename;
 mod scheduler;
+mod timetable;
 mod util;
 
 use util::store_err;
@@ -35,6 +36,8 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::Instant;
+
+use timetable::Timetable;
 
 use crate::tick::Counters;
 
@@ -71,6 +74,8 @@ pub enum Request {
     LimitsGet,
     /// `limits.set`
     LimitsSet(LimitsUpdate),
+    /// `schedule.get`
+    ScheduleGet,
     /// `stats.get`
     Stats,
     /// `stats.history`
@@ -125,8 +130,14 @@ pub struct ManagerConfig {
     pub store: Store,
     /// The served profile (download dir, disk thresholds).
     pub profile: Profile,
-    /// Initial limits.
+    /// The configured `[limits]` (base limits, outside any schedule window).
     pub limits: Limits,
+    /// Schedule windows in priority order (empty = everything runs always).
+    pub schedule: Vec<dman_config::ScheduleWindow>,
+    /// Time source for the schedule.
+    pub clock: std::sync::Arc<dyn crate::schedule::Clock>,
+    /// Where base limit changes are saved; `None` = runtime only.
+    pub config_paths: Option<dman_config::Paths>,
     /// Poll interval.
     pub tick: Duration,
     /// Event bus.
@@ -194,7 +205,9 @@ pub struct Manager {
     pub(crate) store: Store,
     pub(crate) profile: Profile,
     pub(crate) default_dir: PathBuf,
-    limits: Limits,
+    /// Limits in effect (base, window and temporary overrides applied).
+    pub(crate) limits: Limits,
+    pub(crate) timetable: Timetable,
     tick_every: Duration,
     events: broadcast::Sender<Event>,
     pub(crate) jobs: HashMap<JobId, Entry>,
@@ -226,6 +239,12 @@ impl Manager {
             store: cfg.store,
             profile: cfg.profile,
             default_dir,
+            timetable: Timetable::new(
+                cfg.schedule,
+                cfg.clock,
+                cfg.config_paths,
+                cfg.limits.clone(),
+            ),
             limits: cfg.limits,
             tick_every: cfg.tick,
             events: cfg.events,
@@ -372,11 +391,8 @@ impl Manager {
                     self.message(Level::Info, "aria2 is running again");
                 }
                 self.engine_was_down = false;
-                let limits =
-                    dman_aria2::global_limits(self.limits.download, self.limits.upload, None);
-                if let Err(e) = client.change_global_option(&limits).await {
-                    tracing::warn!("cannot apply global limits: {e}");
-                }
+                self.limits_not_applied();
+                self.sync_global_limits().await;
                 self.reconcile(&client).await;
                 self.tick().await;
                 Some(notif)
@@ -512,6 +528,7 @@ impl Manager {
                 self.tick().await;
                 to_value(l)
             }
+            Request::ScheduleGet => to_value(self.schedule_status()),
             Request::Stats => to_value(self.stats()),
             Request::StatsHistory => to_value(self.history.global()),
             Request::EngineStatus => to_value(vec![self.engine.clone()]),

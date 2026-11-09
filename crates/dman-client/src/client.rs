@@ -411,6 +411,11 @@ macro_rules! typed_api {
             self.call(method::LIMITS_SET, update).await
         }
 
+        /// `schedule.get`: configured windows, the active one and the next change.
+        pub async fn schedule(&self) -> Result<dman_proto::method::ScheduleStatus, ClientError> {
+            self.call(method::SCHEDULE_GET, ()).await
+        }
+
         /// `stats.get`
         pub async fn stats(&self) -> Result<GlobalStats, ClientError> {
             self.call(method::STATS_GET, ()).await

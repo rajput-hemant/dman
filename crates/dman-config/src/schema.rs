@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::schedule::{ScheduleWindow, validate_windows};
 use crate::units::{ByteLimit, DiskThreshold};
 use crate::{ConfigError, Paths, fsutil};
 
@@ -183,7 +184,7 @@ impl Default for Ui {
 ///
 /// `deny_unknown_fields` cannot be combined with `#[serde(flatten)]`, so the
 /// top level is lenient: unknown tables (future `video`, `providers`, `web`,
-/// `notify`, `schedule` sections) are captured in [`Config::extra`] and written
+/// `notify` sections) are captured in [`Config::extra`] and written
 /// back unchanged. All nested sections remain strict.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -198,6 +199,8 @@ pub struct Config {
     pub aria2: Aria2,
     /// UI settings.
     pub ui: Ui,
+    /// Schedule windows (`[[schedule]]`); first match wins, see [`crate::schedule`].
+    pub schedule: Vec<ScheduleWindow>,
     /// Sections not yet understood by this version.
     #[serde(flatten)]
     pub extra: toml::Table,
@@ -211,6 +214,7 @@ impl Default for Config {
             limits: Limits::default(),
             aria2: Aria2::default(),
             ui: Ui::default(),
+            schedule: Vec::new(),
             extra: toml::Table::new(),
         }
     }
@@ -256,6 +260,29 @@ tick_ms = 1000
 theme = "default"
 mouse = false
 refresh_ms = 250
+
+# Schedule windows (all times are local wall-clock time). Outside every window
+# [limits] applies; with no windows everything runs always. Windows may overlap:
+# the first match wins. An end before the start crosses midnight, and `days`
+# names the day the window starts on. Actions: "run" (optional limits override
+# [limits]) or "pause" (dman starts nothing and pauses what it started).
+# days: mon..sun, weekdays, weekends, daily (default).
+#
+# [[schedule]]
+# name = "night"
+# days = ["daily"]
+# start = "01:00"
+# end = "07:00"
+# action = "run"
+# download_limit = "0"        # unlimited at night
+# max_concurrent = 6
+#
+# [[schedule]]
+# name = "work"
+# days = ["weekdays"]
+# start = "09:00"
+# end = "17:00"
+# action = "pause"
 "#;
 
 impl Config {
@@ -349,6 +376,9 @@ impl Config {
         if self.limits.max_concurrent == 0 {
             return bad("limits.max_concurrent must be at least 1".into());
         }
+        if let Err(m) = validate_windows(&self.schedule) {
+            return bad(m);
+        }
         if self.aria2.rpc_port == 0 {
             return bad("aria2.rpc_port must be non-zero".into());
         }
@@ -439,6 +469,31 @@ mod tests {
             msg.contains("config.toml") && msg.contains("line 2"),
             "{msg}"
         );
+    }
+
+    #[test]
+    fn schedule_section_parses_validates_and_round_trips() {
+        let c = parse(
+            "[[schedule]]\nname = \"night\"\nstart = \"22:00\"\nend = \"06:00\"\ndownload_limit = \"10MiB\"\nmax_concurrent = 5\n\n[[schedule]]\nname = \"work\"\ndays = [\"weekdays\"]\nstart = \"09:00\"\nend = \"17:00\"\naction = \"pause\"\n",
+        )
+        .unwrap();
+        c.validate().unwrap();
+        assert!(c.extra.is_empty());
+        assert_eq!(c.schedule.len(), 2);
+        assert_eq!(c.schedule[0].download_limit, Some(ByteLimit(10 << 20)));
+        assert_eq!(c.schedule[1].action, crate::ScheduleAction::Pause);
+        let text = toml::to_string(&c).unwrap();
+        assert_eq!(parse(&text).unwrap(), c);
+    }
+
+    #[test]
+    fn schedule_validation_failures() {
+        let dup = "[[schedule]]\nname=\"a\"\nstart=\"01:00\"\nend=\"02:00\"\n[[schedule]]\nname=\"a\"\nstart=\"03:00\"\nend=\"04:00\"\n";
+        assert!(parse(dup).unwrap().validate().is_err());
+        let bad_time = "[[schedule]]\nname=\"a\"\nstart=\"25:00\"\nend=\"02:00\"\n";
+        assert!(parse(bad_time).is_err());
+        let equal = "[[schedule]]\nname=\"a\"\nstart=\"01:00\"\nend=\"01:00\"\n";
+        assert!(parse(equal).unwrap().validate().is_err());
     }
 
     #[test]

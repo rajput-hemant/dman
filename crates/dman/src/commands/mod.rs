@@ -44,6 +44,7 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
         Command::Reorder(a) => control::reorder(&Ctx::load(&cli)?, a).await,
         Command::Limit(a) => misc::limit(&Ctx::load(&cli)?, a).await,
         Command::MaxConcurrent { n } => misc::max_concurrent(&Ctx::load(&cli)?, *n).await,
+        Command::Schedule => misc::schedule(&Ctx::load(&cli)?).await,
         Command::Stats => misc::stats(&Ctx::load(&cli)?).await,
     }
 }

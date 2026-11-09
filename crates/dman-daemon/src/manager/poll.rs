@@ -27,6 +27,7 @@ impl Manager {
     /// One poll: refresh every job from aria2, run the scheduler, publish
     /// changes and statistics, persist.
     pub(crate) async fn tick(&mut self) {
+        self.evaluate_schedule().await;
         if let Some(client) = self.client.clone() {
             match self.poll(&client).await {
                 Ok(()) => self.poll_failing = false,

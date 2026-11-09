@@ -51,6 +51,12 @@ impl Manager {
                 ));
             }
         }
+        // A pause window holds everything back: no slots at all.
+        let max_concurrent = if self.timetable.paused() {
+            0
+        } else {
+            self.limits.max_concurrent
+        };
         // Too many running (aria2 resumed downloads by itself): preempt.
         let running: Vec<(JobId, u64)> = self
             .jobs
@@ -59,7 +65,7 @@ impl Manager {
             .filter(|e| !to_pause.iter().any(|(id, _)| *id == e.rec.id))
             .map(|e| (e.rec.id, e.rec.queue_key))
             .collect();
-        for id in queue::plan_preempt(self.limits.max_concurrent, &running) {
+        for id in queue::plan_preempt(max_concurrent, &running) {
             to_pause.push((id, None));
         }
         for (id, msg) in to_pause {
@@ -110,7 +116,7 @@ impl Manager {
         candidates.sort();
         let ids: Vec<JobId> = candidates.iter().map(|c| c.1).collect();
         let dirs: HashMap<JobId, String> = candidates.into_iter().map(|c| (c.1, c.2)).collect();
-        let plan = queue::plan_starts(self.limits.max_concurrent, running, &ids, |id| {
+        let plan = queue::plan_starts(max_concurrent, running, &ids, |id| {
             dirs.get(&id)
                 .is_none_or(|d| !disk::blocks(&min_free, space_of(d)))
         });

@@ -99,3 +99,16 @@ pub async fn stats(ctx: &Ctx) -> Result<i32, CliError> {
     }
     Ok(0)
 }
+
+pub async fn schedule(ctx: &Ctx) -> Result<i32, CliError> {
+    let s = ctx.connect().await?.schedule().await?;
+    if ctx.json {
+        print_json(&s)?;
+    } else {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+        print!("{}", format::schedule_text(&s, now));
+    }
+    Ok(0)
+}

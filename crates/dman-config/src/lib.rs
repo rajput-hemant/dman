@@ -9,6 +9,7 @@ mod edit;
 mod error;
 mod fsutil;
 mod paths;
+mod schedule;
 mod schema;
 mod secrets;
 mod units;
@@ -16,6 +17,7 @@ mod units;
 pub use edit::ConfigDoc;
 pub use error::ConfigError;
 pub use paths::{ENV_CONFIG_DIR, Paths};
+pub use schedule::{ClockTime, DaySpec, ScheduleAction, ScheduleWindow, Weekday, validate_windows};
 pub use schema::{
     Aria2, Config, DEFAULT_CONFIG_TOML, DaemonTarget, ENV_PROFILE, Limits, Profile, Ui,
     expand_tilde,

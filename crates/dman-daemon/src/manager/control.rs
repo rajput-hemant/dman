@@ -1,10 +1,8 @@
 //! Job and queue control: pause, resume, reorder, options and limits.
 
 use dman_aria2::{DownloadStatus, Gid, PosHow, job_options_to_aria2, requires_pause};
-use dman_proto::method::{
-    BatchFailure, BatchResult, Event, LimitsUpdate, ReorderParams, SetOptionsParams,
-};
-use dman_proto::{ErrorCode, JobId, JobState, Limits, RpcError};
+use dman_proto::method::{BatchFailure, BatchResult, ReorderParams, SetOptionsParams};
+use dman_proto::{ErrorCode, JobId, JobState, RpcError};
 use dman_store::{Desired, LiveFigures};
 
 use crate::queue;
@@ -13,37 +11,6 @@ use super::util::{engine_err, merge_options, pause_gid, resolve_dir, unavailable
 use super::{Entry, Manager};
 
 impl Manager {
-    pub(super) async fn set_limits(&mut self, u: LimitsUpdate) -> Result<Limits, RpcError> {
-        if u.max_concurrent == Some(0) {
-            return Err(RpcError::invalid("max_concurrent must be at least 1"));
-        }
-        let mut next = self.limits.clone();
-        if let Some(d) = u.download {
-            next.download = d;
-        }
-        if let Some(up) = u.upload {
-            next.upload = up;
-        }
-        if let Some(m) = u.max_concurrent {
-            next.max_concurrent = m;
-        }
-        if (next.download, next.upload) != (self.limits.download, self.limits.upload) {
-            let client = self
-                .client
-                .clone()
-                .ok_or_else(|| unavailable(self.engine.reason.as_deref().unwrap_or("down")))?;
-            client
-                .change_global_option(&dman_aria2::global_limits(next.download, next.upload, None))
-                .await
-                .map_err(engine_err)?;
-        }
-        self.limits = next.clone();
-        self.emit(Event::Limits {
-            limits: next.clone(),
-        });
-        Ok(next)
-    }
-
     // ----- pause / resume ----------------------------------------------------
 
     pub(super) async fn pause(&mut self, ids: &[JobId]) -> BatchResult {

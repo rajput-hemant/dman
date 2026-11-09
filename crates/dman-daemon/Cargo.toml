@@ -26,9 +26,11 @@ secrecy.workspace = true
 tracing.workspace = true
 url.workspace = true
 base64 = "0.22"
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 
 [dev-dependencies]
 dman-client = { path = "../dman-client" }
+toml.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "net", "io-util"] }
 

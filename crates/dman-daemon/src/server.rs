@@ -105,6 +105,7 @@ fn to_request(method: &str, params: Value) -> Result<Request, WireError> {
         method::QUEUE_RESUME_ALL => Request::ResumeAll,
         method::LIMITS_GET => Request::LimitsGet,
         method::LIMITS_SET => p(parse(params).map(Request::LimitsSet))?,
+        method::SCHEDULE_GET => Request::ScheduleGet,
         method::STATS_GET => Request::Stats,
         method::STATS_HISTORY => Request::StatsHistory,
         method::ENGINE_STATUS => Request::EngineStatus,

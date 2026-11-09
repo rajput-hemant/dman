@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 41 %** · Current milestone: **M3 — detail and control** · Last updated: 2026-11-09
+**Overall: 46 %** · Current milestone: **M4 — daemon services** (M5 search library started in parallel) · Last updated: 2026-11-09
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -20,8 +20,8 @@ commit this file together with the code it describes.
 | M0 Spikes (de-risk aria2/yt-dlp behaviour, size baseline) | 5 | done |
 | M1 Foundation (workspace, proto, config, aria2 client, daemon lifecycle, API, basic CLI) | 15 | done |
 | M2 TUI core (loop, keymap, palette, downloads view, add view, confirmations) | 12 | done |
-| M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | in progress |
-| M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | — |
+| M3 Detail and control (detail tabs, rename, limits, reorder, speed history) | 10 | done |
+| M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | in progress |
 | M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | — |
 | M6 Video engine (yt-dlp adapter, probe UI, options, fallbacks) | 10 | — |
 | M7 Web UI (htmx views, live updates, upload, auth, responsive) | 12 | — |
@@ -60,17 +60,28 @@ commit this file together with the code it describes.
 - [x] Rename: waiting/paused → `out`/`index-out` (full mapping, spike); completed → move on disk + record in rename log; never for active (reason shown). API `jobs.rename`, TUI dialog, CLI `dman rename`
 - [x] Magnet preview backend: `jobs.preview_magnet` (metadata-only in a private dir, not a job, cleaned up), CLI `dman preview`; new crate dman-torrent
 - [x] TUI: rename dialog (Downloads + Detail) and magnet preview with file selection in the Add preview (use dman-torrent instead of the TUI's own bencode copy)
-- [ ] Runtime limits: per-download limits editable in Detail → Options (done); global limits/max-concurrent persisted to config (ConfigDoc) — being done with M4 schedule work
+- [x] Runtime limits: per-download limits in Detail → Options; global limits/max-concurrent saved to `[limits]` via ConfigDoc (temporary override while a run window sets that field)
 - [x] Global speed graph in downloads view (`w`); engine/daemon shutdown from UI is `Q` (confirmed)
 - [x] Help screen lists popup keys; Esc in a non-empty Add form asks before discarding
 
-### M4 … M8
-Detailed task lists are written when the previous milestone finishes.
+### M4 — Daemon services (13 %)
+- [x] dman-owned queue, disk guard (start refusal + pause/auto-resume), redb store, history across restarts (done in M1)
+- [x] Schedule windows `[[schedule]]` (run/pause, per-window limits, DST-safe via jiff), `schedule.get`, CLI `dman schedule`
+- [ ] Push active window + next change with stats (`GlobalStats.schedule: Option<ScheduleBrief>`, serde default) and show it in the TUI header; `dman limit` shows window overrides
+- [ ] Hooks on completion / error / end of seeding (`[notify.hooks]` commands, env DMAN_EVENT/ID/NAME/PATH/STATUS/ENGINE/SIZE, timeout, no shell unless configured), webhook POST with retry (`[notify.webhook]`), events `JobCompleted/JobFailed/SeedCompleted` (additive)
+- [ ] Desktop notifications (notify-rust) shown by the TUI client (D20); optional on daemon host (`[notify] desktop_on_daemon = true`)
+- [ ] Tracker-list source: download URL on a timer (Q2), cache in data dir, attach to new torrents when enabled (`bt-tracker`), CLI/TUI status
+- [ ] Remove-unselected-files cleanup (D28: opt-in + confirmation) after torrent completion
+- [ ] Real-aria2 tests for seeding/ratio stop (D12) using the local seeder fixture (crates/dman-daemon/tests/fixtures/seeder.py)
+- [ ] Hot reload of `[[schedule]]`/limits when config.toml changes (`config.reload` API + TUI settings later)
+
+### M5 … M8
+Detailed task lists are written when the previous milestone finishes. M5 library (`dman-search`) is being built in parallel.
 
 ### Follow-ups noted during M1
 - [x] Split `crates/dman-daemon/src/manager.rs` into `manager/` modules (largest 524 lines).
 - [x] `AddOutcome::Added` now has `extra_ids` (metalinks with several files).
-- `limits.set` is runtime-only; persist to config via ConfigDoc (M3 settings work).
+- [x] `limits.set` persisted to config (done with M4 schedule work).
 - [x] `engine.restart` method + background retry every 60 s while the engine is unavailable; CLI `dman daemon engine-restart`.
 - Magnet follow-up, seeding, metalink and adoption paths are not yet tested against real aria2 (needs local tracker + seeder fixture from spikes/aria2/lib.py idea) — add in M4.
 - cargo-deny config (M8).
@@ -167,4 +178,4 @@ scraper 0.29 · quick-xml 0.42 · redb 4.5 · notify-rust 4.19 · insta · asser
 
 ## Session log
 
-- 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 done; M1 done (135 tests); M2 done (278 tests).
+- 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 done; M1 done (135 tests); M2 done (278 tests); M3 done; M4 schedules (372 tests).

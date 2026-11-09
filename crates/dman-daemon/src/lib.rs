@@ -25,6 +25,7 @@ pub mod ops;
 pub mod preview;
 pub mod queue;
 mod reconcile;
+pub mod schedule;
 pub mod server;
 pub mod tick;
 
@@ -88,6 +89,15 @@ fn lock(paths: &Paths, profile: &str) -> anyhow::Result<std::fs::File> {
 /// (API `daemon.shutdown`, SIGINT or SIGTERM; SIGHUP is ignored). Returns once
 /// everything is flushed and the engine is stopped.
 pub async fn run(opts: DaemonOptions) -> anyhow::Result<()> {
+    run_with_clock(opts, schedule::system_clock()).await
+}
+
+/// Like [`run`] with an explicit time source for the schedule (tests move
+/// time with it).
+pub async fn run_with_clock(
+    opts: DaemonOptions,
+    clock: Arc<dyn schedule::Clock>,
+) -> anyhow::Result<()> {
     let DaemonOptions {
         paths,
         config,
@@ -162,6 +172,9 @@ pub async fn run(opts: DaemonOptions) -> anyhow::Result<()> {
             upload: config.limits.upload.0,
             max_concurrent: config.limits.max_concurrent,
         },
+        schedule: config.schedule.clone(),
+        clock,
+        config_paths: Some(paths.clone()),
         tick: Duration::from_millis(config.aria2.tick_ms.max(50)),
         events: events.clone(),
         engine: engine_rx,

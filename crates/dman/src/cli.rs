@@ -79,6 +79,8 @@ pub enum Command {
         /// New limit; omit to print the current one.
         n: Option<u32>,
     },
+    /// Show the schedule windows, the active one and the next change.
+    Schedule,
     /// Show global statistics.
     Stats,
     /// Print a shell completion script.

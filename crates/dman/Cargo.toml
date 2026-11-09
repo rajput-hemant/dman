@@ -29,6 +29,7 @@ bytesize.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 base64 = "0.22"
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 nix = { version = "0.31", default-features = false, features = ["process"] }
 
 [dev-dependencies]

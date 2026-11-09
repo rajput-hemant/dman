@@ -37,7 +37,7 @@ commit this file together with the code it describes.
 - [ ] `dman-proto`: Job model, states, options, events, JSON-RPC envelope, error codes
 - [x] `dman-config`: profiles, TOML load/validate, secrets.toml (0600), paths (`~/.config/dman`)
 - [x] `dman-aria2`: typed JSON-RPC/WebSocket client, notifications, multicall
-- [ ] `dman-aria2` supervisor + adapter: JobOptions→aria2 option mapping, capability detection (getVersion features), spawn/attach, port probe, generated aria2 config, restart with backoff, clean shutdown
+- [x] `dman-aria2` supervisor + adapter: JobOptions→aria2 option mapping, capability detection (getVersion features), spawn/attach, port probe, generated aria2 config, restart with backoff, clean shutdown
 - [x] `dman-store` (redb, pulled forward from M4 because the store is authoritative): jobs, blobs (.torrent), meta counters
 - [ ] `dman-daemon` skeleton: job manager (GID↔JobId), tick poller + deltas, event bus, API server (JSON-RPC over WS + POST), token auth
 - [x] `dman-client`: WebSocket JSON-RPC client, hello/auth, typed methods, subscribe, ReconnectingClient (no queued actions)

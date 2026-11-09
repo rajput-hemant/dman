@@ -114,6 +114,8 @@ fn render(s: &Aria2Settings, secret: &str) -> String {
     line("check-certificate", "true");
     line("summary-interval", "0");
     line("console-log-level", "warn");
+    line("show-console-readout", "false");
+    line("download-result", "hide");
     if let Some(l) = &s.log_file {
         line("log", &l.display().to_string());
         line("log-level", "notice");

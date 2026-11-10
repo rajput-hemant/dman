@@ -280,7 +280,7 @@ pub struct PeerInfo {
     pub progress: f64,
 }
 
-/// Tracker status. aria2 does not report it (decision D13), so it is always
+/// Tracker status. aria2 does not report it, so it is always
 /// `Unknown` for now.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
 const DETECT_TIMEOUT: Duration = Duration::from_secs(5);
-/// Decision Q7: yt-dlp should not be older than 12 months.
+/// yt-dlp should not be older than 12 months.
 const MAX_AGE_DAYS: i64 = 365;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

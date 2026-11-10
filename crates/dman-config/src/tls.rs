@@ -1,5 +1,5 @@
 //! TLS settings: certificate/key files for listeners and CA/verification options for
-//! remote profiles (decision D24; rustls with the ring provider, D18).
+//! remote profiles (rustls with the ring provider).
 
 use std::path::{Path, PathBuf};
 

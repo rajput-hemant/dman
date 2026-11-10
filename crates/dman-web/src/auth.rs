@@ -2,7 +2,7 @@
 //! DNS-rebinding defence and security headers. One middleware ([`guard`]) covers
 //! every route.
 //!
-//! * No token (loopback, decision U3): no login at all. What keeps other websites out
+//! * No token (loopback): no login at all. What keeps other websites out
 //!   is invisible to the user: the `Host` header must name loopback, the bind address
 //!   or an allowed host (a rebound DNS name never passes), requests relayed by a proxy
 //!   are refused on a loopback-only UI, and the CSRF checks below.

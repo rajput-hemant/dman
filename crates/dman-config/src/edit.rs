@@ -1,4 +1,4 @@
-//! Comment-preserving config editing (decision Q5).
+//! Comment-preserving config editing.
 
 use std::path::{Path, PathBuf};
 

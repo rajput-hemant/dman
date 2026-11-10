@@ -128,7 +128,7 @@ pub(crate) fn trackers_from(tiers: &[Vec<String>]) -> Vec<TrackerInfo> {
             urls.iter().map(move |url| TrackerInfo {
                 url: url.clone(),
                 tier: u32::try_from(tier).unwrap_or(u32::MAX),
-                // aria2 does not report tracker status (decision D13).
+                // aria2 does not report tracker status.
                 status: TrackerStatus::Unknown,
             })
         })

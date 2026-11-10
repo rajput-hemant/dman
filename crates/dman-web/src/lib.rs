@@ -8,7 +8,7 @@
 //! * Live updates: `GET {base}/events` pushes changed download cards, the detail
 //!   header, search results, the stats bar and status messages, throttled to two
 //!   batches per second per client.
-//! * Auth (decision U3): no login when the host serves loopback only; an access token
+//! * Auth: no login when the host serves loopback only; an access token
 //!   (session cookie or `Authorization: Bearer`) when it is reachable from the network.
 //!   Always, invisibly: CSRF protection (Origin/`Sec-Fetch-Site` check plus a per-page
 //!   token that htmx and `app.js` send by themselves) on every state-changing request,

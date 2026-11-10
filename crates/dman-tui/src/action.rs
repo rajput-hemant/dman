@@ -659,7 +659,7 @@ impl Action {
     }
 
     /// Whether the action talks to the daemon and is therefore disabled while
-    /// disconnected (decision Q4: actions are never queued).
+    /// disconnected (actions are never queued).
     pub const fn needs_connection(self) -> bool {
         matches!(
             self,

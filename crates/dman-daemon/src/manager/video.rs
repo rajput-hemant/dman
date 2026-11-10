@@ -1,10 +1,10 @@
-//! Video jobs (yt-dlp engine) in the same queue as aria2 jobs (D5).
+//! Video jobs (yt-dlp engine) in the same queue as aria2 jobs.
 //!
 //! * Start: the scheduler spawns one yt-dlp process per running job; a
 //!   forwarder task folds its progress into a shared [`VideoShared`] (read on
 //!   every tick) and reports the [`Outcome`] to the actor as a [`VideoMsg`].
 //! * Pause / preemption / disk guard / pause window: stop the process (SIGTERM,
-//!   then SIGKILL; D9). Resume = queue again; the next spawn passes
+//!   then SIGKILL). Resume = queue again; the next spawn passes
 //!   `--continue`, so yt-dlp picks up its `.part` file.
 //! * Remove: stop and wait for the process; with `delete_files` only the
 //!   job's own outputs and their partial files are deleted (`ops` path safety).

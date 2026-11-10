@@ -1,4 +1,4 @@
-# Built-in provider definitions (D25: declarative data; D26: all off by default).
+# Built-in provider definitions (declarative data, all off by default).
 #
 # `verified = true` means the definition was checked against the live service
 # (date in the provider's comment): a real response is saved as

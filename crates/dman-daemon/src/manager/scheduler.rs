@@ -1,4 +1,4 @@
-//! Queue scheduler (D5) with disk guard (Q3): applying the decisions of
+//! Queue scheduler with disk guard: applying the decisions of
 //! `queue` and `disk` to aria2.
 
 use std::collections::HashMap;
@@ -18,7 +18,7 @@ use super::util::pause_gid;
 impl Manager {
     // ----- scheduler ---------------------------------------------------------
 
-    /// Queue scheduler (D5) with disk guard (Q3), for aria2 and video jobs
+    /// Queue scheduler with disk guard, for aria2 and video jobs
     /// alike. aria2 jobs are only touched while aria2 runs (`client`).
     pub(super) async fn schedule(&mut self, client: Option<&Aria2Client>) {
         let min_free = self.profile.min_free;

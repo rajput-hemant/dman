@@ -1,4 +1,4 @@
-//! `dman update` and the opt-in update check (decisions D22, D27).
+//! `dman update` and the opt-in update check.
 //!
 //! dman only replaces its own binary when it was put there by the dman
 //! installer (cargo-dist shell script, which leaves an install receipt).

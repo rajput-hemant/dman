@@ -8,7 +8,7 @@ use crate::ConfigError;
 /// Environment variable overriding the whole dman directory layout.
 pub const ENV_CONFIG_DIR: &str = "DMAN_CONFIG_DIR";
 
-/// Resolved filesystem locations used by dman (decision D16).
+/// Resolved filesystem locations used by dman.
 ///
 /// By default the XDG layout is used on both Linux and macOS:
 /// `$XDG_CONFIG_HOME/dman`, `$XDG_DATA_HOME/dman`, `$XDG_STATE_HOME/dman`

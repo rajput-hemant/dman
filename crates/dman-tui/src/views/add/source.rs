@@ -158,7 +158,7 @@ impl VideoCtx {
     }
 }
 
-/// Whether `text` looks like a video site URL (offline heuristic, D10).
+/// Whether `text` looks like a video site URL (offline heuristic).
 pub fn looks_like_video(text: &str) -> bool {
     url::Url::parse(text)
         .map(|u| dman_ytdlp::is_probably_video_url(&u))

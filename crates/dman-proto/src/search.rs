@@ -1,4 +1,4 @@
-//! Search, provider and tracker-list API types (milestone M5).
+//! Search, provider and tracker-list API types.
 //!
 //! These mirror the `dman-search` types on purpose (this crate performs no I/O
 //! and does not depend on it); the daemon converts. Secrets never appear here:

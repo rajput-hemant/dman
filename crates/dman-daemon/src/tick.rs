@@ -84,7 +84,7 @@ pub fn delta(prev: Option<&Counters>, gid: &str, completed: u64, uploaded: u64) 
     }
 }
 
-/// Updates the D12 upload bookkeeping of `rec` for a new `uploadLength`
+/// Updates the seeding upload bookkeeping of `rec` for a new `uploadLength`
 /// reading of its current gid. When the engine counter went backwards (new
 /// engine session for the same gid) the previous session is folded into the
 /// base first.

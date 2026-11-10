@@ -1,4 +1,4 @@
-//! Queue decisions (decision D5: dman owns the queue) as pure functions.
+//! Queue decisions (dman owns the queue) as pure functions.
 
 use std::collections::HashMap;
 

@@ -1,4 +1,4 @@
-//! Removal of the partial files of deselected torrent files (D28).
+//! Removal of the partial files of deselected torrent files.
 //!
 //! aria2's own `bt-remove-unselected-file` deletes without asking, so dman
 //! implements the feature itself: with `[torrents] remove_unselected = "ask"` a

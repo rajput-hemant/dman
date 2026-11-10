@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// What to do with the partial files of deselected torrent files once the
-/// torrent completes (decision D28: never automatic, always confirmed).
+/// torrent completes (never automatic, always confirmed).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RemoveUnselected {

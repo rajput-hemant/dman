@@ -226,7 +226,7 @@ fn delete_files_asks_once() {
 fn delete_files_enter_confirms_once_and_esc_cancels() {
     let mut s = state();
     key(&mut s, 'D');
-    // One question (U1): Enter answers it.
+    // One question: Enter answers it.
     let cmds = code(&mut s, KeyCode::Enter);
     assert_eq!(cmds.len(), 1);
     assert!(s.modal.is_none());

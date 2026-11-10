@@ -1,4 +1,4 @@
-//! `dman serve`: the browser UI (decision D3).
+//! `dman serve`: the browser UI.
 
 use dman_config::{ConfigDoc, Secrets, Web};
 use dman_proto::method::{WebStartParams, WebStatus};
@@ -51,7 +51,7 @@ pub async fn run(ctx: &Ctx, args: &ServeArgs) -> Result<i32, CliError> {
 
 /// Makes sure the access token exists when the UI asks for one: a network bind
 /// (unless unauthenticated access was configured) or `require_login`. Loopback
-/// without `require_login` needs no token (decision U3).
+/// without `require_login` needs no token.
 fn ensure_token(ctx: &Ctx, web: &Web) -> Result<(), CliError> {
     if web.loopback_without_login() || (web.allow_unauthenticated && !web.require_login) {
         return Ok(());

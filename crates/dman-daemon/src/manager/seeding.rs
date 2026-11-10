@@ -1,4 +1,4 @@
-//! Seeding limits enforced by dman itself (D12).
+//! Seeding limits enforced by dman itself.
 //!
 //! aria2 counts `seed-ratio` and `seed-time` per engine session: after a daemon
 //! restart a re-added seeding torrent would start from zero again and seed far

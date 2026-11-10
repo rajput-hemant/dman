@@ -1,4 +1,4 @@
-//! Seeding limits (D12) against a real aria2c: a torrent is downloaded from a
+//! Seeding limits against a real aria2c: a torrent is downloaded from a
 //! local seeder, then dman seeds it to a second (leecher) aria2c; uploaded
 //! bytes are counted, the ratio limit ends seeding once, and a daemon restart
 //! in the middle neither resets the counter nor the ratio.

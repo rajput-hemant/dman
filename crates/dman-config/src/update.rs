@@ -1,4 +1,4 @@
-//! The `[update]` section: the opt-in update check (decision D27).
+//! The `[update]` section: the opt-in update check.
 
 use serde::{Deserialize, Serialize};
 

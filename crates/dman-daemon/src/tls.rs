@@ -1,4 +1,4 @@
-//! TLS for the daemon's listeners (decisions D18, D24): a rustls `ServerConfig` with the
+//! TLS for the daemon's listeners: a rustls `ServerConfig` with the
 //! ring provider and a minimal accept loop that serves an axum router over it.
 //! `axum::serve` has no TLS support, so this drives hyper directly.
 

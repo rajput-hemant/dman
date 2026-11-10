@@ -40,7 +40,7 @@ impl Manager {
             )));
         }
         if e.rec.engine == Engine::YtDlp {
-            // D9: pause = stop yt-dlp; resume respawns it with --continue.
+            // pause = stop yt-dlp; resume respawns it with --continue.
             e.rec.desired = Desired::Paused;
             e.dirty = true;
             self.urgent = true;

@@ -372,7 +372,7 @@ fn write_provider_file(path: &str, content: &str) -> Result<String, String> {
     Ok(path.to_owned())
 }
 
-/// Text from the system clipboard (decision D17). Fails on headless hosts and
+/// Text from the system clipboard. Fails on headless hosts and
 /// over SSH, where the terminal's own paste has to be used.
 fn read_clipboard() -> Result<String, String> {
     arboard::Clipboard::new()

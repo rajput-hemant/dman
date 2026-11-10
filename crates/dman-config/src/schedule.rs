@@ -1,4 +1,4 @@
-//! Schedule windows (decision D11): day-of-week plus time-of-day windows, no
+//! Schedule windows: day-of-week plus time-of-day windows, no
 //! cron. A window either lets downloads run with its own limits (`run`) or
 //! stops dman from running anything (`pause`).
 //!

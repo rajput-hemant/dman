@@ -1,5 +1,5 @@
 //! The two pickers of the add view: a browser for LOCAL `.torrent`/`.metalink`
-//! files and a picker for DAEMON directories (decision Q6).
+//! files and a picker for DAEMON directories.
 //!
 //! Both are pure state machines. Keys return an outcome that asks the caller
 //! for a directory listing (a runtime command for the local one, `fs.list` for

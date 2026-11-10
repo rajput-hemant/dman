@@ -1,4 +1,4 @@
-//! The browser UI served by the daemon: no login on loopback (U3) with the invisible
+//! The browser UI served by the daemon: no login on loopback, with the invisible
 //! CSRF/Origin/Host checks, token login on network binds, SSE, runtime control, safety.
 //! No aria2 is needed; a missing engine is fine.
 

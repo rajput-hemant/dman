@@ -248,7 +248,7 @@ pub struct SearchState {
     pub history: Vec<SearchHistoryEntry>,
     /// History cursor.
     pub hist_cursor: usize,
-    /// The first-run prompt was shown (memory only, decision D26).
+    /// The first-run prompt was shown (kept in memory only, so it is not saved).
     pub first_run_shown: bool,
     /// Spinner frame.
     pub spin: usize,
@@ -400,7 +400,7 @@ fn in_search(state: &State) -> bool {
     matches!(state.view(), View::Search)
 }
 
-/// The provider list arrived: maybe show the first-run prompt (D26).
+/// The provider list arrived: maybe show the first-run prompt.
 pub fn on_providers_loaded(state: &mut State) {
     let none_enabled = !state.providers.list.iter().any(|p| p.enabled);
     if state.providers.loaded

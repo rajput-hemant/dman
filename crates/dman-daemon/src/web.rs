@@ -19,7 +19,7 @@ use crate::server::{self, ServerState};
 /// How long open connections (SSE streams) get to finish when the web UI stops.
 const STOP_GRACE: Duration = Duration::from_secs(2);
 
-/// Decides how the access token is handled for `web` (decision U3):
+/// Decides how the access token is handled for `web`:
 ///
 /// * loopback bind (without `require_login`): no login and no token at all; the web
 ///   layer still refuses other sites (same-origin, CSRF and `Host` checks);

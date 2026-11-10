@@ -125,7 +125,7 @@ enum VideoMode {
     Always,
     /// `--no-video`: never.
     Never,
-    /// Known video sites (offline heuristic, D10).
+    /// Known video sites (offline heuristic).
     Detect,
 }
 

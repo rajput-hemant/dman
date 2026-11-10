@@ -172,7 +172,7 @@ pub struct MagnetPreview {
 }
 
 /// `jobs.cleanup_unselected`: delete the partial files of the deselected
-/// files of a torrent (D28). Only files of unselected indexes that exist inside
+/// files of a torrent. Only files of unselected indexes that exist inside
 /// the job's directory are ever touched; selected files never.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CleanupParams {

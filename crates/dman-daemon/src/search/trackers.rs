@@ -1,4 +1,4 @@
-//! The public tracker list (Q2): fetched when enabled, cached in the data
+//! The public tracker list: fetched when enabled, cached in the data
 //! directory for offline starts, attached to new torrents and magnets.
 //!
 //! Nothing is requested unless `[search.tracker_list] enabled = true`.

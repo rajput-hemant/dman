@@ -1986,7 +1986,7 @@ async fn restore_endpoint_calls_the_daemon_and_is_csrf_protected() {
     assert_eq!(fake.calls("jobs.restore").len(), 2);
 }
 
-// ------------------------------------------------------------- access model (U3)
+// ------------------------------------------------------------- access model
 
 fn with_host(mut r: Request<Body>, host: &str) -> Request<Body> {
     r.headers_mut().insert(header::HOST, host.parse().unwrap());

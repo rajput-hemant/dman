@@ -64,8 +64,8 @@ impl Web {
         self.bind_ip().is_some_and(|ip| ip.is_loopback())
     }
 
-    /// Loopback bind without `require_login`: the UI opens directly, no token is used
-    /// (decision U3). Same-origin, CSRF and `Host` checks still apply.
+    /// Loopback bind without `require_login`: the UI opens directly, no token is used.
+    /// Same-origin, CSRF and `Host` checks still apply.
     pub fn loopback_without_login(&self) -> bool {
         self.is_loopback() && !self.require_login
     }

@@ -1,6 +1,6 @@
 use url::Url;
 
-/// Offline heuristic (D10): does this URL look like it belongs to a video/audio site yt-dlp
+/// Offline heuristic: does this URL look like it belongs to a video/audio site yt-dlp
 /// handles? No network access. Direct file links and unknown sites return `false`; the daemon
 /// offers a "try as video" probe for those.
 pub fn is_probably_video_url(url: &Url) -> bool {

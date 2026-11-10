@@ -1,4 +1,4 @@
-//! `secrets.toml` handling (decision D21).
+//! `secrets.toml` handling.
 
 use std::collections::BTreeMap;
 use std::fmt;

@@ -1,9 +1,9 @@
 //! Configuration, filesystem layout and secrets for dman.
 //!
-//! * [`Paths`] - where files live (XDG layout on Linux and macOS, decision D16).
+//! * [`Paths`] - where files live (XDG layout on Linux and macOS).
 //! * [`Config`] - the typed `config.toml`, with load and validation.
-//! * [`ConfigDoc`] - comment-preserving edits (decision Q5).
-//! * [`Secrets`] - `secrets.toml` with permission enforcement (decision D21).
+//! * [`ConfigDoc`] - comment-preserving edits.
+//! * [`Secrets`] - `secrets.toml` with permission enforcement.
 
 mod edit;
 mod error;

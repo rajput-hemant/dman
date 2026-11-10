@@ -380,8 +380,8 @@ fn cleanup_cursor(state: &mut State) -> Vec<Cmd> {
     state.call(ApiCall::Cleanup { id, dry_run: true })
 }
 
-/// Confirmation before deleting the partial files of deselected torrent files
-/// (D28). `files` are relative paths with sizes; only these are deleted.
+/// Confirmation before deleting the partial files of deselected torrent files.
+/// `files` are relative paths with sizes; only these are deleted.
 pub fn cleanup_confirm(id: JobId, name: &str, files: &[(String, u64)]) -> ConfirmState {
     let total: u64 = files.iter().map(|f| f.1).sum();
     let mut lines = vec![format!("{name} (#{id})"), String::new()];

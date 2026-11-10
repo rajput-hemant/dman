@@ -1,4 +1,4 @@
-//! Schedule windows (decision D11) as pure functions over `jiff` zoned times,
+//! Schedule windows as pure functions over `jiff` zoned times,
 //! plus the [`Clock`] the manager reads time from (injectable for tests).
 //!
 //! Matching works on the local wall clock: a window is active when the local

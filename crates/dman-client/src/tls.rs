@@ -1,4 +1,4 @@
-//! TLS options for `wss://` connections (rustls with the ring provider, decision D18).
+//! TLS options for `wss://` connections (rustls with the ring provider).
 //!
 //! Default trust is the bundled Mozilla root set (`webpki-roots`, pure data, no system
 //! lookups). A custom CA replaces it entirely (pinning); `insecure_skip_verify` disables

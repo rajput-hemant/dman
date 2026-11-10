@@ -1,11 +1,11 @@
 //! Confirmation dialogs.
 //!
-//! A dialog asks once (also for deleting files: decision U1). It has two
+//! A dialog asks once (also when deleting files). It has two
 //! buttons; `y` confirms and `n` / `Esc` cancel from anywhere, `←`/`→`/`Tab`
 //! move the focus and `Enter` presses the focused button. Destructive dialogs
 //! (deleting files, shutting the daemon down, …) have a danger border and a red
 //! confirm button. The focus starts on the confirm button so `y`/`Enter`
-//! answer the one question the user already asked for (decision U1); `n`/`Esc`
+//! answer the one question the user already asked for; `n`/`Esc`
 //! or moving to Cancel back out.
 
 use crossterm::event::{KeyCode, KeyEvent};

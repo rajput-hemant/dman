@@ -4,41 +4,41 @@ expression: "render(&mut s, 120, 40)"
 ---
  dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
  Downloads › Add downloads
-╭ Sources ─────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│                                                                                                                      │
-│Paste or type links: http(s), ftp, magnet, or a .torrent/.metalink path.                                              │
-│One per line (╭ Add local file · 2 marked ─────────────────────────────────────────────────────────────╮              │
-│Ctrl-o picks l│/home/me/torrents                                                                       │              │
+╭ Sources ───────────────────────────────────────────────────────╮╭ Options · empty fields use your defaults ──────────╮
+│                                                                ││  ▾ Common                                          │
+│Paste or type links: http(s), ftp, magnet, or a .torrent/.metali││  Download folder        your default folder (Ctrl-…│
+│One per line (╭ Add local file · 2 marked ─────────────────────────────────────────────────────────────╮start later (…│
+│Ctrl-o picks l│/home/me/torrents                                                                       │t (e.g. 2MiB;…│
 │              │                                                                                        │              │
 │              │    archive/                                                                            │              │
-│              │    linux/                                                                              │              │
-│              │[x] debian-13.2.0-netinst.iso.torrent                                           40.0 KiB│              │
-│              │[x] ubuntu-24.04.torrent                                                        45.0 KiB│              │
-│              │    pack.meta4                                                                   1.2 KiB│              │
-│              │                                                                                        │              │
-│              │                                                                                        │              │
-│              │                                                                                        │              │
-│              │                                                                                        │              │
-╰──────────────│                                                                                        │──────────────╯
- ⏎ Enter  nothi│                                                                                        │
-╭ Options · emp│                                                                                        │──────────────╮
-│  Download fol│                                                                                        │              │
-│  Start paused│                                                                                        │              │
-│  Download lim│                                                                                        │              │
-│  ▸ Advanced o│                                                                                        │ …            │
-╰──────────────│                                                                                        │──────────────╯
-               │                                                                                        │
-               │                                                                                        │
-               │                                                                                        │
-               │                                                                                        │
-               │                                                                                        │
-               │                                                                                        │
-               │                                                                                        │
-               │                                                                                        │
-               │                                                                                        │
-               ╰────────────────────────────────────────────────────────────────────────────────────────╯
-
-
-
-
+╰──────────────│    linux/                                                                              │              │
+ ⏎ Enter  nothi│[x] debian-13.2.0-netinst.iso.torrent                                           40.0 KiB│              │
+               │[x] ubuntu-24.04.torrent                                                        45.0 KiB│              │
+               │    pack.meta4                                                                   1.2 KiB│              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               │                                                                                        │              │
+               ╰────────────────────────────────────────────────────────────────────────────────────────╯              │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  ╰────────────────────────────────────────────────────╯
  ADD   Enter  open/pick  Space  mark  ⌫/h  up  .  all files  Esc  close  Ctrl-p  palette  F1  help

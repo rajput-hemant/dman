@@ -373,13 +373,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
             Tab::Peers => peers(frame, body, t, d, detail),
             Tab::Trackers => trackers(frame, body, t, d, detail),
             Tab::Pieces => pieces(frame, body, t, detail),
-            Tab::Speed => crate::widgets::graph::speed_chart(
-                frame,
-                body,
-                t,
-                &detail.speed_history,
-                "No speed samples yet (history is kept while the download runs).",
-            ),
+            Tab::Speed => speed_tab(frame, body, state, &detail.speed_history),
             Tab::Options => options(frame, body, t, d, detail),
             Tab::Info => {}
         },
@@ -388,6 +382,45 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
         // Stale data: grey everything out.
         frame.buffer_mut().set_style(area, t.dim);
     }
+}
+
+/// The Speed tab: window labels on top, the chart below.
+fn speed_tab(
+    frame: &mut Frame<'_>,
+    body: Rect,
+    state: &State,
+    history: &[dman_proto::SpeedSample],
+) {
+    use crate::widgets::graph;
+    let t = &state.theme;
+    let (shown, available) = graph::windowed(history, state.graph.window);
+    let chart = if body.height >= 4 {
+        let [bar, chart] = ratatui::layout::Layout::vertical([
+            ratatui::layout::Constraint::Length(1),
+            ratatui::layout::Constraint::Fill(1),
+        ])
+        .areas(body);
+        let mut spans = vec![Span::styled(" Window ", t.faint)];
+        let used: usize = spans.iter().map(Span::width).sum();
+        spans.extend(graph::selector(
+            state,
+            bar.x + u16::try_from(used).unwrap_or(0),
+            bar.y,
+            available,
+            usize::from(bar.width).saturating_sub(used),
+        ));
+        frame.render_widget(Paragraph::new(Line::from(spans)), bar);
+        chart
+    } else {
+        body
+    };
+    graph::speed_chart(
+        frame,
+        chart,
+        t,
+        shown,
+        "No speed samples yet (history is kept while the download runs).",
+    );
 }
 
 fn pct(done: u64, total: u64) -> String {

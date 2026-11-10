@@ -47,7 +47,7 @@ use crate::theme::{BorderKind, ColorDepth, IconSet, Theme, ThemeOptions};
 #[derive(Debug, Clone, PartialEq)]
 pub struct TuiOptions {
     /// Theme name (`dman-dark`, `dman-light`, `high-contrast`, `tokyo-night`,
-    /// `mono`; `default` = `dman-dark`); `NO_COLOR` forces `mono`.
+    /// `mono`; `default` = `dman-dark`; or a file in the themes directory); `NO_COLOR` forces `mono`.
     pub theme: String,
     /// Colour depth: `auto`, `truecolor`, `256`, `16`, `never`.
     pub color: String,
@@ -75,6 +75,9 @@ pub struct TuiOptions {
     pub profile: String,
     /// Show desktop notifications for finished jobs (`[notify] desktop`).
     pub desktop: bool,
+    /// Where custom theme files live (`<config dir>/themes`); `None` = only
+    /// the built-in themes.
+    pub themes_dir: Option<std::path::PathBuf>,
     /// Client-side state directory; a `welcome-shown` marker there keeps the
     /// first-run welcome from showing again. `None` = remember it in memory
     /// only (the welcome may show on every start with an empty list).
@@ -101,6 +104,7 @@ impl Default for TuiOptions {
             keys: None,
             profile: "local".into(),
             desktop: false,
+            themes_dir: None,
             state_dir: None,
         }
     }
@@ -133,6 +137,9 @@ impl TuiOptions {
                 .cloned(),
             profile: profile.to_owned(),
             desktop: config.notify.desktop,
+            themes_dir: dman_config::Paths::discover()
+                .ok()
+                .map(|p| p.config_dir().join("themes")),
             // The same discovery the CLI uses (honours DMAN_CONFIG_DIR).
             state_dir: dman_config::Paths::discover()
                 .ok()
@@ -201,6 +208,7 @@ impl TuiOptions {
             icons,
             borders,
             colors: self.colors.clone(),
+            themes_dir: self.themes_dir.clone(),
         });
         warnings.extend(theme_warnings);
         let reduce_motion = env("DMAN_REDUCE_MOTION").is_some_and(|v| !v.is_empty() && v != "0");

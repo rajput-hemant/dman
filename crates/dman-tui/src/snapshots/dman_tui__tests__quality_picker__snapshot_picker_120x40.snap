@@ -4,41 +4,41 @@ expression: "render(&mut s, 120, 40)"
 ---
  dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
  Downloads › Add downloads
-╭ Sources · 1 item ────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│https://www.youtube.com/watch?v=abc123                                                                           video│
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│       ╭ Choose quality · Big Buck Bunny ─────────────────────────────────────────────────────────────────────╮       │
-│       │ Presets  1 Best  2 1080p  3 720p  4 480p  5 Audio only                                               │       │
-│       │ Video · 4                                                    Audio · 2                               │       │
-╰───────│  2160p · VP9 · ~173 MiB  needs ffmpeg                       ▸ Opus · 135 kbps · ~10 MiB              │───────╯
-  ⏎ Ente│▸ 1080p60 · H.264 · ~83 MiB  needs ffmpeg                      AAC · 129 kbps · ~9 MiB                │
-╭ Option│  720p60 · H.264 · ~41 MiB  needs ffmpeg                                                              │───────╮
-│  Downl│  360p · H.264 · ~12 MiB                                                                              │       │
-│  Start│  Audio only (no video)                                                                               │       │
-│  Downl│                                                                                                      │       │
-│  Video│                                                                                                      │       │
-│  ▸ Adv│ Download 1080p60 · H.264 · ~83 MiB + Opus · 135 kbps · ~10 MiB                                       │       │
-╰───────│ Enter download Esc cancel Tab next list ↑↓ move 1-5 preset u my default n never ask                  │───────╯
-        ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
-
-
-
-
-
-
-
-
-
-
-
-
+╭ Sources · 1 item ──────────────────────────────────────────────╮╭ Options · empty fields use your defaults ──────────╮
+│https://www.youtube.com/watch?v=abc123                 [video] ✓││  ▾ Common                                          │
+│                                                                ││  Download folder        your default folder (Ctrl-…│
+│                                                                ││  Start paused           [ ] add now, start later (…│
+│                                                                ││  Download limit         no extra limit (e.g. 2MiB;…│
+│                                                                ││  Video quality          default (best 2160p 1440p …│
+│                                                                ││  ▸ Torrent — 5 options                             │
+╰────────────────────────────────────────────────────────────────╯│  ▸ HTTP — 9 options                                │
+  ⏎ Enter  Add 1 download  you get a summary, then Enter again st…│  ▸ Video (yt-dlp) — 12 options                     │
+                                                                  │  ▸ Advanced — 2 options                            │
+                                                                  │                                                    │
+                                                                  │                                                    │
+        ╭ Choose quality · Big Buck Bunny ─────────────────────────────────────────────────────────────────────╮       │
+        │ Presets  1 Best  2 1080p  3 720p  4 480p  5 Audio only                                               │       │
+        │ Video · 4                                                    Audio · 2                               │       │
+        │  2160p · VP9 · ~173 MiB  needs ffmpeg                       ▸ Opus · 135 kbps · ~10 MiB              │       │
+        │▸ 1080p60 · H.264 · ~83 MiB  needs ffmpeg                      AAC · 129 kbps · ~9 MiB                │       │
+        │  720p60 · H.264 · ~41 MiB  needs ffmpeg                                                              │       │
+        │  360p · H.264 · ~12 MiB                                                                              │       │
+        │  Audio only (no video)                                                                               │       │
+        │                                                                                                      │       │
+        │                                                                                                      │       │
+        │ Download 1080p60 · H.264 · ~83 MiB + Opus · 135 kbps · ~10 MiB                                       │       │
+        │ Enter download Esc cancel Tab next list ↑↓ move 1-5 preset u my default n never ask                  │       │
+        ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯       │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  ╰────────────────────────────────────────────────────╯
  ADD   Enter  download  Esc  cancel  Tab  next list  ↑↓  move  1-5  preset  u  my default  Ctrl-p  palette  F1  help

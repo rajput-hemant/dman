@@ -4,41 +4,41 @@ expression: "render(&mut s, 120, 40)"
 ---
  dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
  Downloads › Add downloads
-╭ Sources · 7 items (2 local) · 1 unsupported ─────────────────────────────────────────────────────────────────────────╮
-│magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a&dn=ubuntu                                          magnet│
-│https://example.org/files/big-dataset-2026.tar.zst                                                               https│
-│ftp://mirror.example.net/pub/a.iso  ftp://mirror2.example.net/pub/a.iso                                      2 sources│
-│/home/me/Downloads/ubuntu-24.04.torrent                                                        torrent file · 44.9 KiB│
-│/home/me/Downloads/gone.metalink                                                             metalink file · checking…│
-│file:///tmp/x.isofast                                                                unsupported: scheme not supported│
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-│                                                                                                                      │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- ✗ Can't add `file:///tmp/x.isofast` (unsupported: scheme not supported) — fix or remove that line
-╭ Options · empty fields use your defaults ────────────────────────────────────────────────────────────────────────────╮
-│  Download folder        your default folder (Ctrl-f browses the daemon's folders)                                    │
-│  Start paused           [ ] add now, start later (r in the list)                                                     │
-│  Download limit         no extra limit (e.g. 2MiB; 0 = unlimited)                                                    │
-│  ▸ Advanced options — 16 more, F2 shows them: mirrors, file name, upload limit, connections per server, …            │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+╭ Sources · 7 items (2 local) · 1 unsupported ───────────────────╮╭ Options · empty fields use your defaults ──────────╮
+│magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c… [magnet] ✓││  ▾ Common                                          │
+│https://example.org/files/big-dataset-2026.tar.zst     [https] ✓││  Download folder        your default folder (Ctrl-…│
+│ftp://mirror.example.net/pub/a.iso  ftp://mirror2… [2 sources] ✓││  Start paused           [ ] add now, start later (…│
+│/home/me/Downloads/ubuntu-24.04.torre… [torrent file] ✓ 44.9 KiB││  Download limit         no extra limit (e.g. 2MiB;…│
+│/home/me/Downloads/gone.metalink     [metalink file] … checking…││  ▸ Torrent — 5 options                             │
+│file:///tmp/x.isofast           [unsupported: scheme not suppor…││  ▸ HTTP — 9 options                                │
+╰────────────────────────────────────────────────────────────────╯│  ▸ Advanced — 2 options                            │
+ ✗ Can't add `file:///tmp/x.isofast` (unsupported: scheme not sup…│                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  ╰────────────────────────────────────────────────────╯
  ADD   Enter  review & add  Ctrl-j  new line  Tab  options  Esc  back  Ctrl-v  paste  Ctrl-p  palette  F1  help

@@ -20,6 +20,7 @@ use crate::app::{Cmd, State};
 use crate::views::{View, downloads, rename};
 use crate::widgets::Modal;
 use crate::widgets::footer::{Hint, hint};
+use crate::widgets::graph::{self, Window};
 use crate::widgets::prompt::{PromptKind, PromptState};
 
 pub use options::{OptField, OptRow, option_rows};
@@ -56,6 +57,7 @@ pub fn footer_hints(state: &State, d: &DetailState) -> Vec<Hint> {
             v.push(h(Action::DetailToggleAllFiles, "all files"));
         }
         Tab::Options => v.push(h(Action::DetailEditOption, "edit")),
+        Tab::Speed => v.push(h(Action::SpeedWindowLonger, "window")),
         _ => {}
     }
     v.push(h(Action::DetailNextTab, "next tab"));
@@ -79,6 +81,26 @@ pub fn awaiting_metadata(job: &Job, detail: Option<&JobDetail>) -> bool {
 
 /// One line saying what is happening and what can be done about it.
 pub fn summary(state: &State, job: &Job, detail: Option<&JobDetail>) -> String {
+    let base = summary_base(state, job, detail);
+    match detail.and_then(|d| d.cleanup_pending.as_ref()) {
+        Some(c) => {
+            let key = state
+                .keymap
+                .keys_with_global(crate::keymap::Context::Downloads, Action::CleanupUnselected)
+                .first()
+                .map_or_else(String::new, |k| crate::keymap::key_label(*k));
+            format!(
+                "{base} — {} unselected partial {} ({}); {key} in the list cleans up",
+                c.count,
+                if c.count == 1 { "file" } else { "files" },
+                crate::format::size(c.bytes)
+            )
+        }
+        None => base,
+    }
+}
+
+fn summary_base(state: &State, job: &Job, detail: Option<&JobDetail>) -> String {
     let key = |a: Action| {
         state
             .keymap
@@ -411,6 +433,34 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
     };
     let page = isize::try_from(state.list_height().saturating_sub(8).max(1)).unwrap_or(1);
     let tabs = Tab::visible(is_torrent(state, id));
+    // On the Speed tab 1-3 pick the window instead of jumping to a tab.
+    if tab == Tab::Speed {
+        let window = match action {
+            Action::DetailFiles => Some(Window::Min1),
+            Action::DetailPeers => Some(Window::Min5),
+            Action::DetailTrackers => Some(Window::Min15),
+            _ => None,
+        };
+        if let Some(w) = window {
+            state.graph.window = w;
+            return Some(Vec::new());
+        }
+    }
+    if matches!(
+        action,
+        Action::SpeedWindowShorter | Action::SpeedWindowLonger
+    ) {
+        if tab != Tab::Speed {
+            state
+                .status
+                .info("Time windows belong to the Speed tab (5)");
+            return Some(Vec::new());
+        }
+        return Some(graph::step_window(
+            state,
+            action == Action::SpeedWindowLonger,
+        ));
+    }
     let d = top(state)?;
     match action {
         Action::Up => d.move_cursor(-1),

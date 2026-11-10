@@ -185,7 +185,9 @@ impl Default for Aria2 {
 #[serde(default, deny_unknown_fields)]
 pub struct Ui {
     /// Theme: `dman-dark` (default; `default` is an alias), `dman-light`,
-    /// `high-contrast`, `tokyo-night` or `mono`.
+    /// `high-contrast`, `tokyo-night`, `mono`, or the name of a custom theme
+    /// file `<config dir>/themes/<name>.toml` (`inherits = "dman-dark"` plus
+    /// the same token overrides as `[ui.colors]`).
     pub theme: String,
     /// Colour depth: `auto` (detect), `truecolor`, `256`, `16` or `never`.
     /// `NO_COLOR` always wins.
@@ -327,6 +329,11 @@ tick_ms = 1000
 
 [ui]
 # dman-dark | dman-light | high-contrast | tokyo-night | mono
+# or the name of your own theme: ~/.config/dman/themes/<name>.toml, e.g.
+#   inherits = "dman-dark"   # built-in theme to start from (default dman-dark)
+#   accent = '#ff8800'       # any token of [ui.colors] below (text, muted,
+#   danger = "lightred"      # accent, success, warning, danger, info, ...)
+# An unreadable or invalid theme file shows a warning and uses dman-dark.
 theme = "dman-dark"
 # auto | truecolor | 256 | 16 | never (NO_COLOR always wins)
 color = "auto"

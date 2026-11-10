@@ -2,7 +2,7 @@
 source: crates/dman-tui/src/tests/responsive.rs
 expression: "render(&mut s, w, h)"
 ---
-╭ Commands ────────────── 92 commands ─╮
+╭ Commands ────────────── 94 commands ─╮
 │ ⌕  Type to search every group        │
 │ ‹  All  › 1/8  Tab switches          │
 │──────────────────────────────────────│

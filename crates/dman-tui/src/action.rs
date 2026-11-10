@@ -144,6 +144,10 @@ pub enum Action {
     SetMaxConcurrent,
     /// Show or hide the global speed graph.
     ToggleGraph,
+    /// Speed charts: show a shorter window of history.
+    SpeedWindowShorter,
+    /// Speed charts: show a longer window of history.
+    SpeedWindowLonger,
     /// Show or hide removed downloads (history) in the list.
     ToggleRemoved,
     /// Open the detail view of the cursor download.
@@ -300,6 +304,8 @@ impl Action {
         Action::LimitDown,
         Action::SetMaxConcurrent,
         Action::ToggleGraph,
+        Action::SpeedWindowShorter,
+        Action::SpeedWindowLonger,
         Action::ToggleRemoved,
         Action::OpenDetail,
         Action::DetailNextTab,
@@ -397,6 +403,8 @@ impl Action {
             Action::LimitDown => "limit_down",
             Action::SetMaxConcurrent => "max_concurrent",
             Action::ToggleGraph => "toggle_graph",
+            Action::SpeedWindowShorter => "speed_window_shorter",
+            Action::SpeedWindowLonger => "speed_window_longer",
             Action::ToggleRemoved => "toggle_removed",
             Action::OpenDetail => "detail",
             Action::DetailNextTab => "detail_next_tab",
@@ -500,6 +508,8 @@ impl Action {
             Action::LimitDown => "Lower global download limit",
             Action::SetMaxConcurrent => "Set how many downloads run at the same time",
             Action::ToggleGraph => "Show / hide the global speed graph",
+            Action::SpeedWindowShorter => "Speed charts: show a shorter time window",
+            Action::SpeedWindowLonger => "Speed charts: show a longer time window",
             Action::ToggleRemoved => "Show / hide removed downloads (history)",
             Action::OpenDetail => "Open details",
             Action::DetailNextTab => "Detail: next tab",
@@ -633,6 +643,8 @@ impl Action {
             | Action::StoppedNextPage
             | Action::StoppedPrevPage
             | Action::ToggleGraph
+            | Action::SpeedWindowShorter
+            | Action::SpeedWindowLonger
             | Action::ToggleRemoved
             | Action::ShowAll
             | Action::ShowActive
@@ -771,6 +783,8 @@ impl Action {
             Action::LimitDown => "limit-",
             Action::SetMaxConcurrent => "max at once",
             Action::ToggleGraph => "graph",
+            Action::SpeedWindowShorter => "shorter window",
+            Action::SpeedWindowLonger => "longer window",
             Action::ToggleRemoved => "history",
             Action::OpenDetail => "details",
             Action::DetailNextTab => "next tab",

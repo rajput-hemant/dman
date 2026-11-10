@@ -12,6 +12,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols::border;
 use ratatui::widgets::{Block, Borders};
 
+pub mod file;
 mod icons;
 mod palette;
 
@@ -33,6 +34,8 @@ pub struct ThemeOptions {
     pub borders: BorderKind,
     /// `[ui.colors]` overrides.
     pub colors: Vec<(String, String)>,
+    /// Where custom theme files live (`<config dir>/themes`).
+    pub themes_dir: Option<std::path::PathBuf>,
 }
 
 impl Default for ThemeOptions {
@@ -43,6 +46,7 @@ impl Default for ThemeOptions {
             icons: IconSet::Unicode,
             borders: BorderKind::Rounded,
             colors: Vec::new(),
+            themes_dir: None,
         }
     }
 }
@@ -187,15 +191,43 @@ impl Theme {
     /// Build the theme and report problems with the options.
     pub fn build_with_warnings(opts: &ThemeOptions) -> (Self, Vec<String>) {
         let mut warnings = Vec::new();
-        let name = Theme::canonical(&opts.name).unwrap_or_else(|| {
-            warnings.push(format!(
-                "[ui] unknown theme '{}', using dman-dark (themes: {})",
-                opts.name,
-                THEMES.join(", ")
-            ));
-            "dman-dark"
-        });
         let depth = opts.depth;
+        let mut file_colors: Vec<(String, String)> = Vec::new();
+        let name = match Theme::canonical(&opts.name) {
+            Some(name) => name,
+            None => {
+                let custom = (depth != ColorDepth::Mono)
+                    .then_some(opts.themes_dir.as_deref())
+                    .flatten()
+                    .filter(|_| file::is_file_name(&opts.name))
+                    .filter(|d| file::path(d, &opts.name).exists())
+                    .map(|d| file::load(d, &opts.name));
+                match custom {
+                    Some(Ok(f)) => {
+                        let label = format!("theme '{}'", opts.name);
+                        warnings.extend(f.warnings.iter().map(|w| format!("{label}: {w}")));
+                        file_colors = f.colors;
+                        f.inherits
+                    }
+                    Some(Err(e)) => {
+                        warnings.push(format!("[ui] theme file: {e}; using dman-dark"));
+                        "dman-dark"
+                    }
+                    None => {
+                        warnings.push(format!(
+                            "[ui] unknown theme '{}', using dman-dark (themes: {}{})",
+                            opts.name,
+                            THEMES.join(", "),
+                            opts.themes_dir.as_ref().map_or(String::new(), |d| format!(
+                                "; custom ones go in {}",
+                                d.display()
+                            ))
+                        ));
+                        "dman-dark"
+                    }
+                }
+            }
+        };
         let name = if depth == ColorDepth::Mono {
             "mono"
         } else {
@@ -207,6 +239,11 @@ impl Theme {
             "high-contrast" => Palette::HIGH_CONTRAST,
             _ => Palette::DMAN_DARK,
         };
+        for (k, v) in &file_colors {
+            if let Err(e) = palette.set(k, v) {
+                warnings.push(e.replace("[ui.colors]", &format!("theme '{}'", opts.name)));
+            }
+        }
         for (k, v) in &opts.colors {
             if let Err(e) = palette.set(k, v) {
                 warnings.push(e);

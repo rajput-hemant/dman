@@ -1,0 +1,44 @@
+---
+source: crates/dman-tui/src/tests/extras.rs
+expression: "render(&mut s, 120, 40)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓ 3 active  ◔ 2 waiting  ✓ 1 done  ✗ 1 failed        250.0 GiB free  mouse off  ● online
+ Downloads › Add downloads
+╭ Sources ───────────────────────────────────────────────────────╮╭ Options · empty fields use your defaults ──────────╮
+│                                                                ││  ▾ Common                                          │
+│Paste or type links: http(s), ftp, magnet, or a .torrent/.metali││  Download folder        your default folder (Ctrl-…│
+│One per line (Ctrl-j starts a new line). Ctrl-v pastes the clipb││  Start paused           [ ] add now, start later (…│
+│Ctrl-o picks local files. Then press Enter.                     ││  Download limit         no extra limit (e.g. 2MiB;…│
+│                                                                ││  ▸ Torrent — 5 options                             │
+│                                                                ││  ▸ HTTP — 9 options                                │
+╰────────────────────────────────────────────────────────────────╯│  ▸ Advanced — 2 options                            │
+ ⏎ Enter  nothing to add yet — paste a link (Ctrl-v) or type one  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  │                                                    │
+                                                                  ╰────────────────────────────────────────────────────╯
+ ADD   Enter  review & add  Ctrl-j  new line  Tab  options  Esc  back  Ctrl-v  paste  Ctrl-p  palette  F1  help

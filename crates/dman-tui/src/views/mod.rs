@@ -119,6 +119,10 @@ pub fn on_mouse(state: &mut State, m: MouseEvent) -> Vec<Cmd> {
             Some((_, Hit::Action(a))) => return crate::app::apply_action(state, *a),
             Some((_, Hit::Mouse)) => return crate::app::toggle_mouse(state),
             Some((_, Hit::DetailTab(t))) => return detail::select_tab(state, *t),
+            Some((_, Hit::SpeedWindow(w))) => {
+                state.graph.window = *w;
+                return Vec::new();
+            }
             _ => {}
         }
     }

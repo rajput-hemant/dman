@@ -16,6 +16,7 @@ use crate::layout::Hit;
 use crate::list::Chip;
 use crate::views::View;
 use crate::widgets::Modal;
+use crate::widgets::graph;
 
 /// Severity of a banner line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -301,79 +302,95 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
 /// minutes, plus the limits.
 pub fn render_card(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
-    let block = t.block().title(Span::styled(" Throughput ", t.accent));
+    let (hist, available) = graph::windowed(&state.graph.history, state.graph.window);
+    let mut title = vec![Span::styled(" Throughput  ", t.accent)];
+    let used: usize = title.iter().map(Span::width).sum();
+    let room = usize::from(area.width).saturating_sub(used + 3);
+    title.extend(graph::selector(
+        state,
+        area.x + 1 + u16::try_from(used).unwrap_or(0),
+        area.y,
+        available,
+        room,
+    ));
+    title.push(Span::raw(" "));
+    let block = t.block().title(Line::from(title));
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let (down, up) = shown_speeds(state);
-    let hist = &state.graph.history;
-    let downs: Vec<u64> = hist.iter().map(|s| s.down).collect();
-    let ups: Vec<u64> = hist.iter().map(|s| s.up).collect();
     let width = usize::from(inner.width);
     let right_w = 26usize;
     let left_w = 30usize;
     let graph_w = width.saturating_sub(left_w + right_w + 2);
     let shown = graph_w * 2;
-    let peak = |v: &[u64]| {
-        v[v.len().saturating_sub(shown)..]
-            .iter()
-            .copied()
-            .max()
-            .unwrap_or(0)
-    };
-    let max = peak(&downs).max(peak(&ups));
-    let row = |icon: &'static str, now: u64, series: &[u64], style: Style, limit: u64| {
-        let (n, u) = crate::format::split_size(now, true, false);
-        let (pn, pu) = match peak(series) {
-            0 => ("–".to_owned(), String::new()),
-            p => crate::format::split_size(p, true, true),
-        };
-        let mut spans = vec![
-            Span::styled(format!(" {icon} "), style),
-            Span::styled(
-                format!("{n:>6}"),
-                if now == 0 {
-                    t.dim
-                } else {
-                    t.text.add_modifier(Modifier::BOLD)
-                },
-            ),
-            Span::styled(format!("{u:<7}"), t.faint),
-            Span::styled(format!("  peak {pn:>6}{pu:<2}"), t.faint),
-        ];
-        let used: usize = spans.iter().map(Span::width).sum();
-        spans.push(Span::raw(" ".repeat(left_w.saturating_sub(used) + 1)));
-        if graph_w > 0 {
-            spans.push(Span::styled(
-                crate::widgets::bar::braille(series, graph_w, max),
-                style,
+    let downs_raw: Vec<u64> = hist.iter().map(|s| s.down).collect();
+    let ups_raw: Vec<u64> = hist.iter().map(|s| s.up).collect();
+    let downs = graph::resample(&downs_raw, shown);
+    let ups = graph::resample(&ups_raw, shown);
+    let peak = |v: &[u64]| v.iter().copied().max().unwrap_or(0);
+    let max = peak(&downs_raw).max(peak(&ups_raw));
+    let row =
+        |icon: &'static str, now: u64, raw: &[u64], series: &[u64], style: Style, limit: u64| {
+            let (n, u) = crate::format::split_size(now, true, false);
+            let (pn, pu) = match peak(raw) {
+                0 => ("–".to_owned(), String::new()),
+                p => crate::format::split_size(p, true, true),
+            };
+            let mut spans = vec![
+                Span::styled(format!(" {icon} "), style),
+                Span::styled(
+                    format!("{n:>6}"),
+                    if now == 0 {
+                        t.dim
+                    } else {
+                        t.text.add_modifier(Modifier::BOLD)
+                    },
+                ),
+                Span::styled(format!("{u:<7}"), t.faint),
+                Span::styled(format!("  peak {pn:>6}{pu:<2}"), t.faint),
+            ];
+            let used: usize = spans.iter().map(Span::width).sum();
+            spans.push(Span::raw(" ".repeat(left_w.saturating_sub(used) + 1)));
+            if graph_w > 0 {
+                spans.push(Span::styled(
+                    crate::widgets::bar::braille(series, graph_w, max),
+                    style,
+                ));
+            }
+            spans.push(Span::raw(" "));
+            let lim = if limit == 0 {
+                vec![Span::styled("no limit", t.faint)]
+            } else {
+                vec![
+                    Span::styled("limit ", t.faint),
+                    Span::styled(crate::format::speed(limit), t.warn),
+                ]
+            };
+            let lim_w: usize = lim.iter().map(Span::width).sum();
+            let used: usize = spans.iter().map(Span::width).sum();
+            spans.push(Span::raw(
+                " ".repeat(width.saturating_sub(used + lim_w + 1)),
             ));
-        }
-        spans.push(Span::raw(" "));
-        let lim = if limit == 0 {
-            vec![Span::styled("no limit", t.faint)]
-        } else {
-            vec![
-                Span::styled("limit ", t.faint),
-                Span::styled(crate::format::speed(limit), t.warn),
-            ]
+            spans.extend(lim);
+            Line::from(spans)
         };
-        let lim_w: usize = lim.iter().map(Span::width).sum();
-        let used: usize = spans.iter().map(Span::width).sum();
-        spans.push(Span::raw(
-            " ".repeat(width.saturating_sub(used + lim_w + 1)),
-        ));
-        spans.extend(lim);
-        Line::from(spans)
-    };
     let lines = vec![
         row(
             t.icons.down,
             down,
+            &downs_raw,
             &downs,
             t.graph_down,
             state.limits.download,
         ),
-        row(t.icons.up, up, &ups, t.graph_up, state.limits.upload),
+        row(
+            t.icons.up,
+            up,
+            &ups_raw,
+            &ups,
+            t.graph_up,
+            state.limits.upload,
+        ),
     ];
     frame.render_widget(Paragraph::new(lines), inner);
 }

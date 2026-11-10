@@ -143,6 +143,25 @@ fn scenarios() -> Vec<Scenario> {
         ("detail_trackers", || detail('3')),
         ("detail_pieces", || detail('4')),
         ("detail_speed", || detail('5')),
+        ("detail_speed_15m", || {
+            let mut s = detail('5');
+            key(&mut s, '3');
+            s
+        }),
+        ("downloads_card_15m", || {
+            let mut s = state();
+            s.graph.history = (0..600)
+                .map(|i| dman_proto::SpeedSample {
+                    t: i * 1000,
+                    down: 1_000 + (i as u64 % 13) * 900,
+                    up: 200,
+                })
+                .collect();
+            key(&mut s, '}');
+            key(&mut s, '}');
+            key(&mut s, 'w');
+            s
+        }),
         ("detail_options", || detail('6')),
         ("detail_info", || detail('7')),
         ("detail_http", || {
@@ -151,6 +170,21 @@ fn scenarios() -> Vec<Scenario> {
             s
         }),
         ("add_mixed", mixed),
+        ("add_sections_open", || {
+            let mut s = mixed();
+            code(&mut s, KeyCode::F(2));
+            for _ in 0..6 {
+                code(&mut s, KeyCode::Tab);
+            }
+            s
+        }),
+        ("add_section_header_focus", || {
+            let mut s = mixed();
+            for _ in 0..4 {
+                code(&mut s, KeyCode::Tab);
+            }
+            s
+        }),
         ("add_empty", || {
             let mut s = state();
             key(&mut s, 'a');

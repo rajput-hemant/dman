@@ -71,6 +71,73 @@ pub enum Focus {
     Field(Field),
     /// The "Advanced options" row (Enter / Space shows or hides them).
     Advanced,
+    /// A section header of the two-pane form (Enter / Space opens or closes it).
+    Section(Section),
+}
+
+/// Terminal width from which the form has two panes (sources left, options
+/// right).
+pub const TWO_PANE_MIN_COLS: u16 = 110;
+
+/// Whether a terminal this wide gets the two-pane form.
+pub const fn two_pane(width: u16) -> bool {
+    width >= TWO_PANE_MIN_COLS
+}
+
+/// A collapsible group of options in the two-pane form (the common options
+/// are always open).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Section {
+    /// Seeding and file choice of torrents.
+    Torrent,
+    /// Connections, headers and mirrors of plain links.
+    Http,
+    /// The video engine's options.
+    Video,
+    /// Limits, engine options and everything else.
+    Advanced,
+}
+
+impl Section {
+    /// In display order.
+    pub const ALL: [Section; 4] = [
+        Section::Torrent,
+        Section::Http,
+        Section::Video,
+        Section::Advanced,
+    ];
+
+    /// Header text.
+    pub const fn title(self) -> &'static str {
+        match self {
+            Section::Torrent => "Torrent",
+            Section::Http => "HTTP",
+            Section::Video => "Video (yt-dlp)",
+            Section::Advanced => "Advanced",
+        }
+    }
+
+    /// The section a (non-common) field belongs to.
+    pub const fn of(f: Field) -> Section {
+        match f {
+            Field::Seed
+            | Field::SeedRatio
+            | Field::SeedTime
+            | Field::Sequential
+            | Field::SelectFiles => Section::Torrent,
+            Field::Mirror
+            | Field::Out
+            | Field::Connections
+            | Field::Split
+            | Field::UserAgent
+            | Field::Referer
+            | Field::Headers
+            | Field::Proxy
+            | Field::Checksum => Section::Http,
+            f if f.is_video() => Section::Video,
+            _ => Section::Advanced,
+        }
+    }
 }
 
 /// A popup over the form.
@@ -107,6 +174,10 @@ pub struct AddState {
     pub video: VideoCtx,
     /// The advanced options are shown (otherwise only [`COMMON`] ones).
     pub advanced: bool,
+    /// Sections opened one by one in the two-pane form.
+    pub sections: HashSet<Section>,
+    /// The form is drawn in two panes (kept in step with the terminal size).
+    pub two_pane: bool,
 }
 
 impl Default for AddState {
@@ -121,6 +192,8 @@ impl Default for AddState {
             submitting: None,
             video: VideoCtx::default(),
             advanced: false,
+            sections: HashSet::new(),
+            two_pane: false,
         }
     }
 }
@@ -180,10 +253,80 @@ impl AddState {
     /// The fields shown: the common ones, then the advanced ones if expanded.
     pub fn visible_fields(&self) -> Vec<Field> {
         let mut v = self.common_fields();
-        if self.advanced {
-            v.extend(self.advanced_fields());
-        }
+        v.extend(
+            self.advanced_fields()
+                .into_iter()
+                .filter(|f| self.section_open(Section::of(*f))),
+        );
         v
+    }
+
+    /// Whether a section's fields are shown (F2 opens all of them).
+    pub fn section_open(&self, s: Section) -> bool {
+        self.advanced || self.sections.contains(&s)
+    }
+
+    /// The advanced fields of one section, in form order.
+    pub fn section_fields(&self, s: Section) -> Vec<Field> {
+        self.advanced_fields()
+            .into_iter()
+            .filter(|f| Section::of(*f) == s)
+            .collect()
+    }
+
+    /// Open or close one section (the F2 state is split into sections first).
+    pub fn toggle_section(&mut self, s: Section) {
+        if self.advanced {
+            self.advanced = false;
+            self.sections = Section::ALL.into_iter().collect();
+        }
+        if !self.sections.remove(&s) {
+            self.sections.insert(s);
+        }
+        self.fix_focus();
+    }
+
+    /// F2 in the two-pane form: open every section, or close them all.
+    pub fn toggle_all_sections(&mut self) -> bool {
+        let any = self.advanced || !self.sections.is_empty();
+        self.sections.clear();
+        self.advanced = !any;
+        self.fix_focus();
+        self.advanced
+    }
+
+    /// Follow a terminal size change: the headers differ between layouts.
+    pub fn set_two_pane(&mut self, on: bool) {
+        if self.two_pane == on {
+            return;
+        }
+        self.two_pane = on;
+        if !on && !self.sections.is_empty() {
+            self.advanced = true;
+        }
+        self.sections.clear();
+        if let Focus::Section(_) | Focus::Advanced = self.focus {
+            self.focus = if on {
+                Focus::Section(Section::Advanced)
+            } else {
+                Focus::Advanced
+            };
+        }
+        self.fix_focus();
+    }
+
+    /// Move focus to a header when its field was hidden.
+    fn fix_focus(&mut self) {
+        if let Focus::Field(f) = self.focus
+            && !self.common_fields().contains(&f)
+            && !self.visible_fields().contains(&f)
+        {
+            self.focus = if self.two_pane {
+                Focus::Section(Section::of(f))
+            } else {
+                Focus::Advanced
+            };
+        }
     }
 
     /// Advanced fields that hold a value (shown on the collapsed row).
@@ -200,6 +343,19 @@ impl AddState {
     fn focus_order(&self) -> Vec<Focus> {
         let mut v = vec![Focus::Sources];
         v.extend(self.common_fields().into_iter().map(Focus::Field));
+        if self.two_pane {
+            for sec in Section::ALL {
+                let fields = self.section_fields(sec);
+                if fields.is_empty() {
+                    continue;
+                }
+                v.push(Focus::Section(sec));
+                if self.section_open(sec) {
+                    v.extend(fields.into_iter().map(Focus::Field));
+                }
+            }
+            return v;
+        }
         v.push(Focus::Advanced);
         if self.advanced {
             v.extend(self.advanced_fields().into_iter().map(Focus::Field));
@@ -210,11 +366,10 @@ impl AddState {
     /// Show or hide the advanced options.
     pub fn set_advanced(&mut self, on: bool) {
         self.advanced = on;
-        if let Focus::Field(f) = self.focus
-            && !self.visible_fields().contains(&f)
-        {
-            self.focus = Focus::Advanced;
+        if !on {
+            self.sections.clear();
         }
+        self.fix_focus();
     }
 
     /// What Enter would add: `Ok(count)` or why nothing can be added yet.
@@ -354,7 +509,7 @@ impl AddState {
         match self.focus {
             Focus::Sources => Some(&mut self.sources),
             Focus::Field(f) => self.form.editor_mut(f),
-            Focus::Advanced => None,
+            Focus::Advanced | Focus::Section(_) => None,
         }
     }
 
@@ -421,9 +576,18 @@ fn add_mut(state: &mut State) -> Option<&mut AddState> {
 /// shown last time. Returns the path checks the sources need.
 pub fn push(state: &mut State, mut a: AddState) -> Vec<Cmd> {
     a.advanced = state.add_advanced;
+    a.set_two_pane(two_pane(state.size.0));
     let cmds = a.check_cmds();
     state.views.push(View::Add(Box::new(a)));
     cmds
+}
+
+/// Keep every add view in step with the terminal width.
+pub fn sync_layout(state: &mut State) {
+    let wide = two_pane(state.size.0);
+    for a in add_views(state) {
+        a.set_two_pane(wide);
+    }
 }
 
 /// Keys that start a new line in a multi-line box (plain Enter adds).
@@ -440,6 +604,7 @@ fn is_newline_key(key: &KeyEvent) -> bool {
 pub fn handle_raw_key(state: &mut State, key: KeyEvent) -> Option<Vec<Cmd>> {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
+    sync_layout(state);
     let a = add_mut(state)?;
     if a.overlay.is_some() {
         // Quit, the palette and help keep working over a popup.
@@ -452,7 +617,7 @@ pub fn handle_raw_key(state: &mut State, key: KeyEvent) -> Option<Vec<Cmd>> {
         let multi = match a.focus {
             Focus::Sources => true,
             Focus::Field(f) => f.is_multiline(),
-            Focus::Advanced => false,
+            Focus::Advanced | Focus::Section(_) => false,
         };
         if !multi {
             return Some(Vec::new());
@@ -470,8 +635,30 @@ pub fn handle_raw_key(state: &mut State, key: KeyEvent) -> Option<Vec<Cmd>> {
     match key.code {
         KeyCode::Esc | KeyCode::Tab | KeyCode::BackTab | KeyCode::F(_) => return None,
         // Enter (with or without Ctrl) reviews what will be added.
-        KeyCode::Enter if a.focus != Focus::Advanced => return Some(apply_submit(state)),
+        KeyCode::Enter if !matches!(a.focus, Focus::Advanced | Focus::Section(_)) => {
+            return Some(apply_submit(state));
+        }
         _ => {}
+    }
+    if let Focus::Section(sec) = a.focus {
+        return match key.code {
+            KeyCode::Char(' ') | KeyCode::Enter if !ctrl && !alt => {
+                a.toggle_section(sec);
+                Some(Vec::new())
+            }
+            KeyCode::Right | KeyCode::Left => {
+                if a.section_open(sec) != (key.code == KeyCode::Right) {
+                    a.toggle_section(sec);
+                }
+                Some(Vec::new())
+            }
+            KeyCode::Up | KeyCode::Down => {
+                a.step_focus(key.code == KeyCode::Down);
+                Some(Vec::new())
+            }
+            KeyCode::Char(_) if !ctrl && !alt => Some(Vec::new()),
+            _ => None,
+        };
     }
     if a.focus == Focus::Advanced {
         return match key.code {
@@ -635,6 +822,7 @@ fn overlay_key(state: &mut State, key: KeyEvent) -> Vec<Cmd> {
 /// Add-view actions.
 pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
     add_mut(state)?;
+    sync_layout(state);
     Some(match action {
         Action::AddSubmit => apply_submit(state),
         Action::AddNextField | Action::AddPrevField => {
@@ -664,8 +852,13 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         }
         Action::AddToggleAdvanced => {
             if let Some(a) = add_mut(state) {
-                let on = !a.advanced;
-                a.set_advanced(on);
+                let on = if a.two_pane {
+                    a.toggle_all_sections()
+                } else {
+                    let on = !a.advanced;
+                    a.set_advanced(on);
+                    on
+                };
                 state.add_advanced = on;
             }
             Vec::new()
@@ -1158,6 +1351,19 @@ fn pad(mut line: Line<'static>, width: usize) -> Line<'static> {
     line
 }
 
+/// `[type] ✓ note`: the two-pane form's per-line badge.
+fn badge(text: &str, sev: Severity) -> String {
+    let glyph = match sev {
+        Severity::Ok => "✓",
+        Severity::Warn => "…",
+        Severity::Error => "✗",
+    };
+    match text.split_once(" · ") {
+        Some((kind, rest)) => format!("[{kind}] {glyph} {rest}"),
+        None => format!("[{text}] {glyph}"),
+    }
+}
+
 fn render_sources(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState) {
     let focused = a.focus == Focus::Sources && a.overlay.is_none();
     let block = theme
@@ -1171,7 +1377,13 @@ fn render_sources(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState
     let top = (crow + 1).saturating_sub(height);
     let mut lines = Vec::new();
     for row in top..a.sources.lines().len().min(top + height) {
-        let label = line_label(a, &a.sources.lines()[row]);
+        let label = line_label(a, &a.sources.lines()[row]).map(|(text, sev)| {
+            if a.two_pane {
+                (badge(&text, sev), sev)
+            } else {
+                (text, sev)
+            }
+        });
         let label_w = label
             .as_ref()
             .map_or(0, |(l, _)| l.chars().count().min(width / 2));
@@ -1218,6 +1430,10 @@ pub fn footer_hints(state: &State, a: &AddState) -> Vec<Hint> {
         Focus::Field(f) if f.is_multiline() => v.push(Some(own("Ctrl-j", "new line"))),
         Focus::Field(Field::Dir) => v.push(h(Action::AddPickDir, "browse folders")),
         Focus::Advanced => v.push(Some(own("Space", if a.advanced { "hide" } else { "show" }))),
+        Focus::Section(sec) => v.push(Some(own(
+            "Space",
+            if a.section_open(sec) { "close" } else { "open" },
+        ))),
         Focus::Field(_) => {}
     }
     v.push(h(
@@ -1233,7 +1449,7 @@ pub fn footer_hints(state: &State, a: &AddState) -> Vec<Hint> {
     v.push(h(Action::AddBrowseFiles, "files"));
     v.push(h(
         Action::AddToggleAdvanced,
-        if a.advanced {
+        if a.advanced || !a.sections.is_empty() {
             "fewer options"
         } else {
             "more options"
@@ -1315,6 +1531,98 @@ fn advanced_line(a: &AddState, theme: &Theme, width: usize) -> Line<'static> {
     ])
 }
 
+/// The lines of one option field (and its errors).
+fn push_field(
+    a: &AddState,
+    theme: &Theme,
+    f: Field,
+    value_w: usize,
+    errors: &[(Field, String)],
+    lines: &mut Vec<Line<'static>>,
+    focus_line: &mut usize,
+) {
+    let focused = a.focus == Focus::Field(f) && a.overlay.is_none();
+    let marker = if focused { "▸ " } else { "  " };
+    let label = Span::styled(
+        format!("{:<LABEL_W$} ", f.label()),
+        if focused { theme.accent } else { theme.text },
+    );
+    let head = Span::styled(marker, theme.accent);
+    if focused {
+        *focus_line = lines.len();
+    }
+    if f.is_check() {
+        let mark = if a.form.checked(f) { "[x]" } else { "[ ]" };
+        lines.push(Line::from(vec![
+            head,
+            label,
+            Span::raw(mark),
+            Span::styled(
+                truncate(&format!(" {}", f.hint()), value_w.saturating_sub(3)),
+                theme.dim,
+            ),
+        ]));
+    } else if let Some(e) = a.form.editor(f) {
+        if f.is_multiline() && focused {
+            let (crow, _) = e.cursor();
+            let shown = e.lines().len().min(4);
+            let top = (crow + 1).saturating_sub(shown);
+            for (i, row) in (top..top + shown).enumerate() {
+                if row == crow {
+                    *focus_line = lines.len();
+                }
+                let first = if i == 0 {
+                    vec![head.clone(), label.clone()]
+                } else {
+                    vec![Span::raw(" ".repeat(2 + LABEL_W + 1))]
+                };
+                let mut spans = first;
+                spans.extend(e.render_line(row, value_w, true, theme).spans);
+                lines.push(Line::from(spans));
+            }
+            if e.is_empty() {
+                lines.push(Line::styled(
+                    format!("{}{}", " ".repeat(2 + LABEL_W + 1), f.hint()),
+                    theme.dim,
+                ));
+            }
+        } else {
+            let mut spans = vec![head, label];
+            if e.is_empty() && !focused {
+                spans.push(Span::styled(truncate(f.hint(), value_w), theme.dim));
+            } else if f.is_multiline() {
+                let joined = e
+                    .lines()
+                    .iter()
+                    .filter(|l| !l.is_empty())
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                spans.push(Span::raw(truncate(&joined, value_w)));
+            } else {
+                spans.extend(e.render_line(0, value_w, focused, theme).spans);
+                if e.is_empty() {
+                    spans.push(Span::styled(
+                        truncate(&format!(" {}", f.hint()), value_w.saturating_sub(1)),
+                        theme.dim,
+                    ));
+                }
+            }
+            lines.push(Line::from(spans));
+        }
+    }
+    for (_, msg) in errors.iter().filter(|(ef, _)| *ef == f) {
+        lines.push(Line::styled(
+            format!(
+                "{}✗ {}",
+                " ".repeat(2 + LABEL_W + 1),
+                truncate(msg, value_w.saturating_sub(2))
+            ),
+            theme.error,
+        ));
+    }
+}
+
 /// Lines of the options box, and the line of the focused field.
 fn option_lines(a: &AddState, theme: &Theme, width: usize) -> (Vec<Line<'static>>, usize) {
     let value_w = width.saturating_sub(2 + LABEL_W + 1).max(1);
@@ -1341,103 +1649,143 @@ fn option_lines(a: &AddState, theme: &Theme, width: usize) -> (Vec<Line<'static>
                 theme.accent,
             ));
         }
-        let focused = a.focus == Focus::Field(f) && a.overlay.is_none();
-        let marker = if focused { "▸ " } else { "  " };
-        let label = Span::styled(
-            format!("{:<LABEL_W$} ", f.label()),
-            if focused { theme.accent } else { theme.text },
-        );
-        let head = Span::styled(marker, theme.accent);
-        if focused {
+        push_field(a, theme, f, value_w, &errors, &mut lines, &mut focus_line);
+    }
+    (lines, focus_line)
+}
+
+/// The header row of a section in the two-pane form.
+fn section_line(a: &AddState, theme: &Theme, sec: Section, width: usize) -> Line<'static> {
+    let focused = a.focus == Focus::Section(sec) && a.overlay.is_none();
+    let marker = if focused { "▸ " } else { "  " };
+    let open = a.section_open(sec);
+    let arrow = if open { "▾" } else { "▸" };
+    let title = format!("{arrow} {}", sec.title());
+    let fields = a.section_fields(sec);
+    let set: Vec<&str> = fields
+        .iter()
+        .filter(|f| a.form.checked(**f) || a.form.editor(**f).is_some_and(|e| !e.is_empty()))
+        .map(|f| f.label())
+        .collect();
+    let extra = if open {
+        String::new()
+    } else if set.is_empty() {
+        format!(" — {} options", fields.len())
+    } else {
+        format!(" — {} set: {}", set.len(), set.join(", "))
+    };
+    let used = 2 + title.chars().count();
+    Line::from(vec![
+        Span::styled(marker, theme.accent),
+        Span::styled(title, if focused { theme.accent } else { theme.text }),
+        Span::styled(truncate(&extra, width.saturating_sub(used)), theme.dim),
+    ])
+}
+
+/// Lines of the two-pane options: Common, then the collapsible sections.
+fn option_lines_wide(a: &AddState, theme: &Theme, width: usize) -> (Vec<Line<'static>>, usize) {
+    let value_w = width.saturating_sub(2 + LABEL_W + 1).max(1);
+    let errors = a.errors();
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut focus_line = 0;
+    lines.push(Line::styled("  ▾ Common".to_owned(), theme.accent));
+    for f in a.common_fields() {
+        push_field(a, theme, f, value_w, &errors, &mut lines, &mut focus_line);
+    }
+    for sec in Section::ALL {
+        let fields = a.section_fields(sec);
+        if fields.is_empty() {
+            continue;
+        }
+        if a.focus == Focus::Section(sec) {
             focus_line = lines.len();
         }
-        if f.is_check() {
-            let mark = if a.form.checked(f) { "[x]" } else { "[ ]" };
-            lines.push(Line::from(vec![
-                head,
-                label,
-                Span::raw(mark),
-                Span::styled(
-                    truncate(&format!(" {}", f.hint()), value_w.saturating_sub(3)),
-                    theme.dim,
-                ),
-            ]));
-        } else if let Some(e) = a.form.editor(f) {
-            if f.is_multiline() && focused {
-                let (crow, _) = e.cursor();
-                let shown = e.lines().len().min(4);
-                let top = (crow + 1).saturating_sub(shown);
-                for (i, row) in (top..top + shown).enumerate() {
-                    if row == crow {
-                        focus_line = lines.len();
-                    }
-                    let first = if i == 0 {
-                        vec![head.clone(), label.clone()]
-                    } else {
-                        vec![Span::raw(" ".repeat(2 + LABEL_W + 1))]
-                    };
-                    let mut spans = first;
-                    spans.extend(e.render_line(row, value_w, true, theme).spans);
-                    lines.push(Line::from(spans));
-                }
-                if e.is_empty() {
-                    lines.push(Line::styled(
-                        format!("{}{}", " ".repeat(2 + LABEL_W + 1), f.hint()),
-                        theme.dim,
-                    ));
-                }
-            } else {
-                let mut spans = vec![head, label];
-                if e.is_empty() && !focused {
-                    spans.push(Span::styled(truncate(f.hint(), value_w), theme.dim));
-                } else if f.is_multiline() {
-                    let joined = e
-                        .lines()
-                        .iter()
-                        .filter(|l| !l.is_empty())
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(" | ");
-                    spans.push(Span::raw(truncate(&joined, value_w)));
-                } else {
-                    spans.extend(e.render_line(0, value_w, focused, theme).spans);
-                    if e.is_empty() {
-                        spans.push(Span::styled(
-                            truncate(&format!(" {}", f.hint()), value_w.saturating_sub(1)),
-                            theme.dim,
-                        ));
-                    }
-                }
-                lines.push(Line::from(spans));
+        lines.push(section_line(a, theme, sec, width));
+        if a.section_open(sec) {
+            for f in fields {
+                push_field(a, theme, f, value_w, &errors, &mut lines, &mut focus_line);
             }
-        }
-        for (_, msg) in errors.iter().filter(|(ef, _)| *ef == f) {
-            lines.push(Line::styled(
-                format!(
-                    "{}✗ {}",
-                    " ".repeat(2 + LABEL_W + 1),
-                    truncate(msg, value_w.saturating_sub(2))
-                ),
-                theme.error,
-            ));
         }
     }
     (lines, focus_line)
 }
 
 fn render_options(frame: &mut Frame<'_>, area: Rect, theme: &Theme, a: &AddState) {
-    let focused = matches!(a.focus, Focus::Field(_) | Focus::Advanced) && a.overlay.is_none();
+    let focused = matches!(
+        a.focus,
+        Focus::Field(_) | Focus::Advanced | Focus::Section(_)
+    ) && a.overlay.is_none();
     let block = theme.block_focus(focused).title(Span::styled(
         " Options · empty fields use your defaults ",
         theme.accent,
     ));
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    let (lines, focus_line) = option_lines(a, theme, usize::from(inner.width));
+    let width = usize::from(inner.width);
+    let (lines, focus_line) = if a.two_pane {
+        option_lines_wide(a, theme, width)
+    } else {
+        option_lines(a, theme, width)
+    };
     let h = usize::from(inner.height);
     let offset = (focus_line + 1).saturating_sub(h);
     let offset = u16::try_from(offset).unwrap_or(u16::MAX);
     frame.render_widget(Paragraph::new(lines).scroll((offset, 0)), inner);
+}
+
+/// Sources (with the action line below) on the left, options on the right.
+fn render_two_pane(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    state: &State,
+    a: &AddState,
+    hint: Option<(String, Severity)>,
+) {
+    let t = &state.theme;
+    let right_w = (area.width * 9 / 20).max(52).min(area.width / 2);
+    let [left, right] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(right_w)]).areas(area);
+    let hint_h = u16::from(hint.is_some());
+    // The action line sits right under the sources, which grow with their
+    // lines (the empty box shows three lines of help).
+    let need = if a.sources.is_empty() {
+        4
+    } else {
+        a.sources.lines().len()
+    };
+    let src_h = u16::try_from(need + 2)
+        .unwrap_or(u16::MAX)
+        .max(8)
+        .min(left.height.saturating_sub(1 + hint_h).max(3));
+    let [src, action, hint_area, _] = Layout::vertical([
+        Constraint::Length(src_h),
+        Constraint::Length(1),
+        Constraint::Length(hint_h),
+        Constraint::Fill(1),
+    ])
+    .areas(left);
+    render_sources(frame, src, t, a);
+    frame.render_widget(
+        Paragraph::new(action_line(state, a, usize::from(left.width))),
+        action,
+    );
+    if let Some((text, sev)) = hint {
+        frame.render_widget(
+            Paragraph::new(Line::styled(
+                truncate(&format!(" {text}"), usize::from(left.width)),
+                severity_style(t, sev),
+            )),
+            hint_area,
+        );
+    }
+    render_options(frame, right, t, a);
+    match &a.overlay {
+        Some(Overlay::Files(b)) => b.render(frame, area, t),
+        Some(Overlay::Dirs(p)) => p.render(frame, area, t),
+        Some(Overlay::Preview(p)) => p.render(frame, area, t),
+        Some(Overlay::Quality(q)) => q.render(frame, area, t),
+        None => {}
+    }
 }
 
 /// Draw the add view.
@@ -1450,6 +1798,10 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, a: &AddState) {
     }
     let hint = a.engine_hint();
     let hint_h = u16::from(hint.is_some());
+    if a.two_pane && area.width >= 60 {
+        render_two_pane(frame, area, state, a, hint);
+        return;
+    }
     let opt_lines = option_lines(a, t, usize::from(area.width.saturating_sub(2)))
         .0
         .len();

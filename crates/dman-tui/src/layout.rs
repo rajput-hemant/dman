@@ -59,6 +59,8 @@ pub enum Hit {
     SearchRow(usize),
     /// The search results scrollbar.
     SearchScroll,
+    /// A speed chart window label.
+    SpeedWindow(crate::widgets::graph::Window),
     /// The mouse indicator in the header (toggles mouse support).
     Mouse,
 }

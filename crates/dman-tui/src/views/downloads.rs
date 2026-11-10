@@ -155,6 +155,8 @@ pub fn apply(state: &mut State, action: Action) -> Option<Vec<Cmd>> {
         Action::ShowDone => show_chip(state, Chip::Done),
         Action::ShowFailed => show_chip(state, Chip::Failed),
         Action::ToggleGraph => crate::widgets::graph::toggle(state),
+        Action::SpeedWindowShorter => crate::widgets::graph::step_window(state, false),
+        Action::SpeedWindowLonger => crate::widgets::graph::step_window(state, true),
         Action::ToggleRemoved => {
             state.list.show_removed = !state.list.show_removed;
             state.refresh_list();

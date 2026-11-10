@@ -576,6 +576,7 @@ fn update_inner(state: &mut State, msg: Msg) -> Vec<Cmd> {
         Msg::Paste(text) => on_paste(state, &text),
         Msg::Resize(w, h) => {
             state.size = (w, h);
+            crate::views::add::sync_layout(state);
             state.fit_list();
             Vec::new()
         }

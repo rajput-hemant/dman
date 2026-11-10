@@ -1,5 +1,6 @@
 //! Tests of `update` (behaviour) and full-screen snapshots of `render`.
 
+mod extras;
 mod responsive;
 
 use std::time::Duration;

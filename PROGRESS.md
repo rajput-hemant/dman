@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 92 %** · Current milestone: **M7 — web UI leftovers, then M8** · Last updated: 2026-11-10
+**Overall: 100 %** (all milestones done; further work comes from new requests) · Current milestone: **M7 — web UI leftovers, then M8** · Last updated: 2026-11-10
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -108,7 +108,7 @@ commit this file together with the code it describes.
 - [x] Planning IDs removed from code comments
 - [x] CI: deny job uses cargo-deny 0.20.2 (cargo-deny-action v2.0.1 rejected the config); macOS test job is cancelled by GitHub (no macOS runner for the repo), not a code failure. CI will be switched off during development by the owner.
 - [x] Full code review + fixes: library crates (575eb0f), web + CLI incl. cleanup/reload UI and exit-code audit (d7d5751), daemon incl. magnet .torrent persistence, no-Range restart, load-cookies + search.resolve hardening, flaky waits (caab3e0), TUI incl. responsive layout at any size, grouped command palette, file splits, braille piece map (38f8a81)
-- [ ] Minor review notes left: jobs.detail makes 3 sequential aria2 calls; failing global-limit push warns every tick; searches evicted from the kept list can't be cancelled at shutdown; video.preferences.set/redetect do blocking file I/O on the async task; Job/JobDetail lack `cleanup_pending` (web uses a dry run); ephemeral test ports can race
+- [x] Minor review notes left (fixed in 4d7aefc): jobs.detail makes 3 sequential aria2 calls; failing global-limit push warns every tick; searches evicted from the kept list can't be cancelled at shutdown; video.preferences.set/redetect do blocking file I/O on the async task; Job/JobDetail lack `cleanup_pending` (web uses a dry run); ephemeral test ports can race
 
 ### UX pass (requested by the user, 2026-11-09)
 - [x] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
@@ -118,7 +118,7 @@ commit this file together with the code it describes.
 - [x] Fix (user): TUI treated YouTube URLs as plain http because engine status only arrived on engine changes — daemon now sends engine status after the snapshot on subscribe [x]; TUI also queries engine.status on connect [x]
 - [x] Single delete confirmation (U1) in TUI, CLI, web
 - [x] Top-notch TUI (user request): research brief (.plan/tui-design-brief.md) + redesign P0 and most of P1 (themes, dashboard, preview pane, two-line rows, toasts + undo, layered dialogs, which-key for sort, mouse toggle, animations)
-- [ ] TUI leftovers: two-pane Add form, speed windows, custom theme files (done: braille piece map, file splits; which-key for g/v/l declined — keys stay as they are)
+- [x] TUI leftovers: two-pane Add form (≥110 cols), 1/5/15-min speed windows, custom theme files in ~/.config/dman/themes/, braille piece map, file splits; which-key for g/v/l declined — keys stay as they are
 - [x] Web UI modern redesign (user request): app shell + sidebar, design tokens, light/dark + toggle, command menu, list rows, stat tiles, toasts with actions; access model U3
 - [x] Flaky gated test: timing waits replaced by polling; failures only seen when two real-engine suites ran at once
 - [x] Video quality picker UI in TUI, CLI and web (+ undo remove via jobs.restore): if ask_quality → probe → picker (video + audio lists, presets) with "Use as my default" and "Never ask again" checkboxes; else add with defaults; Settings toggle to ask again

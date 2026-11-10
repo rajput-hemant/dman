@@ -2737,6 +2737,8 @@ pub(super) mod search_view {
             rate_limit_per_min: Some(30),
             max_results: 100,
             api_key_ref: None,
+            mirrors: Vec::new(),
+            proxy: None,
         }
     }
 
@@ -2897,6 +2899,7 @@ pub(super) mod search_view {
         ProviderStatus::Done {
             count,
             elapsed_ms: ms,
+            mirror: None,
         }
     }
 
@@ -3989,6 +3992,7 @@ pub(super) mod search_view {
                 )
             }),
             elapsed_ms: 812,
+            mirror: None,
         }
     }
 

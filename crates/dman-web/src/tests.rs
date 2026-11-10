@@ -971,6 +971,7 @@ async fn sse_streams_search_results() {
             status: dman_proto::search::ProviderStatus::Done {
                 count: 1,
                 elapsed_ms: 12,
+                mirror: None,
             },
             results: vec![result],
         })

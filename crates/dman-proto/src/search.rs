@@ -85,8 +85,16 @@ pub struct SearchResultDto {
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum ProviderStatus {
     Running,
-    Done { count: u32, elapsed_ms: u64 },
-    Failed { error: String },
+    Done {
+        count: u32,
+        elapsed_ms: u64,
+        /// Base URL that answered, for providers that have mirrors.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mirror: Option<String>,
+    },
+    Failed {
+        error: String,
+    },
 }
 
 /// `search.results`: the latest merged list of one of the last searches.
@@ -165,6 +173,13 @@ pub struct ProviderInfo {
     /// Name of the secret holding the API key (Torznab); never its value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key_ref: Option<String>,
+    /// Alternative base URLs tried when the main host fails.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mirrors: Vec<String>,
+    /// Proxy of this provider with credentials hidden (`socks5h://***@host:1080`,
+    /// `none`); absent when the provider uses `[search] proxy` or none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<String>,
 }
 
 /// `providers.set`: change fields of one provider; applied immediately and
@@ -197,6 +212,9 @@ pub struct ProviderTestReport {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample: Option<SearchResultDto>,
     pub elapsed_ms: u64,
+    /// Base URL that answered, for providers that have mirrors.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mirror: Option<String>,
 }
 
 /// `providers.import`: a TOML file of `[[provider]]` tables.
@@ -241,12 +259,21 @@ mod tests {
         let s = ProviderStatus::Done {
             count: 3,
             elapsed_ms: 40,
+            mirror: None,
         };
         let v = serde_json::to_value(&s).unwrap();
         assert_eq!(
             v,
             serde_json::json!({"state":"done","count":3,"elapsed_ms":40})
         );
+        let s = ProviderStatus::Done {
+            count: 3,
+            elapsed_ms: 40,
+            mirror: Some("https://b.example".into()),
+        };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["mirror"], "https://b.example");
+        assert_eq!(serde_json::from_value::<ProviderStatus>(v).unwrap(), s);
         let p: SearchStartParams = serde_json::from_str(r#"{"query":"x"}"#).unwrap();
         assert_eq!(p.providers, None);
         let r: SearchResultDto = serde_json::from_str(r#"{"title":"t"}"#).unwrap();

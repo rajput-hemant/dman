@@ -38,6 +38,31 @@ fn hex(bytes: &[u8]) -> String {
     })
 }
 
+/// Whether a response body is an anti-bot interstitial (Cloudflare "Just a
+/// moment...", "Attention Required", DDoS-Guard) instead of the real page.
+/// Only small HTML documents are inspected; a normal page that merely embeds a
+/// passive Cloudflare script does not match.
+pub fn is_block_page(body: &str) -> bool {
+    const MAX: usize = 200 * 1024;
+    if body.len() > MAX || !body.trim_start().starts_with(['<', '\u{feff}']) {
+        return false;
+    }
+    let head: String = body.chars().take(MAX).collect::<String>().to_lowercase();
+    [
+        "<title>just a moment",
+        "<title>attention required! | cloudflare",
+        "<title>access denied | ",
+        "<title>ddos-guard",
+        "cf-browser-verification",
+        "cf_chl_opt",
+        "id=\"challenge-form\"",
+        "checking your browser before accessing",
+        "enable javascript and cookies to continue",
+    ]
+    .iter()
+    .any(|m| head.contains(m))
+}
+
 /// Normalize an info hash given as 40 hex or 32 base32 characters to
 /// lowercase hex. Returns `None` for anything else.
 pub fn normalize_info_hash(s: &str) -> Option<String> {
@@ -47,6 +72,28 @@ pub fn normalize_info_hash(s: &str) -> Option<String> {
         32 => base32_decode(s).filter(|b| b.len() == 20).map(|b| hex(&b)),
         _ => None,
     }
+}
+
+/// First run of exactly 40 hexadecimal characters in `s` (a hash inside a URL
+/// or a cell of text), lowercased.
+pub fn find_info_hash(s: &str) -> Option<String> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i].is_ascii_hexdigit() {
+            let start = i;
+            while i < b.len() && b[i].is_ascii_alphanumeric() {
+                i += 1;
+            }
+            let run = &s[start..i];
+            if run.len() == 40 && run.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Some(run.to_ascii_lowercase());
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
 }
 
 /// Extract the BitTorrent v1 info hash (`xt=urn:btih:`) from a magnet link.

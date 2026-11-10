@@ -10,6 +10,9 @@
 
 pub mod aggregate;
 pub mod def;
+pub mod dns;
+#[cfg(feature = "engine")]
+pub mod doh;
 #[cfg(feature = "engine")]
 pub mod engine;
 pub mod error;
@@ -18,6 +21,7 @@ pub mod feed;
 #[cfg(feature = "engine")]
 pub mod html;
 pub mod json;
+pub mod proxy;
 pub mod result;
 #[cfg(feature = "engine")]
 pub mod torznab;
@@ -32,9 +36,11 @@ pub use def::parse_response;
 pub use def::{
     HtmlSpec, HttpMethod, JsonSpec, Kind, ProviderDef, builtin_providers, export, import,
 };
+pub use dns::DnsMode;
 #[cfg(feature = "engine")]
 pub use engine::{ProviderEvent, Searcher, SearcherConfig, TestReport, test_provider};
 pub use error::{DefError, ProviderError};
+pub use proxy::{PROXY_NONE, ProxyUrl};
 pub use result::{Query, SearchResult};
 #[cfg(feature = "engine")]
 pub use trackers::fetch_tracker_list;

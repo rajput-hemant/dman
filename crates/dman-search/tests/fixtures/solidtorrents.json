@@ -1,0 +1,25 @@
+{
+  "success": true,
+  "results": [
+    {
+      "_id": "6501f0a1b2c3d4e5f6a7b8c9",
+      "title": "ubuntu-24.04-desktop-amd64.iso",
+      "size": 6114656256,
+      "infohash": "c4a1d4a7d1f4e1c8a0f7c3a5d9b2e6f81a3c5d70",
+      "magnet": "magnet:?xt=urn:btih:c4a1d4a7d1f4e1c8a0f7c3a5d9b2e6f81a3c5d70&dn=ubuntu-24.04-desktop-amd64.iso",
+      "swarm": { "seeders": 120, "leechers": 14, "downloads": 900 },
+      "imported": "2026-10-01T12:00:00.000Z",
+      "category": "Software"
+    },
+    {
+      "_id": "6501f0a1b2c3d4e5f6a7b8ca",
+      "title": "ubuntu-24.04-live-server-amd64.iso",
+      "size": 2754381824,
+      "infohash": "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567",
+      "magnet": "magnet:?xt=urn:btih:0a1b2c3d4e5f60718293a4b5c6d7e8f901234567&dn=ubuntu-24.04-live-server-amd64.iso",
+      "swarm": { "seeders": 45, "leechers": 3, "downloads": 410 },
+      "imported": "2026-10-02T08:30:00.000Z",
+      "category": "Software"
+    }
+  ]
+}

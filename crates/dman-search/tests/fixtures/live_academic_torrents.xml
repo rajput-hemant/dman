@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:academictorrents="https://academictorrents.com" version="2.0">
+<channel>
+<title>Academic Torrents</title>
+<description>Recent Torrents</description>
+<link>https://academictorrents.com/</link>
+<item>
+<title>FETAL_PLANES_DB: Common maternal-fetal ultrasound images</title>
+<category>Dataset</category>
+<infohash>279f06bc350f8644395f8bca4e8e96514815ea8f</infohash>
+<guid>https://academictorrents.com/details/279f06bc350f8644395f8bca4e8e96514815ea8f</guid>
+<link>https://academictorrents.com/details/279f06bc350f8644395f8bca4e8e96514815ea8f</link>
+<description>A large dataset of routinely acquired maternal-fetal screening ultrasound images collected from two different hospitals by several operators and ultrasound machines. All images were manually labeled b</description>
+<size>2088522169</size>
+</item>
+<item>
+<title>Multivariable Calculus (MIT 18.02) - Worked examples 2010</title>
+<category>Course</category>
+<infohash>28a30bdd9a6859622e87e04ffb9eb4a9810bdf77</infohash>
+<guid>https://academictorrents.com/details/28a30bdd9a6859622e87e04ffb9eb4a9810bdf77</guid>
+<link>https://academictorrents.com/details/28a30bdd9a6859622e87e04ffb9eb4a9810bdf77</link>
+<description>This course covers differential, integral and vector calculus for functions of more than one variable. These mathematical tools and methods are used extensively in the physical sciences, engineering, </description>
+<size>9902751744</size>
+</item>
+<item>
+<title>Multivariable Calculus (MIT 18.02) - Video lectures 2007</title>
+<category>Course</category>
+<infohash>81d27851df2879ed1307c8d60980d2b8af19264b</infohash>
+<guid>https://academictorrents.com/details/81d27851df2879ed1307c8d60980d2b8af19264b</guid>
+<link>https://academictorrents.com/details/81d27851df2879ed1307c8d60980d2b8af19264b</link>
+<description>This course covers differential, integral and vector calculus for functions of more than one variable. These mathematical tools and methods are used extensively in the physical sciences, engineering, </description>
+<size>32874954752</size>
+</item>
+<item>
+<title>Pl@ntNet-300K: a plant image dataset with high label ambiguity and a long-tailed distribution</title>
+<category>Dataset</category>
+<infohash>447df5f09ca5c48b0cf2844cfffc1425ae18aaa4</infohash>
+<guid>https://academictorrents.com/details/447df5f09ca5c48b0cf2844cfffc1425ae18aaa4</guid>
+<link>https://academictorrents.com/details/447df5f09ca5c48b0cf2844cfffc1425ae18aaa4</link>
+<description>**Pl@ntNet-300K** is an image dataset of **306,146 plant images covering 1,081 species**, built from the Pl@ntNet citizen observatory. It has high intrinsic label ambiguity and a long-tailed class dis</description>
+<size>31670505069</size>
+</item>
+<item>
+<title>AMOS Unlabeled Data Part I: Abdominal CT Scans</title>
+<category>Dataset</category>
+<infohash>470cfb013ee680b099b27a3ac6ae92733bcaf8f1</infohash>
+<guid>https://academictorrents.com/details/470cfb013ee680b099b27a3ac6ae92733bcaf8f1</guid>
+<link>https://academictorrents.com/details/470cfb013ee680b099b27a3ac6ae92733bcaf8f1</link>
+<description>**Unlabeled abdominal CT scans** from AMOS, a large-scale, multi-center clinical benchmark for abdominal multi-organ segmentation. These scans have no annotations. They are meant for semi-supervised, </description>
+<size>23286174260</size>
+</item>
+<item>
+<title>MUSDB18-HQ: Uncompressed Music Source Separation Dataset (150 Songs with Stems)</title>
+<category>Dataset</category>
+<infohash>28ed43c7e0c349337bfb0ff3e01f03a3f2d8a492</infohash>
+<guid>https://academictorrents.com/details/28ed43c7e0c349337bfb0ff3e01f03a3f2d8a492</guid>
+<link>https://academictorrents.com/details/28ed43c7e0c349337bfb0ff3e01f03a3f2d8a492</link>
+<description>**MUSDB18-HQ** is the uncompressed (WAV) version of MUSDB18: **150 full-length songs** in a range of styles, each with the stereo mixture and four separated stems. It is the standard reference dataset</description>
+<size>22656664047</size>
+</item>
+</channel>
+</rss>

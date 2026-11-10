@@ -1,0 +1,163 @@
+{
+ "status": "ok",
+ "status_message": "Query was successful",
+ "data": {
+  "movie_count": 7,
+  "limit": 3,
+  "page_number": 1,
+  "movies": [
+   {
+    "id": 71492,
+    "url": "https://yts.gg/movies/night-of-the-living-dead-2006",
+    "imdb_code": "tt0489244",
+    "title": "Night of the Living Dead",
+    "title_english": "Night of the Living Dead",
+    "title_long": "Night of the Living Dead (2006)",
+    "slug": "night-of-the-living-dead-2006",
+    "year": 2006,
+    "rating": 3.2,
+    "runtime": 80,
+    "genres": [
+     "Horror"
+    ],
+    "language": "en",
+    "mpa_rating": "R",
+    "state": "ok",
+    "torrents": [
+     {
+      "url": "https://yts.gg/torrent/download/87258936C06B08970F8F07E86DCE2CE960BC3A07",
+      "hash": "87258936C06B08970F8F07E86DCE2CE960BC3A07",
+      "quality": "3D",
+      "type": "web",
+      "is_repack": "0",
+      "video_codec": "x264",
+      "bit_depth": "8",
+      "audio_channels": "2.0",
+      "seeds": 3,
+      "peers": 2,
+      "size": "1.33 GB",
+      "size_bytes": 1428076626,
+      "date_uploaded": "2025-09-23 03:01:02",
+      "date_uploaded_unix": 1758589262
+     }
+    ]
+   },
+   {
+    "id": 58491,
+    "url": "https://yts.gg/movies/fred-2-night-of-the-living-fred-2011",
+    "imdb_code": "tt1927093",
+    "title": "Fred 2: Night of the Living Fred",
+    "title_english": "Fred 2: Night of the Living Fred",
+    "title_long": "Fred 2: Night of the Living Fred (2011)",
+    "slug": "fred-2-night-of-the-living-fred-2011",
+    "year": 2011,
+    "rating": 2.6,
+    "runtime": 84,
+    "genres": [
+     "Adventure",
+     "Comedy",
+     "Family",
+     "Horror"
+    ],
+    "language": "en",
+    "mpa_rating": "G",
+    "state": "ok",
+    "torrents": [
+     {
+      "url": "https://yts.gg/torrent/download/CE60ACB25F6171FE2188FC9DA779B74CB5B78440",
+      "hash": "CE60ACB25F6171FE2188FC9DA779B74CB5B78440",
+      "quality": "720p",
+      "type": "web",
+      "is_repack": "0",
+      "video_codec": "x264",
+      "bit_depth": "8",
+      "audio_channels": "2.0",
+      "seeds": 0,
+      "peers": 2,
+      "size": "761.63 MB",
+      "size_bytes": 798626939,
+      "date_uploaded": "2023-12-14 15:13:13",
+      "date_uploaded_unix": 1702563193
+     },
+     {
+      "url": "https://yts.gg/torrent/download/000E4B19910CD80609B88C391E3215C534418B7D",
+      "hash": "000E4B19910CD80609B88C391E3215C534418B7D",
+      "quality": "1080p",
+      "type": "web",
+      "is_repack": "0",
+      "video_codec": "x264",
+      "bit_depth": "8",
+      "audio_channels": "5.1",
+      "seeds": 12,
+      "peers": 0,
+      "size": "1.53 GB",
+      "size_bytes": 1642824991,
+      "date_uploaded": "2023-12-14 16:22:15",
+      "date_uploaded_unix": 1702567335
+     }
+    ],
+    "date_uploaded": "2023-12-14 15:13:13",
+    "date_uploaded_unix": 1702563193
+   },
+   {
+    "id": 49022,
+    "url": "https://yts.gg/movies/a-night-of-the-living-dead-2022",
+    "imdb_code": "tt14871494",
+    "title": "A Night of the Living Dead",
+    "title_english": "A Night of the Living Dead",
+    "title_long": "A Night of the Living Dead (2022)",
+    "slug": "a-night-of-the-living-dead-2022",
+    "year": 2022,
+    "rating": 2,
+    "runtime": 80,
+    "genres": [
+     "Action",
+     "Horror"
+    ],
+    "language": "en",
+    "mpa_rating": "",
+    "state": "ok",
+    "torrents": [
+     {
+      "url": "https://yts.gg/torrent/download/F8055489A90930415501F8899E77724094B8A7EB",
+      "hash": "F8055489A90930415501F8899E77724094B8A7EB",
+      "quality": "720p",
+      "type": "web",
+      "is_repack": "0",
+      "video_codec": "x264",
+      "bit_depth": "8",
+      "audio_channels": "2.0",
+      "seeds": 0,
+      "peers": 1,
+      "size": "738.53 MB",
+      "size_bytes": 774404833,
+      "date_uploaded": "2023-02-16 18:05:14",
+      "date_uploaded_unix": 1676567114
+     },
+     {
+      "url": "https://yts.gg/torrent/download/3FBD10700B53D0FF1E99DF549C8C1B8822E1C1AC",
+      "hash": "3FBD10700B53D0FF1E99DF549C8C1B8822E1C1AC",
+      "quality": "1080p",
+      "type": "web",
+      "is_repack": "0",
+      "video_codec": "x264",
+      "bit_depth": "8",
+      "audio_channels": "2.0",
+      "seeds": 1,
+      "peers": 1,
+      "size": "1.34 GB",
+      "size_bytes": 1438814044,
+      "date_uploaded": "2023-02-16 18:47:34",
+      "date_uploaded_unix": 1676569654
+     }
+    ],
+    "date_uploaded": "2023-02-16 18:05:14",
+    "date_uploaded_unix": 1676567114
+   }
+  ]
+ },
+ "@meta": {
+  "api_version": 2,
+  "execution_time": "0.01 ms"
+ }
+}

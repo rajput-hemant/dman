@@ -9,7 +9,7 @@
 
 use std::collections::HashSet;
 
-use dman_search::{ProviderDef, builtin_providers};
+use dman_search::{ProviderDef, ProxyUrl, builtin_providers};
 use serde::{Deserialize, Serialize};
 
 fn default_tracker_url() -> String {
@@ -67,9 +67,16 @@ pub struct Search {
     pub provider: Vec<toml::Table>,
     /// Tracker list source.
     pub tracker_list: TrackerList,
-    /// Proxy for provider and tracker-list requests.
+    /// Proxy for provider and tracker-list requests (`socks5h://host:port`,
+    /// `http://...`). A provider's own `proxy` wins; `proxy = "none"` on a
+    /// provider connects directly. Credentials stay out of `Debug` output.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub proxy: Option<String>,
+    pub proxy: Option<ProxyUrl>,
+    /// Name resolution for provider and tracker-list requests: `system`
+    /// (default), `doh:cloudflare`, `doh:quad9` or `doh:https://host/dns-query`
+    /// (DNS over HTTPS, for networks that tamper with DNS). Not applied to
+    /// aria2, which has its own `async-dns-server` option.
+    pub dns: String,
     /// Queries kept in the search history (0 = none).
     pub history_size: usize,
 }
@@ -80,6 +87,7 @@ impl Default for Search {
             provider: Vec::new(),
             tracker_list: TrackerList::default(),
             proxy: None,
+            dns: "system".to_owned(),
             history_size: default_history(),
         }
     }
@@ -99,6 +107,9 @@ const KNOWN_KEYS: &[&str] = &[
     "verified",
     "description",
     "headers",
+    "mirrors",
+    "proxy",
+    "local_filter",
     "url",
     "api_key_ref",
     "categories",
@@ -263,17 +274,9 @@ impl Search {
             return Err("search.tracker_list.refresh_hours must be between 1 and 2160".into());
         }
         if let Some(p) = &self.proxy {
-            match url::Url::parse(p) {
-                Ok(u)
-                    if matches!(u.scheme(), "http" | "https" | "socks5" | "socks5h")
-                        && u.host_str().is_some() => {}
-                _ => {
-                    return Err(format!(
-                        "search.proxy `{p}` must be an http, https, socks5 or socks5h URL"
-                    ));
-                }
-            }
+            p.validate().map_err(|e| format!("search.{e}"))?;
         }
+        dman_search::DnsMode::parse(&self.dns).map_err(|e| format!("search.dns: {e}"))?;
         if self.history_size > 10_000 {
             return Err("search.history_size must be at most 10000".into());
         }
@@ -378,6 +381,67 @@ mod tests {
             c.search.tracker_list.url,
             dman_search::DEFAULT_TRACKER_LIST_URL
         );
+    }
+
+    #[test]
+    fn provider_proxy_and_mirrors_are_overridable() {
+        let c = parse(
+            "[search]\nproxy = \"socks5h://u:pw@127.0.0.1:9050\"\n\
+             [[search.provider]]\nname = \"Nyaa\"\nproxy = \"none\"\nmirrors = [\"https://nyaa.land\", \"https://nyaa.example:8443\"]\n\
+             [[search.provider]]\nname = \"YTS\"\nproxy = \"http://proxy.invalid:3128\"\n",
+        );
+        c.validate().unwrap();
+        let defs = c.search.effective_providers().unwrap();
+        let nyaa = defs.iter().find(|d| d.name == "Nyaa").unwrap();
+        assert!(nyaa.proxy.as_ref().unwrap().is_direct());
+        assert_eq!(nyaa.mirrors.len(), 2);
+        let yts = defs.iter().find(|d| d.name == "YTS").unwrap();
+        assert_eq!(
+            yts.proxy.as_ref().unwrap().as_str(),
+            "http://proxy.invalid:3128"
+        );
+        // built-in mirrors survive an override that does not mention them
+        assert!(!yts.mirrors.is_empty());
+        let text = toml::to_string(&c).unwrap();
+        assert_eq!(parse(&text), c);
+    }
+
+    #[test]
+    fn bad_provider_proxy_and_mirrors_are_rejected_without_leaking_secrets() {
+        let m =
+            invalid("[[search.provider]]\nname = \"Nyaa\"\nproxy = \"ftp://user:topsecret@h:1\"\n");
+        assert!(m.contains("Nyaa") && m.contains("proxy"), "{m}");
+        assert!(!m.contains("topsecret"), "{m}");
+        let m = invalid(
+            "[[search.provider]]\nname = \"Nyaa\"\nmirrors = [\"https://a.example/path\"]\n",
+        );
+        assert!(m.contains("mirrors"), "{m}");
+        let m = invalid("[[search.provider]]\nname = \"Nyaa\"\nmirrors = [\"nonsense\"]\n");
+        assert!(m.contains("mirrors"), "{m}");
+        let m = invalid("[search]\nproxy = \"ftp://user:topsecret@h:1\"\n");
+        assert!(
+            m.contains("search.proxy") && !m.contains("topsecret"),
+            "{m}"
+        );
+    }
+
+    #[test]
+    fn dns_setting_is_validated() {
+        let c = parse("[search]\ndns = \"doh:quad9\"\n");
+        c.validate().unwrap();
+        assert_eq!(Config::default().search.dns, "system");
+        for bad in ["doh:", "doh:http://x/q", "8.8.8.8"] {
+            let m = invalid(&format!("[search]\ndns = \"{bad}\"\n"));
+            assert!(m.contains("search.dns"), "{m}");
+        }
+    }
+
+    #[test]
+    fn debug_output_hides_proxy_credentials() {
+        let c = parse("[search]\nproxy = \"socks5h://alice:hunter2@127.0.0.1:9050\"\n");
+        let dbg = format!("{c:?} {:?}", c.search);
+        assert!(!dbg.contains("hunter2") && !dbg.contains("alice"), "{dbg}");
+        assert!(dbg.contains("127.0.0.1:9050"));
     }
 
     #[test]

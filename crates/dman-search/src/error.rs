@@ -26,6 +26,12 @@ impl DefError {
 pub enum ProviderError {
     #[error("HTTP {status} from {url}")]
     Http { status: u16, url: String },
+    #[error(
+        "blocked by an anti-bot challenge page ({0}); try a mirror, a proxy or an indexer manager (docs/search.md)"
+    )]
+    Blocked(String),
+    #[error("no mirror answered: {0}")]
+    Mirrors(String),
     #[error("network error: {0}")]
     Network(String),
     #[error("timed out after {0}s")]

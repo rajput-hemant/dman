@@ -51,6 +51,9 @@ pub async fn run(ctx: &Ctx, cmd: &ProvidersCmd) -> Result<i32, CliError> {
                     "{}: ok, {} results in {} ms",
                     r.name, r.results, r.elapsed_ms
                 );
+                if let Some(m) = &r.mirror {
+                    println!("answered by mirror: {m}");
+                }
                 if let Some(s) = &r.sample {
                     println!("sample: {}", s.title);
                 }

@@ -66,7 +66,7 @@ pub fn search_results(base: &str, csrf: Option<&str>, v: &SearchView<'_>) -> Mar
                 @for (name, st) in v.providers {
                     @match st {
                         ProviderStatus::Running => { span.chip.running { span.spin {} (name) ": searching\u{2026}" } }
-                        ProviderStatus::Done { count, elapsed_ms } => {
+                        ProviderStatus::Done { count, elapsed_ms, .. } => {
                             span.chip.done title=(format!("{elapsed_ms} ms")) { span.dot {} (name) ": " (count) " results" }
                         }
                         ProviderStatus::Failed { error } => { span.chip.failed title=(error) { span.dot {} (name) " failed: " (error) } }

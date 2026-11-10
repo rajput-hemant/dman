@@ -112,7 +112,9 @@ impl From<ProviderStatus> for Prov {
     fn from(s: ProviderStatus) -> Self {
         match s {
             ProviderStatus::Running => Prov::Running,
-            ProviderStatus::Done { count, elapsed_ms } => Prov::Done { count, elapsed_ms },
+            ProviderStatus::Done {
+                count, elapsed_ms, ..
+            } => Prov::Done { count, elapsed_ms },
             ProviderStatus::Failed { error } => Prov::Failed(error),
         }
     }

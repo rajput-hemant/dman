@@ -7,20 +7,29 @@
 # passed. `verified = false` means written from knowledge of the public format
 # only. Use "Test" in settings; sites change markup, domains and APIs, and
 # mirrors differ. Fix by editing the definition.
+#
+# `mirrors` are alternative base URLs tried in order when the main host fails
+# (connection error, timeout, HTTP 403/451/5xx, anti-bot challenge page); the
+# one that answered last is tried first. `local_filter = true` marks endpoints
+# that only list recent items: the results are filtered by the query words
+# after download.
 
 # ---------------------------------------------------------------- 1337x
 # HTML. Result rows carry no magnet: each detail page is fetched (first
 # `detail_limit` results only) to read it. Confidence: medium (markup changes
 # often; Cloudflare may block scraping; domain varies: 1337x.to, 1337x.st ...).
-# UNVERIFIED (checked 2026-11-09): 1337x.to answers 403 (Cloudflare challenge)
-# to non-browser clients, so no real page could be fetched to check the
-# selectors. Fixtures are hand-written.
+# UNVERIFIED (checked 2026-11-10): 1337x.to, .st, 1337xx.to and x1337x.ws all
+# answer 403 with a Cloudflare challenge to non-browser clients, so no real
+# page could be fetched to check the selectors. Fixtures are hand-written.
+# dman does not solve challenges; reach it through Prowlarr/Jackett with
+# FlareSolverr and the Torznab provider (docs/search.md).
 [[provider]]
 name = "1337x"
 kind = "html"
 enabled = false
 verified = false
 order = 10
+mirrors = ["https://1337x.st", "https://1337xx.to", "https://x1337x.ws"]
 timeout_secs = 20
 rate_limit_per_min = 30
 description = "1337x (HTML scrape, detail page per result for the magnet)"
@@ -66,6 +75,7 @@ kind = "feed"
 enabled = false
 verified = true
 order = 30
+mirrors = ["https://nyaa.land"]
 description = "Nyaa (RSS feed with nyaa: extension elements)"
 url = "https://nyaa.si/?page=rss&q={query}&c=0_0&f=0"
 
@@ -96,18 +106,19 @@ category = "/category"
 
 # ------------------------------------------------------------------ YTS
 # JSON list_movies API; one result per torrent (quality) of each movie, the
-# magnet is built from the hash. The domain changes often (yts.mx, yts.lt,
-# yts.am ...).
-# UNVERIFIED (checked 2026-11-09): yts.mx does not resolve / connect from the
-# test machine, so no real response could be fetched. Fixtures are hand-written.
+# magnet is built from the hash. The domain moves often: the API now lives at
+# movies-api.accel.li (yts.gg, yts.lt and yts.am redirect or mirror it).
+# Verified live 2026-11-10 against movies-api.accel.li.
 [[provider]]
 name = "YTS"
 kind = "json"
 enabled = false
-verified = false
+verified = true
 order = 50
+mirrors = ["https://yts.gg", "https://yts.lt", "https://yts.am", "https://yts.mx"]
+test_query = "night of the living dead"
 description = "YTS movies (JSON API, one result per quality)"
-url = "https://yts.mx/api/v2/list_movies.json?query_term={query}&limit=20&sort_by=seeds"
+url = "https://movies-api.accel.li/api/v2/list_movies.json?query_term={query}&limit=20&sort_by=seeds"
 items = "/data/movies"
 expand = "/torrents"
 title = "{^/title_long} [{/quality} {/type}]"
@@ -120,6 +131,196 @@ magnet = "magnet:?xt=urn:btih:{/hash}&dn={^/title_long|enc}%20[{/quality}]&tr=ud
 torrent_url = "/url"
 detail_url = "{^/url}"
 category = "movies"
+
+# ----------------------------------------------------------------- EZTV
+# JSON API (/api/get-torrents). It has no text search (only imdb_id, limit,
+# page), so this lists the 100 newest TV torrents and keeps those matching the
+# query. The HTML search is behind a Cloudflare challenge.
+# Verified live 2026-11-10 against eztvx.to: `peers` is the leecher count.
+[[provider]]
+name = "EZTV"
+kind = "json"
+enabled = false
+verified = true
+order = 70
+local_filter = true
+test_query = ""
+mirrors = ["https://eztv.re", "https://eztv.wf", "https://eztv.tf"]
+description = "EZTV TV releases (JSON API; newest 100 only, filtered by your words)"
+url = "https://eztvx.to/api/get-torrents?limit=100&page=1"
+items = "/torrents"
+title = "/title"
+size = "/size_bytes"
+seeders = "/seeds"
+leechers = "/peers"
+date = "/date_released_unix"
+info_hash = "/hash"
+magnet = "/magnet_url"
+category = "tv"
+
+# --------------------------------------------------------------- Torlock
+# RSS of the 30 newest torrents (seeds, leechers and size are in the item
+# description, the .torrent is the enclosure); filtered by your words. The
+# search pages are behind a Cloudflare challenge.
+# Verified live 2026-11-10 against www.torlock.com/rss.xml.
+[[provider]]
+name = "Torlock"
+kind = "feed"
+enabled = false
+verified = true
+order = 80
+local_filter = true
+test_query = ""
+description = "Torlock (RSS of the newest 30, filtered by your words)"
+url = "https://www.torlock.com/rss.xml"
+
+# ---------------------------------------------------------- LimeTorrents
+# HTML. Result rows carry no magnet: each detail page is read for it (first
+# `detail_limit` results only). The domain moves often (limetorrents.lol
+# redirects to limetorrents.fun).
+# UNVERIFIED (checked 2026-11-10): the search page does not answer from the
+# test machine (limetorrents.fun times out on /search/), so the selectors come
+# from the real "latest 100" page and a real detail page, which share the
+# markup.
+[[provider]]
+name = "LimeTorrents"
+kind = "html"
+enabled = false
+verified = false
+order = 90
+timeout_secs = 20
+rate_limit_per_min = 30
+mirrors = ["https://www.limetorrents.lol"]
+test_query = "ubuntu"
+description = "LimeTorrents (HTML scrape, detail page per result for the magnet)"
+search_url = "https://www.limetorrents.fun/search/all/{query}/seeds/1/"
+row = "table.table2 tr[bgcolor]"
+title = "td.tdleft div.tt-name a:last-of-type"
+detail_link = "td.tdleft div.tt-name a:last-of-type @href"
+size = "td.tdnormal:nth-of-type(3)"
+seeders = "td.tdseed"
+leechers = "td.tdleech"
+date = "td.tdnormal:nth-of-type(2)"
+follow_detail_for_magnet = true
+detail_magnet = "a[href^='magnet:'] @href"
+detail_limit = 10
+
+# --------------------------------------------------------- SolidTorrents
+# JSON API (/api/v1/search): {"success": true, "results": [{title, size,
+# infohash, magnet, swarm: {seeders, leechers}, imported, category}]}.
+# solidtorrents.to now redirects to bitsearch.to.
+# UNVERIFIED (checked 2026-11-10): bitsearch.to answers 500 or times out and
+# solidtorrents.to redirects to it, so no real response could be fetched; the
+# format is the one documented for the API before the move and the fixture is
+# hand-written.
+[[provider]]
+name = "SolidTorrents"
+kind = "json"
+enabled = false
+verified = false
+order = 100
+mirrors = ["https://solidtorrents.to", "https://solidtorrents.net"]
+description = "SolidTorrents / BitSearch (JSON API)"
+url = "https://bitsearch.to/api/v1/search?q={query}&sort=seeders"
+items = "/results"
+title = "/title"
+size = "/size"
+seeders = "/swarm/seeders"
+leechers = "/swarm/leechers"
+date = "/imported"
+info_hash = "/infohash"
+magnet = "/magnet"
+category = "/category"
+
+# ------------------------------------------------------ TorrentDownloads
+# HTML. Result rows carry no magnet: each detail page is read for it (first
+# `detail_limit` results only). The first rows of a result page are sponsored
+# links to other sites, which the `/torrent/` title selector skips.
+# Verified live 2026-11-10 against www.torrentdownloads.pro.
+[[provider]]
+name = "TorrentDownloads"
+kind = "html"
+enabled = false
+verified = true
+order = 110
+test_query = "ubuntu"
+timeout_secs = 20
+rate_limit_per_min = 30
+description = "TorrentDownloads (HTML scrape, detail page per result for the magnet)"
+search_url = "https://www.torrentdownloads.pro/search/?search={query}"
+row = "div.grey_bar3"
+title = "p a[href^='/torrent/']"
+detail_link = "p a[href^='/torrent/'] @href"
+size = "span:nth-of-type(4)"
+seeders = "span:nth-of-type(3)"
+leechers = "span:nth-of-type(2)"
+follow_detail_for_magnet = true
+detail_magnet = "a[href^='magnet:'] @href"
+detail_limit = 10
+
+# ------------------------------------------------------- Internet Archive
+# JSON advancedsearch; only items that have a generated torrent
+# (format "Archive BitTorrent"). Public-domain and freely licensed material.
+# The torrent is https://archive.org/download/<id>/<id>_archive.torrent (the
+# swarm is the archive's web seed). No seeder counts or info hash in the
+# listing; `downloads` is the lifetime download count, not shown as seeders.
+# Verified live 2026-11-10.
+[[provider]]
+name = "Internet Archive"
+kind = "json"
+enabled = false
+verified = true
+order = 120
+test_query = "nasa"
+description = "Internet Archive (free and public-domain items, .torrent per item)"
+url = "https://archive.org/advancedsearch.php?q=%28{query}%29%20AND%20format%3A%22Archive%20BitTorrent%22&fl%5B%5D=identifier&fl%5B%5D=title&fl%5B%5D=item_size&fl%5B%5D=downloads&fl%5B%5D=publicdate&fl%5B%5D=mediatype&rows=50&output=json"
+items = "/response/docs"
+title = "/title"
+size = "/item_size"
+date = "/publicdate"
+torrent_url = "https://archive.org/download/{/identifier|enc}/{/identifier|enc}_archive.torrent"
+detail_url = "https://archive.org/details/{/identifier|enc}"
+category = "/mediatype"
+
+# ------------------------------------------------------ Academic Torrents
+# RSS of the 30 newest datasets and papers (the site's search page asks
+# scrapers to use its XML files instead and the full database file is too
+# large), filtered by your words. Data sets and course videos, freely shared.
+# Verified live 2026-11-10 against academictorrents.com/rss.xml.
+[[provider]]
+name = "Academic Torrents"
+kind = "feed"
+enabled = false
+verified = true
+order = 130
+local_filter = true
+test_query = ""
+description = "Academic Torrents (RSS of the newest 30, filtered by your words)"
+url = "https://academictorrents.com/rss.xml"
+
+# ----------------------------------------------------------- LinuxTracker
+# HTML. The info hash is in the link of each row; the magnet is built from it.
+# Seeders and leechers count the tracker's own peers (the `+N ext` figures
+# from other trackers are not included). Linux distributions and tools.
+# Verified live 2026-11-10 against linuxtracker.org.
+[[provider]]
+name = "LinuxTracker"
+kind = "html"
+enabled = false
+verified = true
+order = 140
+test_query = "ubuntu"
+description = "LinuxTracker (HTML scrape, Linux distributions)"
+search_url = "https://linuxtracker.org/torrents/?q={query}"
+row = "table.torrent-table tbody tr"
+title = "a.torrent-name"
+detail_link = "a.torrent-name @href"
+info_hash = "a.torrent-name @href"
+size = "td.numeric.muted-cell"
+seeders = "td.seeds strong"
+leechers = "td.leeches strong"
+date = "td.muted-cell:not(.numeric)"
+date_format = "%b %d, %Y"
 
 # -------------------------------------------------- Torznab (template)
 # Prowlarr / Jackett. Fill in the endpoint and store the API key as the secret

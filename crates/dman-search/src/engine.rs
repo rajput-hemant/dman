@@ -42,8 +42,11 @@ use url::Url;
 
 use crate::{
     def::{HtmlSpec, HttpMethod, Kind, ProviderDef, parse_response},
+    dns::DnsMode,
+    doh::DohResolver,
     error::ProviderError,
     html,
+    proxy::{PROXY_NONE, ProxyUrl},
     result::{Query, SearchResult},
     torznab, trackers, util,
 };
@@ -64,8 +67,14 @@ pub fn ensure_crypto_provider() {
 /// Searcher settings.
 #[derive(Debug, Clone, Default)]
 pub struct SearcherConfig {
-    /// `http://`, `https://`, `socks5://` or `socks5h://` proxy URL.
-    pub proxy: Option<String>,
+    /// Proxy for every provider that does not set its own: `http://`,
+    /// `https://`, `socks5://` or `socks5h://` URL (credentials stay out of
+    /// `Debug`).
+    pub proxy: Option<ProxyUrl>,
+    /// How host names are resolved (system resolver or DNS over HTTPS). Not
+    /// used for requests that go through a proxy, which resolves the names
+    /// itself.
+    pub dns: DnsMode,
     /// Overrides the default `dman/<version>` user agent.
     pub user_agent: Option<String>,
 }
@@ -85,6 +94,9 @@ pub enum ProviderEvent {
     Done {
         provider: String,
         elapsed_ms: u64,
+        /// Base URL that answered, for providers that have mirrors.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mirror: Option<String>,
     },
 }
 
@@ -95,6 +107,8 @@ pub struct TestReport {
     pub results: usize,
     pub sample: Option<SearchResult>,
     pub elapsed: Duration,
+    /// Base URL that answered, for providers that have mirrors.
+    pub mirror: Option<String>,
 }
 
 // ---------------------------------------------------------- rate limiter
@@ -146,7 +160,15 @@ impl RateLimiter {
 // ------------------------------------------------------------- searcher
 
 struct Inner {
-    client: Client,
+    /// Proxy of providers without their own (`[search] proxy`).
+    default_proxy: Option<ProxyUrl>,
+    user_agent: String,
+    /// DNS-over-HTTPS resolver for direct connections, when configured.
+    resolver: Option<Arc<DohResolver>>,
+    /// One HTTP client per effective proxy setting.
+    clients: Mutex<HashMap<String, Client>>,
+    /// Mirror that answered last, per provider (lower-case name).
+    last_mirror: Mutex<HashMap<String, String>>,
     providers: RwLock<Vec<ProviderDef>>,
     secrets: RwLock<HashMap<String, SecretString>>,
     limiters: Mutex<HashMap<String, Arc<RateLimiter>>>,
@@ -189,31 +211,118 @@ fn redact(url: &str) -> String {
     )
 }
 
-/// Whether `url` has the same scheme, host and port as the provider's search
-/// URL template.
-fn same_origin(url: &Url, template: &str) -> bool {
-    Url::parse(&template.replace(['{', '}'], "")).is_ok_and(|t| t.origin() == url.origin())
+fn build_client(
+    user_agent: &str,
+    proxy: Option<&ProxyUrl>,
+    resolver: Option<&Arc<DohResolver>>,
+) -> Result<Client, ProviderError> {
+    let mut b = Client::builder()
+        .user_agent(user_agent)
+        .connect_timeout(Duration::from_secs(10))
+        .redirect(reqwest::redirect::Policy::limited(5));
+    match proxy {
+        Some(p) if p.is_direct() => b = b.no_proxy(),
+        Some(p) => {
+            p.validate().map_err(ProviderError::Definition)?;
+            b = b.proxy(reqwest::Proxy::all(p.as_str().trim()).map_err(|e| {
+                ProviderError::Definition(format!("bad proxy `{p}`: {}", e.without_url()))
+            })?);
+        }
+        None => {}
+    }
+    if let Some(r) = resolver {
+        b = b.dns_resolver(Arc::clone(r));
+    }
+    b.build().map_err(map_reqwest)
+}
+
+/// `url` with scheme, host and port taken from `base`.
+fn rebase(url: &Url, base: &Url) -> Url {
+    let mut u = url.clone();
+    let _ = u.set_scheme(base.scheme());
+    let _ = u.set_host(base.host_str());
+    let _ = u.set_port(base.port());
+    u
+}
+
+fn origin_of(url: &Url) -> String {
+    url.origin().ascii_serialization()
+}
+
+/// Whether a failure says "this host does not work for us", so that the next
+/// mirror is worth a try.
+fn mirror_retryable(e: &ProviderError) -> bool {
+    match e {
+        ProviderError::Http { status, .. } => matches!(*status, 403 | 451 | 500..=599),
+        ProviderError::Network(_) | ProviderError::Timeout(_) | ProviderError::Blocked(_) => true,
+        _ => false,
+    }
+}
+
+/// A request that can be sent to any of a provider's hosts.
+#[derive(Debug, Clone)]
+struct Req {
+    method: Method,
+    url: Url,
+    body: Option<String>,
+    accept: &'static str,
+}
+
+impl Req {
+    fn get(url: Url, accept: &'static str) -> Self {
+        Self {
+            method: Method::GET,
+            url,
+            body: None,
+            accept,
+        }
+    }
+}
+
+/// Keep the results whose title contains every word of `query`
+/// (case-insensitive, punctuation ignored).
+fn matches_query(title: &str, query: &str) -> bool {
+    let norm = |s: &str| {
+        s.chars()
+            .map(|c| {
+                if c.is_alphanumeric() {
+                    c.to_lowercase().next().unwrap_or(c)
+                } else {
+                    ' '
+                }
+            })
+            .collect::<String>()
+    };
+    let t = norm(title);
+    norm(query).split_whitespace().all(|w| t.contains(w))
 }
 
 impl Searcher {
     pub fn new(config: SearcherConfig) -> Result<Self, ProviderError> {
         ensure_crypto_provider();
-        let ua = config
+        let user_agent = config
             .user_agent
             .unwrap_or_else(|| format!("dman/{}", env!("CARGO_PKG_VERSION")));
-        let mut b = Client::builder()
-            .user_agent(ua)
-            .connect_timeout(Duration::from_secs(10))
-            .redirect(reqwest::redirect::Policy::limited(5));
-        if let Some(p) = config.proxy.as_deref().filter(|p| !p.trim().is_empty()) {
-            b = b.proxy(reqwest::Proxy::all(p).map_err(|e| {
-                ProviderError::Definition(format!("bad proxy `{}`: {e}", redact(p)))
-            })?);
-        }
-        let client = b.build().map_err(map_reqwest)?;
+        let default_proxy = config.proxy.filter(|p| !p.as_str().trim().is_empty());
+        // Fail early on an unusable proxy setting.
+        let resolver = match &config.dns {
+            DnsMode::System => None,
+            DnsMode::Doh { endpoints, .. } => Some(
+                DohResolver::new(&user_agent, endpoints.clone())
+                    .map_err(|e| ProviderError::Definition(format!("dns: {e}")))?,
+            ),
+        };
+        let first = build_client(&user_agent, default_proxy.as_ref(), resolver.as_ref())?;
+        let key = default_proxy
+            .as_ref()
+            .map_or_else(String::new, |p| p.as_str().to_owned());
         Ok(Self {
             inner: Arc::new(Inner {
-                client,
+                default_proxy,
+                user_agent,
+                resolver,
+                clients: Mutex::new(HashMap::from([(key, first)])),
+                last_mirror: Mutex::new(HashMap::new()),
                 providers: RwLock::new(Vec::new()),
                 secrets: RwLock::new(HashMap::new()),
                 limiters: Mutex::new(HashMap::new()),
@@ -281,6 +390,7 @@ impl Searcher {
                             ProviderEvent::Done {
                                 provider,
                                 elapsed_ms: 0,
+                                mirror: None,
                             },
                         ]
                     }));
@@ -303,21 +413,26 @@ impl Searcher {
         let start = Instant::now();
         let deadline = start + Duration::from_secs(def.timeout_secs);
         let q = def.probe_query().to_string();
-        let mut results =
-            tokio::time::timeout_at(deadline, self.inner.fetch_primary(def, &q, None, true))
-                .await
-                .map_err(|_| ProviderError::Timeout(def.timeout_secs))??;
+        let (mut results, mirror) = tokio::time::timeout_at(
+            deadline,
+            self.inner.fetch_primary(def, &q, None, true, deadline),
+        )
+        .await
+        .map_err(|_| ProviderError::Timeout(def.timeout_secs))??;
         if let Kind::Html(h) = &def.kind
             && h.follow_detail_for_magnet
             && let Some(url) = results.iter().find_map(|r| r.detail_url.clone())
         {
-            tokio::time::timeout_at(deadline, self.inner.fetch_detail_magnet(def, h, &url))
-                .await
-                .map_err(|_| ProviderError::Timeout(def.timeout_secs))?
-                .map_err(|e| match e {
-                    ProviderError::Parse(m) => ProviderError::Parse(format!("detail page: {m}")),
-                    other => other,
-                })?;
+            tokio::time::timeout_at(
+                deadline,
+                self.inner.fetch_detail_magnet(def, h, &url, deadline),
+            )
+            .await
+            .map_err(|_| ProviderError::Timeout(def.timeout_secs))?
+            .map_err(|e| match e {
+                ProviderError::Parse(m) => ProviderError::Parse(format!("detail page: {m}")),
+                other => other,
+            })?;
         }
         for r in &mut results {
             r.normalize();
@@ -326,6 +441,7 @@ impl Searcher {
             results: results.len(),
             sample: results.into_iter().next(),
             elapsed: start.elapsed(),
+            mirror,
         })
     }
 
@@ -346,9 +462,11 @@ impl Searcher {
                 "provider is not an HTML provider".into(),
             ));
         };
-        tokio::time::timeout(
-            Duration::from_secs(def.timeout_secs),
-            self.inner.fetch_detail_magnet(&def, h, detail_url),
+        let deadline = Instant::now() + Duration::from_secs(def.timeout_secs);
+        tokio::time::timeout_at(
+            deadline,
+            self.inner
+                .fetch_detail_magnet(&def, h, detail_url, deadline),
         )
         .await
         .map_err(|_| ProviderError::Timeout(def.timeout_secs))?
@@ -363,7 +481,8 @@ impl Searcher {
                 "tracker list url must be http or https".into(),
             ));
         }
-        let req = self.inner.client.get(u).timeout(Duration::from_secs(30));
+        let client = self.inner.client_for(None)?;
+        let req = client.get(u).timeout(Duration::from_secs(30));
         let body = self.inner.send(req).await?;
         let list = trackers::parse_tracker_list(&body);
         if list.is_empty() {
@@ -386,13 +505,15 @@ async fn run_provider(inner: Arc<Inner>, def: ProviderDef, q: Query) -> Vec<Prov
     let start = Instant::now();
     let deadline = start + Duration::from_secs(def.timeout_secs);
     let provider = def.name.clone();
+    let mut answered = None;
     let outcome = async {
-        let mut results = tokio::time::timeout_at(
+        let (mut results, mirror) = tokio::time::timeout_at(
             deadline,
-            inner.fetch_primary(&def, &q.text, q.category.as_deref(), false),
+            inner.fetch_primary(&def, &q.text, q.category.as_deref(), false, deadline),
         )
         .await
         .map_err(|_| ProviderError::Timeout(def.timeout_secs))??;
+        answered = mirror;
         if let Kind::Html(h) = &def.kind
             && h.follow_detail_for_magnet
         {
@@ -429,6 +550,7 @@ async fn run_provider(inner: Arc<Inner>, def: ProviderDef, q: Query) -> Vec<Prov
     events.push(ProviderEvent::Done {
         provider,
         elapsed_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+        mirror: answered,
     });
     events
 }
@@ -461,38 +583,197 @@ impl Inner {
         req
     }
 
+    /// The HTTP client for a proxy setting (`None` = the searcher-wide one).
+    fn client_for(&self, own: Option<&ProxyUrl>) -> Result<Client, ProviderError> {
+        let proxy = own.or(self.default_proxy.as_ref());
+        let key = match proxy {
+            None => String::new(),
+            Some(p) if p.is_direct() => PROXY_NONE.to_owned(),
+            Some(p) => p.as_str().to_owned(),
+        };
+        let mut clients = self.clients.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(c) = clients.get(&key) {
+            return Ok(c.clone());
+        }
+        let c = build_client(&self.user_agent, proxy, self.resolver.as_ref())?;
+        clients.insert(key, c.clone());
+        Ok(c)
+    }
+
     /// Send a request, enforce 2xx and the body cap, return the body as text.
+    /// Anti-bot interstitials are reported as [`ProviderError::Blocked`].
     async fn send(&self, req: RequestBuilder) -> Result<String, ProviderError> {
         let mut resp = req.send().await.map_err(map_reqwest)?;
         let status = resp.status();
-        if !status.is_success() {
-            return Err(ProviderError::Http {
-                status: status.as_u16(),
-                url: redact(resp.url().as_str()),
-            });
-        }
+        let url = redact(resp.url().as_str());
+        let cap = if status.is_success() {
+            MAX_BODY
+        } else {
+            // Only enough of an error page to recognise a challenge.
+            64 * 1024
+        };
         let mut buf: Vec<u8> = Vec::new();
         while let Some(chunk) = resp.chunk().await.map_err(map_reqwest)? {
-            if buf.len() + chunk.len() > MAX_BODY {
-                return Err(ProviderError::Parse(format!(
-                    "response larger than {} MiB",
-                    MAX_BODY / 1024 / 1024
-                )));
+            if buf.len() + chunk.len() > cap {
+                if status.is_success() {
+                    return Err(ProviderError::Parse(format!(
+                        "response larger than {} MiB",
+                        MAX_BODY / 1024 / 1024
+                    )));
+                }
+                break;
             }
             buf.extend_from_slice(&chunk);
         }
-        Ok(String::from_utf8_lossy(&buf).into_owned())
+        let body = String::from_utf8_lossy(&buf).into_owned();
+        let host = Url::parse(&url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_owned))
+            .unwrap_or_default();
+        if util::is_block_page(&body) {
+            return Err(ProviderError::Blocked(host));
+        }
+        if !status.is_success() {
+            return Err(ProviderError::Http {
+                status: status.as_u16(),
+                url,
+            });
+        }
+        Ok(body)
     }
 
-    /// Rate-limit, request and parse the provider's search endpoint.
+    /// Hosts to try for `req`, the one that worked last first. A URL that is
+    /// not on one of the provider's hosts is requested as it is.
+    fn bases_for(&self, def: &ProviderDef, req: &Req) -> (Vec<Url>, bool) {
+        let mut origins = def.origins();
+        let own = origin_of(&req.url);
+        if !origins.contains(&own) {
+            return (vec![req.url.clone()], false);
+        }
+        if let Some(last) = self
+            .last_mirror
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&def.name.to_lowercase())
+            && let Some(i) = origins.iter().position(|o| o == last)
+        {
+            let o = origins.remove(i);
+            origins.insert(0, o);
+        }
+        let bases = origins.iter().filter_map(|o| Url::parse(o).ok()).collect();
+        (bases, true)
+    }
+
+    /// Send `req` to the provider's hosts in turn until one answers.
+    /// Returns the body and, for providers with mirrors, the base URL that
+    /// answered (remembered for the next request).
+    ///
+    /// All but the last attempt get a share of the time left until `deadline`
+    /// so that one dead host cannot use up the whole budget.
+    async fn exchange(
+        &self,
+        def: &ProviderDef,
+        req: &Req,
+        deadline: Instant,
+    ) -> Result<(String, Option<String>), ProviderError> {
+        let client = self.client_for(def.proxy.as_ref())?;
+        let (bases, ours) = self.bases_for(def, req);
+        let multi = bases.len() > 1;
+        let mut failures: Vec<String> = Vec::new();
+        let mut last: Option<ProviderError> = None;
+        let mut blocked = false;
+        for (i, base) in bases.iter().enumerate() {
+            let left = u32::try_from(bases.len() - i).unwrap_or(1);
+            self.throttle(def).await;
+            let attempt = async {
+                let url = rebase(&req.url, base);
+                let mut r = client
+                    .request(req.method.clone(), url)
+                    .header("Accept", req.accept);
+                if let Some(b) = &req.body {
+                    r = r.header("Content-Type", "application/json").body(b.clone());
+                }
+                // Provider headers (cookies, auth) only go to the provider's own hosts.
+                if ours {
+                    r = self.headers(def, r);
+                }
+                self.send(r).await
+            };
+            let res = if left > 1 {
+                let share = deadline.saturating_duration_since(Instant::now()) / left;
+                tokio::time::timeout(share, attempt)
+                    .await
+                    .unwrap_or_else(|_| Err(ProviderError::Timeout(share.as_secs().max(1))))
+            } else {
+                attempt.await
+            };
+            match res {
+                Ok(body) => {
+                    let origin = origin_of(base);
+                    if multi {
+                        self.last_mirror
+                            .lock()
+                            .unwrap_or_else(|e| e.into_inner())
+                            .insert(def.name.to_lowercase(), origin.clone());
+                    }
+                    return Ok((body, multi.then_some(origin)));
+                }
+                Err(e) if multi && mirror_retryable(&e) => {
+                    tracing::debug!(provider = %def.name, mirror = %origin_of(base), error = %e, "mirror failed");
+                    let why = match &e {
+                        ProviderError::Blocked(_) => "anti-bot challenge page".to_owned(),
+                        other => other.to_string(),
+                    };
+                    failures.push(format!("{}: {why}", origin_of(base)));
+                    blocked |= matches!(e, ProviderError::Blocked(_));
+                    last = Some(e);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        match (last, failures.len()) {
+            (Some(e), 1) => Err(e),
+            _ => Err(ProviderError::Mirrors(format!(
+                "{}{}",
+                failures.join("; "),
+                if blocked { " (see docs/search.md)" } else { "" }
+            ))),
+        }
+    }
+
+    /// Move result links on the provider's main host to the host that answered.
+    fn follow_mirror(def: &ProviderDef, answered: &str, results: &mut [SearchResult]) {
+        let (Ok(base), origins) = (Url::parse(answered), def.origins()) else {
+            return;
+        };
+        // Links on the main host (relative links resolve against it) follow the
+        // mirror; links on other hosts, mirrors included, are left alone.
+        let Some(main) = origins.first() else {
+            return;
+        };
+        for r in results {
+            for link in [&mut r.detail_url, &mut r.torrent_url] {
+                if let Some(u) = link.as_deref().and_then(|l| Url::parse(l).ok())
+                    && &origin_of(&u) == main
+                {
+                    *link = Some(rebase(&u, &base).to_string());
+                }
+            }
+        }
+    }
+
+    /// Request the provider's search endpoint (rate-limited, with mirror
+    /// fallback) and parse the response.
     async fn fetch_primary(
         &self,
         def: &ProviderDef,
         text: &str,
         category: Option<&str>,
         strict: bool,
-    ) -> Result<Vec<SearchResult>, ProviderError> {
+        deadline: Instant,
+    ) -> Result<(Vec<SearchResult>, Option<String>), ProviderError> {
         let cat = category.unwrap_or("");
+        let bad_url = |e: url::ParseError| ProviderError::Definition(format!("bad url: {e}"));
         let req = match &def.kind {
             Kind::Torznab {
                 url,
@@ -518,35 +799,38 @@ impl Inner {
                     }
                 }
                 let u = torznab::search_url(url, text, &cats, key.as_deref(), def.max_results)?;
-                self.client
-                    .get(u)
-                    .header("Accept", "application/xml, text/xml, */*")
+                Req::get(u, "application/xml, text/xml, */*")
             }
-            Kind::Feed { url } => self.client.get(util::fill_url(url, text, cat)).header(
-                "Accept",
+            Kind::Feed { url } => Req::get(
+                Url::parse(&util::fill_url(url, text, cat)).map_err(bad_url)?,
                 "application/rss+xml, application/atom+xml, application/xml, text/xml, */*",
             ),
-            Kind::Html(h) => self
-                .client
-                .get(util::fill_url(&h.search_url, text, cat))
-                .header("Accept", "text/html,application/xhtml+xml"),
+            Kind::Html(h) => Req::get(
+                Url::parse(&util::fill_url(&h.search_url, text, cat)).map_err(bad_url)?,
+                "text/html,application/xhtml+xml",
+            ),
             Kind::Json(j) => {
-                let url = util::fill_url(&j.url, text, cat);
+                let url = Url::parse(&util::fill_url(&j.url, text, cat)).map_err(bad_url)?;
                 match (j.method, &j.body) {
-                    (HttpMethod::Post, Some(b)) => self
-                        .client
-                        .request(Method::POST, url)
-                        .header("Content-Type", "application/json")
-                        .body(util::fill_json_body(b, text, cat)),
-                    _ => self.client.get(url),
+                    (HttpMethod::Post, Some(b)) => Req {
+                        method: Method::POST,
+                        url,
+                        body: Some(util::fill_json_body(b, text, cat)),
+                        accept: "application/json",
+                    },
+                    _ => Req::get(url, "application/json"),
                 }
-                .header("Accept", "application/json")
             }
         };
-        let req = self.headers(def, req);
-        self.throttle(def).await;
-        let body = self.send(req).await?;
-        parse_response(def, &body, strict)
+        let (body, mirror) = self.exchange(def, &req, deadline).await?;
+        let mut results = parse_response(def, &body, strict)?;
+        if let Some(m) = &mirror {
+            Self::follow_mirror(def, m, &mut results);
+        }
+        if def.local_filter {
+            results.retain(|r| matches_query(&r.title, text));
+        }
+        Ok((results, mirror))
     }
 
     async fn fetch_detail_magnet(
@@ -554,6 +838,7 @@ impl Inner {
         def: &ProviderDef,
         spec: &HtmlSpec,
         url: &str,
+        deadline: Instant,
     ) -> Result<String, ProviderError> {
         let target = Url::parse(url)
             .map_err(|e| ProviderError::Definition(format!("bad detail url: {e}")))?;
@@ -562,18 +847,8 @@ impl Inner {
                 "detail url must be http or https".into(),
             ));
         }
-        self.throttle(def).await;
-        let req = self
-            .client
-            .get(target.clone())
-            .header("Accept", "text/html,application/xhtml+xml");
-        // Provider headers (cookies, auth) must not leak to other sites.
-        let req = if same_origin(&target, &spec.search_url) {
-            self.headers(def, req)
-        } else {
-            req
-        };
-        let body = self.send(req).await?;
+        let req = Req::get(target, "text/html,application/xhtml+xml");
+        let (body, _) = self.exchange(def, &req, deadline).await?;
         html::parse_detail_magnet(spec, &body)
     }
 
@@ -595,7 +870,9 @@ impl Inner {
             .collect();
         let mut s = Box::pin(
             stream::iter(todo)
-                .map(|(i, url)| async move { (i, self.fetch_detail_magnet(def, spec, &url).await) })
+                .map(|(i, url)| async move {
+                    (i, self.fetch_detail_magnet(def, spec, &url, deadline).await)
+                })
                 .buffer_unordered(DETAIL_CONCURRENCY),
         );
         while let Ok(Some((i, res))) = tokio::time::timeout_at(deadline, s.next()).await {
@@ -619,19 +896,40 @@ mod tests {
     }
 
     #[test]
-    fn same_origin_compares_scheme_host_port() {
-        let t = "https://site.invalid/search?q={query}";
-        assert!(same_origin(
-            &Url::parse("https://site.invalid/d/1").unwrap(),
-            t
+    fn rebase_swaps_scheme_host_and_port() {
+        let u = Url::parse("https://a.invalid/search?q=x%20y#f").unwrap();
+        let b = Url::parse("http://b.invalid:8080").unwrap();
+        assert_eq!(
+            rebase(&u, &b).as_str(),
+            "http://b.invalid:8080/search?q=x%20y#f"
+        );
+    }
+
+    #[test]
+    fn local_filter_needs_every_word() {
+        assert!(matches_query(
+            "Ubuntu 24.04 Desktop (amd64)",
+            "ubuntu desktop"
         ));
-        assert!(!same_origin(
-            &Url::parse("https://evil.invalid/d/1").unwrap(),
-            t
-        ));
-        assert!(!same_origin(
-            &Url::parse("http://site.invalid/d/1").unwrap(),
-            t
-        ));
+        assert!(matches_query("Big.Buck.Bunny.1080p", "big buck"));
+        assert!(!matches_query("Debian 12", "ubuntu"));
+        assert!(matches_query("anything", ""));
+    }
+
+    #[test]
+    fn only_host_problems_are_retried_on_a_mirror() {
+        let http = |status| ProviderError::Http {
+            status,
+            url: String::new(),
+        };
+        for s in [403, 451, 500, 503] {
+            assert!(mirror_retryable(&http(s)), "{s}");
+        }
+        for s in [404, 400, 429] {
+            assert!(!mirror_retryable(&http(s)), "{s}");
+        }
+        assert!(mirror_retryable(&ProviderError::Timeout(3)));
+        assert!(mirror_retryable(&ProviderError::Blocked("x".into())));
+        assert!(!mirror_retryable(&ProviderError::Parse("x".into())));
     }
 }

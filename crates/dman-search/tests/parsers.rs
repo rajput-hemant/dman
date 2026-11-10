@@ -216,6 +216,7 @@ fn html_attribute_and_date_format() {
         row: "li.r".into(),
         title: "a.t".into(),
         magnet: Some("@data-hash".into()),
+        info_hash: None,
         detail_link: Some("a.t @href".into()),
         size: Some("b.s".into()),
         seeders: None,
@@ -350,4 +351,65 @@ fn json_errors_have_context() {
         .to_string();
     assert!(e.contains("title mapping"), "{e}");
     let _ = json::eval("/x", &serde_json::json!({}), &serde_json::json!({}));
+}
+
+#[test]
+fn html_info_hash_selector_finds_the_hash_in_a_link() {
+    let doc = r#"<table><tr class="r"><td><a class="t" href="/torrents/0123456789ABCDEF0123456789abcdef01234567/">First</a></td><td class="s">1.5 GB</td></tr>
+        <tr class="r"><td><a class="t" href="/torrents/not-a-hash/">Second</a></td><td class="s">2 GB</td></tr></table>"#;
+    let spec = dman_search::HtmlSpec {
+        search_url: "https://x.test/?q={query}".into(),
+        row: "tr.r".into(),
+        title: "a.t".into(),
+        magnet: None,
+        info_hash: Some("a.t @href".into()),
+        detail_link: Some("a.t @href".into()),
+        size: Some("td.s".into()),
+        seeders: None,
+        leechers: None,
+        date: None,
+        date_format: None,
+        follow_detail_for_magnet: false,
+        detail_magnet: None,
+        detail_limit: 10,
+    };
+    let base = url::Url::parse("https://x.test/?q=a").unwrap();
+    let mut r = html::parse(&spec, doc, &base, true).unwrap();
+    r.iter_mut().for_each(dman_search::SearchResult::normalize);
+    assert_eq!(r[0].info_hash.as_deref(), Some(H1));
+    assert!(r[0].magnet.as_deref().unwrap().contains(H1));
+    assert!(r[1].info_hash.is_none() && r[1].magnet.is_none());
+}
+
+#[test]
+fn feed_reads_peers_and_size_from_the_description() {
+    let xml = r#"<rss version="2.0"><channel><item><title>T</title>
+        <link>https://x.test/t/1</link>
+        <description><![CDATA[
+Category: Music
+Seeds: 7
+Leechers: 3
+Size: 2.5 GB
+]]></description></item></channel></rss>"#;
+    let r = dman_search::feed::parse(xml).unwrap();
+    assert_eq!((r[0].seeders, r[0].leechers), (Some(7), Some(3)));
+    assert_eq!(r[0].size, Some(2_500_000_000));
+}
+
+#[test]
+fn challenge_pages_are_recognised_but_normal_pages_are_not() {
+    use dman_search::util::is_block_page;
+    assert!(is_block_page(&fx("cloudflare.html")));
+    assert!(is_block_page(
+        "<!DOCTYPE html><html><head><title>Attention Required! | Cloudflare</title></head></html>"
+    ));
+    assert!(is_block_page(
+        "<html><body><form id=\"challenge-form\" action=\"/cdn-cgi/l/chk_jschl\"></form></body></html>"
+    ));
+    // Cloudflare-fronted sites embed a passive script on every page
+    assert!(!is_block_page(
+        "<html><head><title>Torrents</title></head><body><script src=\"/cdn-cgi/challenge-platform/scripts/jsd/main.js\"></script></body></html>"
+    ));
+    assert!(!is_block_page(r#"{"title":"Just a moment..."}"#));
+    assert!(!is_block_page(&fx("nyaa.xml")));
 }

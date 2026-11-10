@@ -147,9 +147,14 @@ fn progress(ctx: &Ctx, provider: &str, status: &ProviderStatus) {
     }
     match status {
         ProviderStatus::Running => {}
-        ProviderStatus::Done { count, elapsed_ms } => {
-            eprintln!("{provider}: {count} results in {elapsed_ms} ms");
-        }
+        ProviderStatus::Done {
+            count,
+            elapsed_ms,
+            mirror,
+        } => match mirror {
+            Some(m) => eprintln!("{provider}: {count} results in {elapsed_ms} ms (via {m})"),
+            None => eprintln!("{provider}: {count} results in {elapsed_ms} ms"),
+        },
         ProviderStatus::Failed { error } => eprintln!("{provider}: failed: {error}"),
     }
 }

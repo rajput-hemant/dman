@@ -23,7 +23,9 @@ use dman_proto::search::{
     SearchStartParams, SearchStarted,
 };
 use dman_proto::{ErrorCode, RpcError};
-use dman_search::{Aggregator, ProviderError, Query, SearchResult, Searcher, SearcherConfig};
+use dman_search::{
+    Aggregator, DnsMode, ProviderError, Query, SearchResult, Searcher, SearcherConfig,
+};
 use dman_store::{SearchHistoryRecord, Store};
 use futures_util::StreamExt as _;
 use serde::Serialize;
@@ -151,6 +153,8 @@ impl SearchService {
     ) -> anyhow::Result<Arc<Self>> {
         let searcher = Searcher::new(SearcherConfig {
             proxy: config.search.proxy.clone(),
+            dns: DnsMode::parse(&config.search.dns)
+                .map_err(|e| anyhow::anyhow!("search.dns: {e}"))?,
             user_agent: None,
         })
         .map_err(|e| anyhow::anyhow!("search: {e}"))?;
@@ -218,6 +222,8 @@ impl SearchService {
     ) -> anyhow::Result<PreparedSearch> {
         let searcher = Searcher::new(SearcherConfig {
             proxy: config.search.proxy.clone(),
+            dns: DnsMode::parse(&config.search.dns)
+                .map_err(|e| anyhow::anyhow!("search.dns: {e}"))?,
             user_agent: None,
         })
         .map_err(|e| anyhow::anyhow!("search: {e}"))?;
@@ -465,7 +471,7 @@ impl SearchService {
                         set(&mut statuses, &provider, ProviderStatus::Failed { error });
                         mark(&mut pending, &provider);
                     }
-                    Some(Ev::Done { provider, elapsed_ms }) => {
+                    Some(Ev::Done { provider, elapsed_ms, mirror }) => {
                         let failed = statuses.iter().any(|(n, s)| {
                             n.eq_ignore_ascii_case(&provider) && matches!(s, ProviderStatus::Failed { .. })
                         });
@@ -474,7 +480,7 @@ impl SearchService {
                                 .iter()
                                 .find(|(n, _)| n.eq_ignore_ascii_case(&provider))
                                 .map_or(0, |c| c.1);
-                            set(&mut statuses, &provider, ProviderStatus::Done { count, elapsed_ms });
+                            set(&mut statuses, &provider, ProviderStatus::Done { count, elapsed_ms, mirror });
                         }
                         mark(&mut pending, &provider);
                     }

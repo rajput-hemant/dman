@@ -382,10 +382,11 @@ pub fn search_table(results: &[SearchResultDto], first: usize, width: usize) -> 
     table(headers, &rows, &[1, 4])
 }
 
-/// Providers: `NAME KIND ENABLED ORDER TIMEOUT VERIFIED BUILTIN URL`.
+/// Providers: `NAME KIND ENABLED ORDER TIMEOUT STATUS MIRRORS PROXY ORIGIN URL`
+/// (`STATUS` is verified or unverified; the proxy is shown with its credentials hidden).
 pub fn providers_table(list: &[ProviderInfo]) -> String {
     let yn = |b: bool| if b { "yes" } else { "no" }.to_owned();
-    let rows: Vec<[String; 8]> = list
+    let rows: Vec<[String; 10]> = list
         .iter()
         .map(|p| {
             [
@@ -394,7 +395,9 @@ pub fn providers_table(list: &[ProviderInfo]) -> String {
                 yn(p.enabled),
                 p.order.to_string(),
                 format!("{}s", p.timeout_secs),
-                yn(p.verified),
+                if p.verified { "verified" } else { "unverified" }.to_owned(),
+                p.mirrors.len().to_string(),
+                p.proxy.clone().unwrap_or_else(|| "-".to_owned()),
                 if p.builtin { "built-in" } else { "custom" }.to_owned(),
                 p.url.clone(),
             ]
@@ -402,10 +405,11 @@ pub fn providers_table(list: &[ProviderInfo]) -> String {
         .collect();
     table(
         [
-            "NAME", "KIND", "ENABLED", "ORDER", "TIMEOUT", "VERIFIED", "ORIGIN", "URL",
+            "NAME", "KIND", "ENABLED", "ORDER", "TIMEOUT", "STATUS", "MIRRORS", "PROXY", "ORIGIN",
+            "URL",
         ],
         &rows,
-        &[0, 1, 2, 5, 6],
+        &[0, 1, 2, 5, 7, 8],
     )
 }
 
@@ -554,12 +558,26 @@ mod tests {
             rate_limit_per_min: None,
             max_results: 100,
             api_key_ref: None,
+            mirrors: vec!["https://nyaa.land".into()],
+            proxy: Some("socks5h://***@127.0.0.1:9050".into()),
         };
-        let t = providers_table(&[p]);
+        let t = providers_table(std::slice::from_ref(&p));
+        let row = t.lines().nth(1).unwrap();
+        assert!(row.contains("Nyaa") && t.contains("built-in") && t.contains("15s"));
+        assert!(row.contains("unverified") && row.contains("socks5h://***@127.0.0.1:9050"));
+        let h: Vec<&str> = t.lines().next().unwrap().split_whitespace().collect();
+        let mirrors_col = h.iter().position(|c| *c == "MIRRORS").unwrap();
+        assert_eq!(row.split_whitespace().nth(mirrors_col), Some("1"));
+        assert!(!t.contains("hunter2"));
+        let plain = providers_table(&[ProviderInfo {
+            verified: true,
+            mirrors: vec![],
+            proxy: None,
+            ..p
+        }]);
         assert!(
-            t.lines().nth(1).unwrap().contains("Nyaa")
-                && t.contains("built-in")
-                && t.contains("15s")
+            plain.lines().nth(1).unwrap().contains(" verified "),
+            "{plain}"
         );
         let h = history_table(&[SearchHistoryEntry {
             query: "ubuntu".into(),

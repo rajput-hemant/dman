@@ -78,6 +78,7 @@ pub struct Compiled {
     pub row_raw: String,
     pub title: Sel,
     pub magnet: Option<Sel>,
+    pub info_hash: Option<Sel>,
     pub detail_link: Option<Sel>,
     pub size: Option<Sel>,
     pub seeders: Option<Sel>,
@@ -104,6 +105,7 @@ impl Compiled {
             row_raw: spec.row.clone(),
             title: Sel::compile(&spec.title).map_err(|e| ("title", e))?,
             magnet: opt("magnet", &spec.magnet)?,
+            info_hash: opt("info_hash", &spec.info_hash)?,
             detail_link: opt("detail_link", &spec.detail_link)?,
             size: opt("size", &spec.size)?,
             seeders: opt("seeders", &spec.seeders)?,
@@ -154,6 +156,11 @@ pub fn parse(
             ..SearchResult::default()
         };
         r.magnet = c.magnet.as_ref().and_then(|s| s.extract(*row));
+        r.info_hash = c
+            .info_hash
+            .as_ref()
+            .and_then(|s| s.extract(*row))
+            .and_then(|t| util::find_info_hash(&t));
         r.detail_url = c
             .detail_link
             .as_ref()

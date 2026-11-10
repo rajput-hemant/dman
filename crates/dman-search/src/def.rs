@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::{error::DefError, json, util};
+use crate::{error::DefError, json, proxy::ProxyUrl, util};
 #[cfg(feature = "engine")]
 use crate::{error::ProviderError, feed, html, result::SearchResult, torznab};
 
@@ -44,6 +44,10 @@ pub struct HtmlSpec {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub magnet: Option<String>,
+    /// Selector whose text or attribute contains the 40-hex info hash (for
+    /// sites that show it in a link or cell instead of a magnet link).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub info_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail_link: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -169,6 +173,20 @@ pub struct ProviderDef {
     /// Extra request headers.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub headers: BTreeMap<String, String>,
+    /// Alternative base URLs (`https://host[:port]`, no path) tried in order
+    /// when the main host fails (connection error, timeout, HTTP 403/451/5xx or
+    /// a block/challenge page). The host of the endpoint and of result links
+    /// is replaced by the mirror's.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mirrors: Vec<String>,
+    /// Proxy for this provider (`socks5h://host:port`, `http://...`), or
+    /// `none` to connect directly even when `[search] proxy` is set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<ProxyUrl>,
+    /// The endpoint cannot search (it lists recent items): keep only results
+    /// whose title contains every word of the query.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub local_filter: bool,
 }
 
 fn check_url_template(
@@ -242,6 +260,7 @@ impl ProviderDef {
                 "must be at least 1 (omit for no limit)",
             ));
         }
+        self.validate_mirrors_and_proxy()?;
         match &self.kind {
             Kind::Torznab {
                 url, api_key_ref, ..
@@ -253,7 +272,7 @@ impl ProviderDef {
             }
             Kind::Feed { url } => check_url_template(n, "url", url, false)?,
             Kind::Html(h) => {
-                check_url_template(n, "search_url", &h.search_url, true)?;
+                check_url_template(n, "search_url", &h.search_url, !self.local_filter)?;
                 #[cfg(feature = "engine")]
                 html::Compiled::compile(h).map_err(|(f, e)| DefError::new(n, f, e))?;
                 if h.follow_detail_for_magnet {
@@ -282,7 +301,8 @@ impl ProviderDef {
             }
             Kind::Json(j) => {
                 check_url_template(n, "url", &j.url, false)?;
-                if !j.url.contains("{query}")
+                if !self.local_filter
+                    && !j.url.contains("{query}")
                     && !j.body.as_deref().is_some_and(|b| b.contains("{query}"))
                 {
                     return Err(DefError::new(
@@ -357,6 +377,69 @@ impl ProviderDef {
             }
         }
         Ok(())
+    }
+
+    fn validate_mirrors_and_proxy(&self) -> Result<(), DefError> {
+        let n = self.name.as_str();
+        for m in &self.mirrors {
+            let u = Url::parse(m.trim()).map_err(|e| {
+                DefError::new(n, "mirrors", format!("`{m}` is not a valid URL ({e})"))
+            })?;
+            if !matches!(u.scheme(), "http" | "https") || u.host_str().is_none_or(str::is_empty) {
+                return Err(DefError::new(
+                    n,
+                    "mirrors",
+                    format!("`{m}` must be an http(s) base URL such as https://example.org"),
+                ));
+            }
+            if !u.username().is_empty()
+                || u.password().is_some()
+                || !matches!(u.path(), "" | "/")
+                || u.query().is_some()
+                || u.fragment().is_some()
+            {
+                return Err(DefError::new(
+                    n,
+                    "mirrors",
+                    format!("`{m}` must be only scheme, host and optional port"),
+                ));
+            }
+        }
+        if let Some(p) = &self.proxy {
+            p.validate().map_err(|e| DefError::new(n, "proxy", e))?;
+        }
+        Ok(())
+    }
+
+    /// The URL (template) of the provider's search endpoint.
+    pub fn endpoint_template(&self) -> &str {
+        match &self.kind {
+            Kind::Torznab { url, .. } | Kind::Feed { url } => url,
+            Kind::Html(h) => &h.search_url,
+            Kind::Json(j) => &j.url,
+        }
+    }
+
+    /// Base URLs (`scheme://host[:port]`) the provider can be reached at: the
+    /// host of the endpoint first, then the mirrors, without duplicates.
+    pub fn origins(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        let primary = Url::parse(&self.endpoint_template().replace(['{', '}'], ""))
+            .ok()
+            .map(|u| u.origin().ascii_serialization());
+        for o in primary
+            .into_iter()
+            .chain(self.mirrors.iter().filter_map(|m| {
+                Url::parse(m.trim())
+                    .ok()
+                    .map(|u| u.origin().ascii_serialization())
+            }))
+        {
+            if !out.contains(&o) {
+                out.push(o);
+            }
+        }
+        out
     }
 
     /// The query string used by the test action.

@@ -9,7 +9,7 @@ use dman_proto::search::{
     ProvidersImportParams, ProvidersImported,
 };
 use dman_proto::{ErrorCode, RpcError};
-use dman_search::{Kind, ProviderDef, Searcher, builtin_providers};
+use dman_search::{Kind, ProviderDef, ProxyUrl, Searcher, builtin_providers};
 use secrecy::ExposeSecret as _;
 
 use super::{SearchService, dto};
@@ -78,7 +78,17 @@ fn info(d: &ProviderDef) -> ProviderInfo {
         rate_limit_per_min: d.rate_limit_per_min,
         max_results: d.max_results,
         api_key_ref,
+        mirrors: d.mirrors.clone(),
+        proxy: d.proxy.as_ref().map(ProxyUrl::redacted),
     }
+}
+
+/// An exported file is meant to be shared: the proxy (it may carry
+/// credentials) stays behind.
+fn shareable(defs: Vec<ProviderDef>) -> Vec<ProviderDef> {
+    defs.into_iter()
+        .map(|d| ProviderDef { proxy: None, ..d })
+        .collect()
 }
 
 fn config_err(e: impl std::fmt::Display) -> RpcError {
@@ -168,6 +178,7 @@ impl SearchService {
                 results: u32::try_from(r.results).unwrap_or(u32::MAX),
                 sample: r.sample.map(dto),
                 elapsed_ms: u64::try_from(r.elapsed.as_millis()).unwrap_or(u64::MAX),
+                mirror: r.mirror,
             },
             Err(e) => ProviderTestReport {
                 name: def.name,
@@ -176,6 +187,7 @@ impl SearchService {
                 results: 0,
                 sample: None,
                 elapsed_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
+                mirror: None,
             },
         })
     }
@@ -236,7 +248,7 @@ impl SearchService {
             }
             None => all.into_iter().filter(|d| !is_builtin(&d.name)).collect(),
         };
-        Ok(dman_search::export(&chosen))
+        Ok(dman_search::export(&shareable(chosen)))
     }
 
     pub(super) async fn providers_remove(&self, p: ProviderNameParams) -> Result<(), RpcError> {
@@ -257,5 +269,46 @@ impl SearchService {
                 .map_err(config_err)
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn def() -> ProviderDef {
+        let mut d = builtin_providers()
+            .into_iter()
+            .find(|d| d.name == "Nyaa")
+            .unwrap();
+        d.proxy = Some(ProxyUrl::new("socks5h://alice:hunter2@127.0.0.1:9050"));
+        d
+    }
+
+    #[test]
+    fn info_lists_mirrors_and_hides_proxy_credentials() {
+        let i = info(&def());
+        assert_eq!(i.mirrors, ["https://nyaa.land"]);
+        assert_eq!(i.proxy.as_deref(), Some("socks5h://***@127.0.0.1:9050"));
+        let json = serde_json::to_string(&i).unwrap();
+        assert!(
+            !json.contains("hunter2") && !json.contains("alice"),
+            "{json}"
+        );
+        let plain = info(&ProviderDef {
+            proxy: None,
+            ..def()
+        });
+        assert!(plain.proxy.is_none());
+    }
+
+    #[test]
+    fn exports_never_carry_the_proxy() {
+        let text = dman_search::export(&shareable(vec![def()]));
+        assert!(text.contains("mirrors"), "{text}");
+        assert!(
+            !text.contains("proxy") && !text.contains("hunter2"),
+            "{text}"
+        );
     }
 }

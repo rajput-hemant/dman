@@ -32,6 +32,9 @@ fn def(name: &str, kind: Kind) -> ProviderDef {
         verified: false,
         description: None,
         headers: Default::default(),
+        mirrors: Vec::new(),
+        proxy: None,
+        local_filter: false,
     }
 }
 
@@ -46,6 +49,7 @@ fn tpb_like(name: &str, url: String) -> ProviderDef {
         .unwrap();
     d.name = name.into();
     d.enabled = true;
+    d.mirrors.clear();
     if let Kind::Json(j) = &mut d.kind {
         j.url = url;
     }
@@ -295,6 +299,8 @@ fn leet(server_uri: &str) -> ProviderDef {
         .unwrap();
     d.enabled = true;
     d.rate_limit_per_min = None;
+    // tests must not reach the real mirrors
+    d.mirrors.clear();
     if let Kind::Html(HtmlSpec { search_url, .. }) = &mut d.kind {
         *search_url = format!("{server_uri}/search/{{query}}/");
     }
@@ -460,10 +466,7 @@ async fn test_provider_reports_precise_failures() {
         s.search_url = format!("{}/cf?q={{query}}", server.uri());
     }
     let e = test_provider(&h).await.unwrap_err().to_string();
-    assert!(
-        e.contains("row selector") && e.contains("matched 0 elements"),
-        "{e}"
-    );
+    assert!(e.contains("anti-bot challenge page"), "{e}");
 
     let e = test_provider(&tpb_like(
         "J",
@@ -615,21 +618,24 @@ async fn bad_proxy_is_rejected_and_proxy_accepted() {
     assert!(
         Searcher::new(SearcherConfig {
             proxy: Some("socks5://127.0.0.1:9050".into()),
-            user_agent: None
+            user_agent: None,
+            ..SearcherConfig::default()
         })
         .is_ok()
     );
     assert!(
         Searcher::new(SearcherConfig {
             proxy: Some("http://127.0.0.1:3128".into()),
-            user_agent: Some("x".into())
+            user_agent: Some("x".into()),
+            ..SearcherConfig::default()
         })
         .is_ok()
     );
     assert!(
         Searcher::new(SearcherConfig {
             proxy: Some("::bad::".into()),
-            user_agent: None
+            user_agent: None,
+            ..SearcherConfig::default()
         })
         .is_err()
     );

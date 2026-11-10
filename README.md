@@ -59,6 +59,7 @@ web UI and remote profiles. Most changes apply with `dman config reload`.
 
 Torrents stop seeding when they finish unless `[torrents] seed = true` is set.
 Search providers are all off until you enable them (`dman providers enable <name>`).
+See [docs/search.md](docs/search.md) for providers, mirrors, proxies, DNS over HTTPS, 1337x via Prowlarr/Jackett and custom providers.
 
 ## Remote use
 

@@ -29,11 +29,19 @@ tracing = { workspace = true, optional = true }
 url.workspace = true
 
 [[test]]
+name = "doh"
+required-features = ["engine"]
+
+[[test]]
 name = "engine"
 required-features = ["engine"]
 
 [[test]]
 name = "live"
+required-features = ["engine"]
+
+[[test]]
+name = "mirrors"
 required-features = ["engine"]
 
 [[test]]

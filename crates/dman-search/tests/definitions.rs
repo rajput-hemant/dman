@@ -15,6 +15,9 @@ fn base(name: &str, kind: Kind) -> ProviderDef {
         verified: false,
         description: None,
         headers: Default::default(),
+        mirrors: Vec::new(),
+        proxy: None,
+        local_filter: false,
     }
 }
 
@@ -24,6 +27,7 @@ fn html_spec() -> HtmlSpec {
         row: "tr".into(),
         title: "a".into(),
         magnet: Some("a.m @href".into()),
+        info_hash: None,
         detail_link: None,
         size: None,
         seeders: None,
@@ -72,6 +76,14 @@ fn builtins_parse_validate_and_are_disabled() {
             "Nyaa",
             "Knaben",
             "YTS",
+            "EZTV",
+            "Torlock",
+            "LimeTorrents",
+            "SolidTorrents",
+            "TorrentDownloads",
+            "Internet Archive",
+            "Academic Torrents",
+            "LinuxTracker",
             "Torznab"
         ]
     );
@@ -79,11 +91,29 @@ fn builtins_parse_validate_and_are_disabled() {
         d.validate().unwrap_or_else(|e| panic!("{e}"));
         assert!(!d.enabled, "{} must be off by default", d.name);
         // only providers with a saved live sample (tests/live.rs) may claim it
-        let live = ["The Pirate Bay", "Nyaa", "Knaben"].contains(&d.name.as_str());
+        let live = [
+            "The Pirate Bay",
+            "Nyaa",
+            "Knaben",
+            "YTS",
+            "EZTV",
+            "Torlock",
+            "TorrentDownloads",
+            "Internet Archive",
+            "Academic Torrents",
+            "LinuxTracker",
+        ]
+        .contains(&d.name.as_str());
         assert_eq!(d.verified, live, "{} verified flag", d.name);
     }
     let kinds: Vec<_> = defs.iter().map(|d| d.kind.label()).collect();
-    assert_eq!(kinds, ["html", "json", "feed", "json", "json", "torznab"]);
+    assert_eq!(
+        kinds,
+        [
+            "html", "json", "feed", "json", "json", "json", "feed", "html", "json", "html", "json",
+            "feed", "html", "torznab"
+        ]
+    );
     // no API key material in definitions
     let text = export(&defs);
     assert!(text.contains("api_key_ref = \"torznab\""));
@@ -251,4 +281,77 @@ fn validation_json_and_common() {
         url: "not a url".into(),
     };
     assert!(err(&d).contains("not a valid URL"));
+}
+
+#[test]
+fn builtin_mirrors_are_valid_distinct_and_where_domains_move() {
+    let defs = builtin_providers();
+    let get = |n: &str| defs.iter().find(|d| d.name == n).unwrap();
+    for n in [
+        "1337x",
+        "YTS",
+        "Nyaa",
+        "LimeTorrents",
+        "EZTV",
+        "SolidTorrents",
+    ] {
+        assert!(!get(n).mirrors.is_empty(), "{n} should list mirrors");
+    }
+    for d in &defs {
+        let origins = d.origins();
+        let mut unique = origins.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(origins.len(), unique.len(), "{}: duplicate host", d.name);
+        assert_eq!(
+            origins.len(),
+            d.mirrors.len() + 1,
+            "{}: mirror repeats the main host",
+            d.name
+        );
+    }
+    assert_eq!(
+        get("Nyaa").origins(),
+        ["https://nyaa.si", "https://nyaa.land"]
+    );
+    assert!(get("YTS").origins().contains(&"https://yts.gg".to_owned()));
+}
+
+#[test]
+fn mirrors_must_be_plain_base_urls() {
+    let mut d = base(
+        "M",
+        Kind::Feed {
+            url: "https://x.test/rss".into(),
+        },
+    );
+    for bad in [
+        "x.test",
+        "ftp://x.test",
+        "https://x.test/path",
+        "https://x.test/?q=1",
+        "https://user:pw@x.test",
+        "https://",
+    ] {
+        d.mirrors = vec![bad.into()];
+        assert!(err(&d).contains("mirrors"), "{bad}");
+    }
+    d.mirrors = vec!["https://y.test".into(), "http://z.test:8080/".into()];
+    d.validate().unwrap();
+}
+
+#[test]
+fn local_filter_lifts_the_query_placeholder_requirement() {
+    let mut j = json_spec();
+    j.url = "https://x.test/latest".into();
+    let mut d = base("L", Kind::Json(j));
+    assert!(err(&d).contains("{query}"));
+    d.local_filter = true;
+    d.validate().unwrap();
+    let mut h = html_spec();
+    h.search_url = "https://x.test/latest".into();
+    let mut d = base("L", Kind::Html(h));
+    assert!(err(&d).contains("{query}"));
+    d.local_filter = true;
+    d.validate().unwrap();
 }

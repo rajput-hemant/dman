@@ -237,6 +237,21 @@ fn classify(url: &str, r: &mut SearchResult, prefer_torrent: bool) {
     }
 }
 
+/// Value of a `Label: value` line in an item description (feeds such as
+/// Torlock's put seeds, leechers and size there).
+fn described<'a>(item: &'a RawItem, labels: &[&str]) -> Option<&'a str> {
+    let d = item.field("description")?;
+    d.lines().find_map(|l| {
+        let l = l.trim();
+        let (k, v) = l.split_once(':')?;
+        labels
+            .iter()
+            .any(|w| k.trim().eq_ignore_ascii_case(w))
+            .then(|| v.trim())
+            .filter(|v| !v.is_empty())
+    })
+}
+
 /// Map a raw item to a normalized result (works for RSS, Atom and Torznab).
 pub fn item_to_result(item: &RawItem) -> SearchResult {
     let mut r = SearchResult {
@@ -283,11 +298,17 @@ pub fn item_to_result(item: &RawItem) -> SearchResult {
                 .and_then(|l| l.length.as_deref())
         })
         .and_then(util::parse_size)
-        .filter(|&s| s > 0);
+        .filter(|&s| s > 0)
+        .or_else(|| {
+            described(item, &["size"])
+                .and_then(util::parse_size)
+                .filter(|&s| s > 0)
+        });
 
     r.seeders = item
         .attr("seeders")
         .or_else(|| item.field("seeders"))
+        .or_else(|| described(item, &["seeders", "seeds"]))
         .and_then(util::parse_count);
     let peers = item
         .attr("peers")
@@ -297,6 +318,7 @@ pub fn item_to_result(item: &RawItem) -> SearchResult {
     r.leechers = item
         .attr("leechers")
         .or_else(|| item.field("leechers"))
+        .or_else(|| described(item, &["leechers", "leeches"]))
         .and_then(util::parse_count)
         .or_else(|| peers.map(|p| p.saturating_sub(r.seeders.unwrap_or(0))));
 

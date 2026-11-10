@@ -1,0 +1,68 @@
+{
+ "responseHeader": {
+  "status": 0,
+  "QTime": 51,
+  "params": {
+   "query": "(text:nasa OR text:nasa OR text__reviews:nasa) AND format:&quot;Archive BitTorrent&quot;",
+   "qin": "(nasa) AND format:&quot;Archive BitTorrent&quot;",
+   "fields": "identifier,title,item_size,downloads,publicdate,mediatype",
+   "wt": "json",
+   "rows": 6,
+   "start": 0
+  }
+ },
+ "response": {
+  "numFound": 559071,
+  "start": 0,
+  "docs": [
+   {
+    "downloads": 25,
+    "identifier": "hcctx-HCCTV_Up_To_The_Minute_-_December_6_2023",
+    "item_size": 347917336,
+    "mediatype": "movies",
+    "publicdate": "2024-02-16T14:05:01Z",
+    "title": "HCCTV Up To The Minute: December 6, 2023"
+   },
+   {
+    "downloads": 7,
+    "identifier": "jsc2025m000034_NASA_Astronaut_Chris_Williams_Training_Resource_Reel_251124-THU.jpg",
+    "item_size": 451047,
+    "mediatype": "movies",
+    "publicdate": "2025-12-06T22:05:11Z",
+    "title": "jsc2025m000034_NASA_Astronaut_Chris_Williams_Training_Resource_Reel_251124-THU.jpg"
+   },
+   {
+    "downloads": 31,
+    "identifier": "iustvin-Here_s_where_you_can_recycle_your_used_eclipse_glasses_in_Bloomington_IUSTV_News",
+    "item_size": 17375013,
+    "mediatype": "movies",
+    "publicdate": "2024-04-11T10:17:03Z",
+    "title": "Here's where you can recycle your used eclipse glasses in Bloomington - IUSTV News"
+   },
+   {
+    "downloads": 61,
+    "identifier": "mount-wilson-observatory_150-foot-solar-tower_drawing_1989-08-12",
+    "item_size": 168328,
+    "mediatype": "image",
+    "publicdate": "2015-01-17T14:14:06Z",
+    "title": "Mount Wilson Observatory - 150-Foot Solar Tower - Drawing - 1989-08-12"
+   },
+   {
+    "downloads": 47,
+    "identifier": "NIX-EL-1994-00510",
+    "item_size": 495101,
+    "mediatype": "image",
+    "publicdate": "2009-09-24T03:44:54Z",
+    "title": "LDEF: Postflight Detail-SAEF II-Front Upper Center 1/6"
+   },
+   {
+    "downloads": 35,
+    "identifier": "C-2003-2295",
+    "item_size": 3036344,
+    "mediatype": "image",
+    "publicdate": "2009-09-12T00:07:53Z",
+    "title": "Dayton Airshow, Inventing Flight, Dayton, Ohio, July 19-20, 2003"
+   }
+  ]
+ }
+}

@@ -4,8 +4,7 @@ expression: "render(&mut s, 80, 24)"
 ---
  dman ▸ local  ▼ 0 ▲ 0                                      mouse off  ● online
   All 0                                                            sort queue ▼
-╭ Downloads ───────────────────────────────────────────────────────────────────╮
-│   ╭ Welcome to dman ─────────────────────────────────────────────────────╮   │
+╭ Do╭ Welcome to dman ─────────────────────────────────────────────────────╮───╮
 │   │ ▼ dman  the download manager for your terminal                       │   │
 │   │                                                                      │   │
 │   │ dman downloads links, magnets, torrents and videos in the            │   │
@@ -24,5 +23,6 @@ expression: "render(&mut s, 80, 24)"
 │   │  a  Add a download     Enter  Close                                  │   │
 │   ╰──────────────────────────────────────────────────────────────────────╯   │
 │                                                                              │
+│                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- WELCOME   a  add a link  f  search torrents  m  mouse  Enter/Esc  close
+  a  add a link  f  search torrents  m  mouse  Enter/Esc  close  ↑↓  scroll

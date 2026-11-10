@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ ╭ Welcome to dman ───────────────────────────────────────┃
+ │ dman downloads links, magnets, torrents and videos in  ┃
+╭│ the background: downloads keep going after you close   ┃╮
+││ this screen.                                           ┃│
+││                                                        ┃│
+││   a        add a link, magnet or .torrent file         ┃│
+││   f        search for torrents                         ┃│
+││   Enter    details of the selected download            ┃│
+││   p / r    pause / resume                              ┃│
+││   d        remove a download (asks first; files are    ┃│
+││ kept)                                                  ┃│
+││                                                        ┃│
+││ Web UI  run dman serve in a terminal and open the      ┃│
+││ address it shows                                       ┃│
+││ Help    ? lists every key; : finds any command by name ┃│
+││ Mouse   m turns mouse support on (clicks, wheel,       ││
+╰╰────────────────────────────────────────────────────────│╯
+  a  add a link  f  search torrents  Enter/Esc  close

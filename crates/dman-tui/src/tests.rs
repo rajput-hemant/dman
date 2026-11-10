@@ -1,5 +1,7 @@
 //! Tests of `update` (behaviour) and full-screen snapshots of `render`.
 
+mod responsive;
+
 use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -40,15 +42,15 @@ fn state_with(mouse: bool) -> State {
     s
 }
 
-fn state() -> State {
+pub(super) fn state() -> State {
     state_with(false)
 }
 
-fn press(s: &mut State, code: KeyCode, mods: KeyModifiers) -> Vec<Cmd> {
+pub(super) fn press(s: &mut State, code: KeyCode, mods: KeyModifiers) -> Vec<Cmd> {
     update(s, Msg::Key(KeyEvent::new(code, mods)))
 }
 
-fn key(s: &mut State, c: char) -> Vec<Cmd> {
+pub(super) fn key(s: &mut State, c: char) -> Vec<Cmd> {
     let mods = if c.is_ascii_uppercase() {
         KeyModifiers::SHIFT
     } else {
@@ -57,17 +59,17 @@ fn key(s: &mut State, c: char) -> Vec<Cmd> {
     press(s, KeyCode::Char(c), mods)
 }
 
-fn code(s: &mut State, c: KeyCode) -> Vec<Cmd> {
+pub(super) fn code(s: &mut State, c: KeyCode) -> Vec<Cmd> {
     press(s, c, KeyModifiers::NONE)
 }
 
-fn typed(s: &mut State, text: &str) {
+pub(super) fn typed(s: &mut State, text: &str) {
     for c in text.chars() {
         key(s, c);
     }
 }
 
-fn disconnect(s: &mut State) {
+pub(super) fn disconnect(s: &mut State) {
     update(
         s,
         Msg::Conn(ConnState::Disconnected {
@@ -728,7 +730,7 @@ fn key_override_warnings_reach_the_status_line() {
 
 // ---------------------------------------------------------------- snapshots
 
-fn render(s: &mut State, w: u16, h: u16) -> String {
+pub(super) fn render(s: &mut State, w: u16, h: u16) -> String {
     update(s, Msg::Resize(w, h));
     let mut terminal = Terminal::new(TestBackend::new(w, h)).expect("test terminal");
     terminal
@@ -872,7 +874,7 @@ fn offline_rows_are_greyed() {
 
 // ------------------------------------------------------------------ add view
 
-mod add_view {
+pub(super) mod add_view {
     use super::*;
     use crate::views::add::browser::{BrowseEntry, LocalListing, read_local_dir};
     use crate::views::add::source::PathStatus;
@@ -1700,7 +1702,7 @@ mod add_view {
 
     // ------------------------------------------------------------ snapshots
 
-    fn mixed() -> State {
+    pub(super) fn mixed() -> State {
         let mut s = open();
         type_lines(
             &mut s,
@@ -1748,7 +1750,7 @@ mod add_view {
         insta::assert_snapshot!(render(&mut s, 120, 40));
     }
 
-    fn browser_state() -> State {
+    pub(super) fn browser_state() -> State {
         let mut s = open();
         ctrl(&mut s, 'o');
         let entry = |n: &str, d: bool, sz: Option<u64>| BrowseEntry {
@@ -1789,7 +1791,7 @@ mod add_view {
         insta::assert_snapshot!(render(&mut s, 120, 40));
     }
 
-    fn preview_state() -> State {
+    pub(super) fn preview_state() -> State {
         let mut s = open();
         let path = "/home/me/dir.torrent";
         type_lines(
@@ -1831,7 +1833,7 @@ mod add_view {
 use dman_proto::JobOptions;
 
 /// Open the detail of `id` and deliver a fixture reply.
-fn open_detail(s: &mut State, id: u64) -> Vec<Cmd> {
+pub(super) fn open_detail(s: &mut State, id: u64) -> Vec<Cmd> {
     s.list.cursor = Some(JobId(id));
     let cmds = code(s, KeyCode::Enter);
     let reply = sample_detail(&s.jobs[&JobId(id)]);
@@ -2706,7 +2708,7 @@ fn header_shows_the_schedule_brief() {
 
 // ------------------------------------------------------------------- search
 
-mod search_view {
+pub(super) mod search_view {
     use dman_proto::AddSource;
     use dman_proto::search::{
         ProviderInfo, ProviderSetParams, ProviderStatus, ProviderTestReport, ProvidersImported,
@@ -2737,7 +2739,7 @@ mod search_view {
         }
     }
 
-    fn providers() -> Vec<ProviderInfo> {
+    pub(super) fn providers() -> Vec<ProviderInfo> {
         vec![
             prov("1337x", true, true, true, 10),
             prov("nyaa", true, false, true, 20),
@@ -2746,7 +2748,7 @@ mod search_view {
         ]
     }
 
-    fn all_off() -> Vec<ProviderInfo> {
+    pub(super) fn all_off() -> Vec<ProviderInfo> {
         providers()
             .into_iter()
             .map(|p| ProviderInfo {
@@ -2863,7 +2865,7 @@ mod search_view {
     }
 
     /// Open the search view with `list` providers known.
-    fn open_search(s: &mut State, list: Vec<ProviderInfo>) {
+    pub(super) fn open_search(s: &mut State, list: Vec<ProviderInfo>) {
         let cmds = key(s, 'f');
         assert_eq!(cmds, vec![Cmd::Api(ApiCall::ProvidersList)]);
         deliver_providers(s, list);
@@ -2914,7 +2916,7 @@ mod search_view {
     }
 
     /// A finished search with mixed provider outcomes.
-    fn searched() -> State {
+    pub(super) fn searched() -> State {
         let mut s = st();
         open_search(&mut s, providers());
         run_search(&mut s, "ubuntu");
@@ -3763,7 +3765,7 @@ mod search_view {
         ]
     }
 
-    fn open_history(s: &mut State) {
+    pub(super) fn open_history(s: &mut State) {
         let cmds = code(s, KeyCode::F(3));
         assert_eq!(cmds, vec![Cmd::Api(ApiCall::SearchHistory)]);
         reply(s, &cmds[0], Ok(ApiReply::SearchHistory(history())));
@@ -3845,7 +3847,7 @@ mod search_view {
 
     // ----------------------------------------------------------- providers
 
-    fn open_providers() -> State {
+    pub(super) fn open_providers() -> State {
         let mut s = st();
         open_search(&mut s, providers());
         let cmds = code(&mut s, KeyCode::F(2));
@@ -4182,7 +4184,7 @@ mod search_view {
 
     // ----------------------------------------------------------- snapshots
 
-    fn mixed_state() -> State {
+    pub(super) fn mixed_state() -> State {
         // 1337x done, nyaa failed, tpb still running.
         let mut s = st();
         open_search(&mut s, providers());
@@ -4289,7 +4291,7 @@ mod search_view {
 
 // -------------------------------------------------------------------- video
 
-mod video_view {
+pub(super) mod video_view {
     use super::*;
     use crate::views::add::options::Field;
     use crate::views::add::preview::Preview;
@@ -4477,7 +4479,7 @@ mod video_view {
         );
     }
 
-    fn probed() -> State {
+    pub(super) fn probed() -> State {
         let mut s = open(Some(engine(true, false, Some("ffmpeg not found in PATH"))));
         lines(&mut s, &[YT]);
         ctrl(&mut s, 's');
@@ -4990,12 +4992,15 @@ mod video_view {
 
 // ------------------------------------------------------------- usability
 
-mod usability {
+pub(super) mod usability {
     use super::*;
     use crate::fixtures::job;
     use crate::widgets::footer;
 
-    fn empty_state(welcome: bool, marker: Option<std::path::PathBuf>) -> (State, Vec<Cmd>) {
+    pub(super) fn empty_state(
+        welcome: bool,
+        marker: Option<std::path::PathBuf>,
+    ) -> (State, Vec<Cmd>) {
         let mut s = State::new(StateOptions {
             theme: Theme::default_theme(),
             welcome,
@@ -5191,14 +5196,42 @@ mod usability {
     }
 
     #[test]
-    fn footer_always_ends_with_palette_and_help_even_when_narrow() {
+    fn footer_keeps_the_way_out_and_help_even_when_narrow() {
         let mut s = state();
-        for w in [40u16, 60, 80, 120] {
+        for w in [30u16, 40, 60, 80, 100, 120] {
             let text = render(&mut s, w, 24);
             let last = text.lines().nth(23).unwrap_or_default();
-            assert!(last.ends_with("?  help"), "{w}: {last}");
-            assert!(last.contains(":  palette"), "{w}: {last}");
+            assert!(last.contains("?  help"), "{w}: {last}");
+            if w >= 60 {
+                assert!(last.contains(":  palette"), "{w}: {last}");
+                assert!(last.contains("Enter  details"), "{w}: {last}");
+            }
+            if w >= 100 {
+                // Width, not a hint count, decides: deleting files is always
+                // offered next to remove, ahead of quitting.
+                for h in ["d  remove", "D  delete files", "q  quit"] {
+                    assert!(last.contains(h), "{w}: {last}");
+                }
+                let d = last.find("d  remove").unwrap_or(usize::MAX);
+                let del = last.find("D  delete files").unwrap_or(0);
+                assert!(d < del, "{w}: {last}");
+            }
         }
+        // Marked jobs: delete N follows remove N.
+        key(&mut s, ' ');
+        let text = render(&mut s, 120, 24);
+        let last = text.lines().nth(23).unwrap_or_default();
+        assert!(last.contains("d  remove 1  D  delete 1"), "{last}");
+        code(&mut s, KeyCode::Esc);
+        s.list.cursor = Some(JobId(1));
+        // Inside a view the way out is never cut off.
+        code(&mut s, KeyCode::Enter);
+        for w in [30u16, 40, 60] {
+            let text = render(&mut s, w, 24);
+            let last = text.lines().nth(23).unwrap_or_default();
+            assert!(last.contains("Esc  back"), "{w}: {last}");
+        }
+        code(&mut s, KeyCode::Esc);
         // Text-entry views name keys that still work there.
         key(&mut s, 'a');
         let f = footer_text(&s);
@@ -5400,7 +5433,7 @@ mod usability {
 
 // ----------------------------------------------------------- quality picker
 
-mod quality_picker {
+pub(super) mod quality_picker {
     use super::*;
     use crate::api::PrefsIntent;
     use crate::views::add::quality::{Focus as PFocus, Stage};
@@ -5585,7 +5618,7 @@ mod quality_picker {
         (s, cmds)
     }
 
-    fn picker_state() -> State {
+    pub(super) fn picker_state() -> State {
         let (mut s, cmds) = start(&[YT], true);
         assert!(matches!(&cmds[..], [Cmd::Api(ApiCall::VideoProbe(p))] if p.url == YT));
         assert!(deliver_probe(&mut s, probe_for(YT, true)).is_empty());
@@ -5958,7 +5991,7 @@ mod quality_picker {
         // The palette shows the state.
         key(&mut s, ':');
         typed(&mut s, "quality picker");
-        assert!(render(&mut s, 100, 24).contains("[ask off]"));
+        assert!(render(&mut s, 100, 24).contains("now: defaults"));
         code(&mut s, KeyCode::Esc);
 
         // Default quality prompt: validated, then saved.
@@ -6030,12 +6063,12 @@ mod quality_picker {
 
 // ------------------------------------------------------------- redesign
 
-mod redesign {
+pub(super) mod redesign {
     use super::*;
     use crate::theme::{ColorDepth, ThemeOptions};
     use crate::widgets::toast::ToastAction;
 
-    fn removed(s: &mut State, ids: Vec<JobId>, delete_files: bool) {
+    pub(super) fn removed(s: &mut State, ids: Vec<JobId>, delete_files: bool) {
         update(
             s,
             Msg::ActionResult {
@@ -6266,7 +6299,7 @@ mod redesign {
     #[test]
     fn tiny_terminals_get_a_note_instead_of_a_broken_layout() {
         let mut s = state();
-        let text = render(&mut s, 30, 8);
+        let text = render(&mut s, 24, 6);
         assert!(text.contains("Terminal too small"), "{text}");
     }
 

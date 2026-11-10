@@ -46,4 +46,4 @@ expression: "render(&mut s, 160, 45)"
 │                                                                                              ││                                                              │
 │                                                                                              ││  Enter  details   p  pause   n  rename   d  remove           │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────╯
- MARK   p  pause 1  r  resume 1  d  remove 1  D  delete files  :  palette  ?  help
+ MARK   p  pause 1  r  resume 1  d  remove 1  D  delete 1  Esc  unmark  Space  mark  q  quit  :  palette  ?  help

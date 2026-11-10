@@ -2,7 +2,7 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
  Downloads › Search › Search providers
 ╭ Search providers · 2 enabled of 4 ───────────────────────────────────────────╮
 │On  Name                              Kind    Verified   Origin  Order Timeout│
@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 │Not tested yet — press t to test nyaa                                         │
 │                                          ▌● Testing 1337x in the background… │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- PROVIDERS   Space  toggle  t  test  K  queue up  :  palette  ?  help ⠋ working
+  Space  toggle  t  test  K  queue up  Esc  back  :  palette  ?  help ⠋ working

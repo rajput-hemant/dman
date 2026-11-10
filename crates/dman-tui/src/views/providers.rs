@@ -8,9 +8,10 @@ use std::collections::HashMap;
 
 use dman_proto::search::{ProviderInfo, ProviderSetParams, ProviderTestReport};
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Rect};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row as TableRow, Table, Wrap};
+use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
@@ -21,6 +22,7 @@ use crate::views::search::{self, render::SPINNER};
 use crate::widgets::Modal;
 use crate::widgets::confirm::ConfirmState;
 use crate::widgets::prompt::{PromptKind, PromptState};
+use crate::widgets::table::{self, Col};
 
 /// Footer actions of this view.
 pub const FOOTER: &[Action] = &[
@@ -530,8 +532,15 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
     let detail_h = if inner.height >= 12 { 7 } else { 0 };
-    let [list, detail] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Length(detail_h)]).areas(inner);
+    let list = Rect {
+        height: inner.height - detail_h,
+        ..inner
+    };
+    let detail = Rect {
+        y: list.bottom(),
+        height: detail_h,
+        ..inner
+    };
     if p.list.is_empty() {
         let text = if p.loaded {
             "No providers"
@@ -549,28 +558,19 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
         );
         return;
     }
-    let header = TableRow::new([
-        "On", "Name", "Kind", "Verified", "Origin", "Order", "Timeout",
-    ])
-    .style(t.header);
-    let widths = [
-        Constraint::Length(3),
-        Constraint::Fill(1),
-        Constraint::Length(7),
-        Constraint::Length(10),
-        Constraint::Length(7),
-        Constraint::Length(5),
-        Constraint::Length(7),
+    let cols = [
+        Col::fixed("On", 3, 0),
+        Col::fill("Name", 8, 0),
+        Col::fixed("Kind", 7, 3),
+        Col::fixed("Verified", 10, 1),
+        Col::fixed("Origin", 7, 4),
+        Col::fixed("Order", 5, 5).right(),
+        Col::fixed("Timeout", 7, 2).right(),
     ];
-    let height = usize::from(list.height.saturating_sub(1));
-    let top = (p.cursor + 1).saturating_sub(height);
-    let rows: Vec<TableRow<'_>> = p
+    let rows: Vec<(Vec<table::Cell>, Style)> = p
         .list
         .iter()
-        .enumerate()
-        .skip(top)
-        .take(height)
-        .map(|(i, x)| {
+        .map(|x| {
             let (badge, badge_style) = if x.verified {
                 ("verified", t.ok)
             } else {
@@ -582,30 +582,25 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
             } else {
                 x.name.clone()
             };
-            let row = TableRow::new(vec![
-                Cell::from(if x.enabled { "[x]" } else { "[ ]" }).style(if x.enabled {
-                    t.ok
-                } else {
-                    t.dim
-                }),
-                Cell::from(name),
-                Cell::from(x.kind.clone()),
-                Cell::from(badge).style(badge_style),
-                Cell::from(if x.builtin { "builtin" } else { "custom" }),
-                Cell::from(format!("{:>5}", x.order)),
-                Cell::from(format!("{:>6}s", x.timeout_secs)),
-            ]);
-            if i == p.cursor {
-                row.style(t.cursor)
-            } else {
-                row
-            }
+            let plain = |s: String| (s, Style::new());
+            (
+                vec![
+                    (
+                        if x.enabled { "[x]" } else { "[ ]" }.to_owned(),
+                        if x.enabled { t.ok } else { t.dim },
+                    ),
+                    plain(name),
+                    plain(x.kind.clone()),
+                    (badge.to_owned(), badge_style),
+                    plain(if x.builtin { "builtin" } else { "custom" }.to_owned()),
+                    plain(x.order.to_string()),
+                    plain(format!("{}s", x.timeout_secs)),
+                ],
+                Style::new(),
+            )
         })
         .collect();
-    frame.render_widget(
-        Table::new(rows, widths).header(header).column_spacing(1),
-        list,
-    );
+    table::render(frame, list, t, &cols, &rows, Some(p.cursor));
     if detail_h > 0 {
         let block = Block::default()
             .borders(Borders::TOP)

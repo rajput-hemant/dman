@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman  ▼ 15.0M ▲ 1.0M          ● online
+ Downloads › Add downloads
+╭ Choose quality · Big Buck Bunny ─────╮
+│ Video · 4                            │
+│▸ 1080p60 · H.264 · ~83…  needs ffmpeg│
+│ Audio · 2                            │
+│▸ Opus · 135 kbps · ~10 MiB           │
+│  AAC · 129 kbps · ~9 MiB             │
+│ Download 1080p60 · H.264 · ~83 MiB +…│
+│ Enter download Esc cancel            │
+╰──────────────────────────────────────╯
+  Esc  cancel  Tab  next list  F1  help

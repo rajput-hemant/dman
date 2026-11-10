@@ -9,18 +9,22 @@ use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
 use ratatui::layout::{Margin, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::Paragraph;
 
 use crate::action::Action;
 use crate::app::{Cmd, State};
 use crate::keymap::{Context, Keymap, key_label};
 use crate::theme::Theme;
 use crate::views::View;
+use crate::widgets::text::wrap_all;
 use crate::widgets::{Modal, ModalOutcome, centered, modal_frame};
 
-/// The welcome dialog (no state of its own).
+/// The welcome dialog.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct WelcomeState;
+pub struct WelcomeState {
+    /// First text row shown (the text scrolls on short terminals).
+    pub scroll: u16,
+}
 
 /// The first snapshot arrived: show the welcome if this looks like a first
 /// run (no jobs, nothing else open) and it was not shown before.
@@ -42,7 +46,7 @@ pub fn on_snapshot(state: &mut State) -> Vec<Cmd> {
     if state.modal.is_some() || !matches!(state.view(), View::Downloads) {
         return Vec::new();
     }
-    state.modal = Some(Modal::Welcome(WelcomeState));
+    state.modal = Some(Modal::Welcome(WelcomeState::default()));
     mark
 }
 
@@ -57,7 +61,7 @@ fn key(keymap: &Keymap, action: Action) -> String {
 impl WelcomeState {
     /// Handle a key: the shortcuts listed in the dialog work right away, any
     /// of Enter / Esc / Space / q closes it.
-    pub fn handle_key(self, key: KeyEvent, state: &State) -> ModalOutcome {
+    pub fn handle_key(&mut self, key: KeyEvent, state: &State) -> ModalOutcome {
         if let Some(
             a @ (Action::Add
             | Action::Search
@@ -70,6 +74,14 @@ impl WelcomeState {
         }
         match key.code {
             KeyCode::Enter | KeyCode::Esc | KeyCode::Char(' ' | 'q') => ModalOutcome::Close,
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.scroll = self.scroll.saturating_add(1);
+                ModalOutcome::Stay
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.scroll = self.scroll.saturating_sub(1);
+                ModalOutcome::Stay
+            }
             _ => ModalOutcome::Stay,
         }
     }
@@ -81,10 +93,11 @@ impl WelcomeState {
             (key(keymap, Action::Search), "search torrents".into()),
             (key(keymap, Action::ToggleMouse), "mouse".into()),
             ("Enter/Esc".into(), "close".into()),
+            ("↑↓".into(), "scroll".into()),
         ]
     }
 
-    /// Draw the dialog.
+    /// Draw the dialog (scrolled when it does not fit).
     pub fn render(self, frame: &mut Frame<'_>, area: Rect, theme: &Theme, keymap: &Keymap) {
         let k = |a: Action| key(keymap, a);
         let row = |keys: String, what: &str| {
@@ -94,8 +107,10 @@ impl WelcomeState {
             ])
         };
         let lines = vec![
-            Line::raw("dman downloads links, magnets, torrents and videos in the"),
-            Line::raw("background: downloads keep going after you close this screen."),
+            Line::raw(
+                "dman downloads links, magnets, torrents and videos in the background: \
+                 downloads keep going after you close this screen.",
+            ),
             Line::default(),
             row(k(Action::Add), "add a link, magnet or .torrent file"),
             row(k(Action::Search), "search for torrents"),
@@ -147,13 +162,16 @@ impl WelcomeState {
         ];
         let width = area.width.saturating_sub(2).min(72);
         let inner = usize::from(width.saturating_sub(4)).max(1);
-        if area.height >= 24 {
+        if area.height >= 23 {
             for (i, l) in logo.into_iter().enumerate() {
                 lines.insert(i, l);
             }
         }
-        let rows: usize = lines.iter().map(|l| l.width().div_ceil(inner).max(1)).sum();
-        let height = u16::try_from(rows).unwrap_or(u16::MAX).saturating_add(2);
+        let rows = wrap_all(&lines, inner);
+        let room = usize::from(area.height.saturating_sub(2));
+        let height = u16::try_from(rows.len().min(room))
+            .unwrap_or(u16::MAX)
+            .saturating_add(2);
         let rect = centered(area, width, height);
         let inner_rect = modal_frame(
             frame,
@@ -165,11 +183,15 @@ impl WelcomeState {
             )),
             theme.border_focus,
         );
+        let max_scroll = rows.len().saturating_sub(room);
+        let scroll = usize::from(self.scroll).min(max_scroll);
+        let shown: Vec<Line<'static>> = rows.into_iter().skip(scroll).take(room).collect();
         frame.render_widget(
-            Paragraph::new(lines)
-                .style(theme.surface)
-                .wrap(Wrap { trim: false }),
+            Paragraph::new(shown).style(theme.surface),
             inner_rect.inner(Margin::new(1, 0)),
         );
+        if max_scroll > 0 {
+            crate::widgets::scrollbar(frame, rect, theme, max_scroll + room, scroll, room);
+        }
     }
 }

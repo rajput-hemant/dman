@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman  ▼ 15.0M ▲ 1.0M          ● online
+ Downloads › Add downloads
+╭ Sources · 7 items (2 local) · 1 unsup╮
+│/home/me/Download… torrent file · 44.…│
+│/home/me/Download… metalink file · no…│
+│file:///tmp/x.iso  unsupported: schem…│
+╰──────────────────────────────────────╯
+ ✗ Can't add `file:///tmp/x.iso` (unsup…
+╭ Options · empty fields use your defau╮
+│  Download folder        your default…│
+╰──────────────────────────────────────╯
+  Esc  back  Ctrl-p  palette  F1  help

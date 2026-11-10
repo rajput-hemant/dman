@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman  ▼ 15.0M ▲ 1.0M          ● online
+ Downloads › Help
+╭ Keys ────────────────────────────────╮
+│ ⌕ / to search keys and commands      ┃
+│                                      │
+│ ── Downloads keys ────────────────── │
+│    k ↑             Move up           │
+│    j ↓             Move down         │
+│    PgUp Ctrl-u     Page up           │
+│    PgDn Ctrl-d     Page down         │
+╰ Keys can be changed in config.toml […╯
+  j  down  Esc  back  ?  close help

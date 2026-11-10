@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+╭ Commands ────────────── 92 commands ─╮
+│ ⌕  Type to search every group        │
+│ ‹  All  › 1/8  Tab switches          │
+│──────────────────────────────────────│
+│  DOWNLOADS ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┃
+│▌ Pause                            p  │
+│  Resume                           r  │
+│  Pause all                        P  │
+│  Resume all                       R  │
+│ Enter runs it · Tab switches groups… │
+╰──────────────────────────────────────╯
+  Enter  run  Esc  close  ↑↓  choose

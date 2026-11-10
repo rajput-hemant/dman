@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman  ▼ 15.0M ▲ 1.0M          ● online
+ Downloads › Search
+  Query     ubuntu 24.04
+ sort seeders▼  4 results  1 marked
+╭ Results for 'ubuntu 24.04' ──────────╮
+│  #   Title                       Size│
+│●   1 Ubuntu 24.04.1 Deskt…    6.0 GiB│
+│    2 Ubuntu 24.04 Server      2.0 GiB│
+│    3 ubuntu-24.04-live-se…  900.0 MiB│
+│    4 Kubuntu 24.04            4.0 GiB│
+╰──────────────────────────────────────╯
+  Esc  cancel  :  palette  ?  help

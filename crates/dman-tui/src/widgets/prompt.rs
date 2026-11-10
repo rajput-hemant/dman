@@ -2,12 +2,14 @@
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
+use ratatui::layout::{Alignment, Margin, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Paragraph, Wrap};
+use ratatui::widgets::Paragraph;
 
+use crate::format;
 use crate::theme::Theme;
 use crate::widgets::input::LineInput;
+use crate::widgets::text::wrap;
 use crate::widgets::{ModalOutcome, centered, modal_frame};
 
 /// What the prompt's value is for; interpreted by `update` on submit.
@@ -86,51 +88,79 @@ impl PromptState {
         ]
     }
 
-    /// Draw the prompt.
+    /// Draw the prompt. On short terminals the explanation gives way first
+    /// (it is cut to fewer rows), then the key row; the input always shows.
     pub fn render(&self, frame: &mut Frame<'_>, area: Rect, theme: &Theme) {
-        let width = area.width.saturating_sub(4).min(64);
+        let width = area.width.saturating_sub(4).min(64).max(area.width.min(20));
         let inner_w = usize::from(width.saturating_sub(4)).max(1);
-        let label_rows =
-            u16::try_from(self.label.chars().count().div_ceil(inner_w).max(1)).unwrap_or(1);
-        let rect = centered(area, width, 6 + label_rows);
+        let mut label = wrap(&Line::styled(self.label.clone(), theme.surface), inner_w);
+        let room = usize::from(area.height.saturating_sub(2));
+        // input row, plus (when there is room) gaps and the key row.
+        let extras = match room {
+            0..=2 => 0,
+            3..=4 => 1,
+            _ => 3,
+        };
+        let label_max = room.saturating_sub(1 + extras);
+        if label.len() > label_max {
+            label.truncate(label_max);
+            if let Some(last) = label.last_mut() {
+                let text: String = last.spans.iter().map(|s| s.content.as_ref()).collect();
+                *last = Line::styled(
+                    format::truncate(&format!("{text}…"), inner_w),
+                    theme.surface,
+                );
+            }
+        }
+        let label_rows = u16::try_from(label.len()).unwrap_or(0);
+        let extras_rows = u16::try_from(extras).unwrap_or(0);
+        let rect = centered(area, width, label_rows + 3 + extras_rows);
+        let title = format::truncate(&self.title, usize::from(width.saturating_sub(4)));
         let inner = modal_frame(
             frame,
             rect,
             theme,
             Line::from(Span::styled(
-                format!(" {} ", self.title),
+                format!(" {title} "),
                 theme.accent.patch(theme.surface_bg()),
             )),
             theme.border_focus,
         );
         let inner = inner.inner(Margin::new(1, 0));
-        let [label, _, input, _, keys] = Layout::vertical([
-            Constraint::Length(label_rows),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .areas(inner);
+        let row = |y: u16| Rect {
+            y: inner.y.saturating_add(y),
+            height: 1,
+            ..inner
+        };
         frame.render_widget(
-            Paragraph::new(Line::styled(self.label.as_str(), theme.surface))
-                .wrap(Wrap { trim: false }),
-            label,
+            Paragraph::new(label),
+            Rect {
+                height: label_rows,
+                ..inner
+            },
         );
+        let gap = u16::from(extras >= 3);
+        let input = row(label_rows + gap);
         let mut line = vec![Span::styled("› ", theme.accent.patch(theme.surface_bg()))];
-        line.extend(self.input.line(theme, true).spans);
-        let field = theme.cursor;
-        frame.buffer_mut().set_style(input, field);
-        frame.render_widget(Paragraph::new(Line::from(line)), input);
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(" Enter ", theme.pill),
-                Span::styled(" apply   ", theme.dim.patch(theme.surface_bg())),
-                Span::styled(" Esc ", theme.pill),
-                Span::styled(" cancel", theme.dim.patch(theme.surface_bg())),
-            ]))
-            .alignment(Alignment::Right),
-            keys,
+        line.extend(
+            self.input
+                .line_fit(theme, true, usize::from(input.width.saturating_sub(2)))
+                .spans,
         );
+        frame.buffer_mut().set_style(input, theme.cursor);
+        frame.render_widget(Paragraph::new(Line::from(line)), input);
+        if extras >= 1 {
+            let keys = row(label_rows + gap * 2 + 1);
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(" Enter ", theme.pill),
+                    Span::styled(" apply   ", theme.dim.patch(theme.surface_bg())),
+                    Span::styled(" Esc ", theme.pill),
+                    Span::styled(" cancel", theme.dim.patch(theme.surface_bg())),
+                ]))
+                .alignment(Alignment::Right),
+                keys,
+            );
+        }
     }
 }

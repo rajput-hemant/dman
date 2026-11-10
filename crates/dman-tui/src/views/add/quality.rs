@@ -21,9 +21,8 @@ use super::video::{self, ProbeFetch, ProbeUi};
 use super::{Overlay, add_any};
 use crate::api::{ApiCall, ApiReply, NEVER_ASK_HINT, PrefsIntent};
 use crate::app::{Cmd, State};
-use crate::format::{size, truncate};
+use crate::format::{self, size, truncate};
 use crate::theme::Theme;
-use crate::widgets::centered;
 
 /// Presets of the quick row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -448,12 +447,12 @@ impl Picker {
     pub fn hints() -> Vec<(String, String)> {
         [
             ("Enter", "download"),
+            ("Esc", "cancel"),
             ("Tab", "next list"),
             ("↑↓", "move"),
             ("1-5", "preset"),
             ("u", "my default"),
             ("n", "never ask"),
-            ("Esc", "cancel"),
         ]
         .iter()
         .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
@@ -586,15 +585,27 @@ impl Picker {
 
     /// Draw the picker inside `inner`.
     fn render_body(&self, frame: &mut Frame<'_>, inner: Rect, theme: &Theme) {
-        let [meta, presets, lists, boxes, summary, hints] = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Fill(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .areas(inner);
+        // On short terminals the lists keep their rows: the details line,
+        // the checkboxes (u / n still work) and the presets (1-5) give way.
+        let h = inner.height;
+        let one = |show: bool| u16::from(show);
+        let (meta_h, boxes_h, presets_h) = (one(h >= 14), one(h >= 12), one(h >= 9));
+        let mut y = inner.y;
+        let mut take = |height: u16| {
+            let r = Rect {
+                y,
+                height: height.min(inner.bottom().saturating_sub(y)),
+                ..inner
+            };
+            y = r.bottom();
+            r
+        };
+        let meta = take(meta_h);
+        let presets = take(presets_h);
+        let lists = take(h.saturating_sub(meta_h + presets_h + boxes_h + 2));
+        let boxes = take(boxes_h);
+        let summary = take(1);
+        let hints = take(1);
         let w = usize::from(inner.width);
         let p = &self.probe;
         let mut m = Vec::new();
@@ -690,7 +701,13 @@ impl Picker {
         frame.render_widget(Paragraph::new(line), summary);
 
         let mut h = Vec::new();
+        let mut used = 0;
         for (k, v) in Self::hints() {
+            let item_w = format::width(&k) + format::width(&v) + 2;
+            if used + item_w > w {
+                break;
+            }
+            used += item_w;
             h.push(Span::styled(format!(" {k}"), theme.key));
             h.push(Span::raw(format!(" {v}")));
         }
@@ -723,7 +740,7 @@ impl Picker {
             2 + v + a
         };
         let want = u16::try_from(7 + lists).unwrap_or(u16::MAX);
-        let rect = centered(area, width, want.min(area.height.saturating_sub(2)));
+        let rect = crate::widgets::popup_rect(area, width, want);
         frame.render_widget(Clear, rect);
         let of = if self.position.1 > 1 {
             format!(" ({} of {})", self.position.0, self.position.1)
@@ -927,7 +944,7 @@ impl QualityFlow {
                 ],
             ),
         };
-        let rect = centered(area, area.width.saturating_sub(4).min(64), 7);
+        let rect = crate::widgets::popup_rect(area, 64, 7);
         frame.render_widget(Clear, rect);
         let inner = crate::widgets::modal_frame(
             frame,

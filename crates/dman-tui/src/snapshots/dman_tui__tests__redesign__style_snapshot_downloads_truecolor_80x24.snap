@@ -2,7 +2,7 @@
 source: crates/dman-tui/src/tests.rs
 expression: "styled(&mut s, themed(ColorDepth::TrueColor), 80, 24)"
 ---
-.....___aaaaabbccdddd_beeddd_bbfddaddgddhddbaaaaaaaaa________________bbggggggggb
+.....___aaaaabbccdddd_beeddd_bbfddaddgddhddbbbbbbbbbbbbaaaaaaaaa_______ggggggggb
 biiiiiiibaaaaaaaaaabaaaaaaaaaaabaaaaaaaabaaaaaaaaaabbbbeeeeeeeeeeee_____aaaaaaaa
 c...........cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 c___jjjjjj_____________________________________________________________________c
@@ -25,7 +25,7 @@ cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
 cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
 cbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbc
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-iiiiiibvvvaaaaaaaaavvvaaaaaaaaaavvvaaaaaaaaaavvvaaaaaaaaavvvaaaaaabbbbbbbbbbbbbb
+bvvvaaaaaaaaavvvaaaaaaaaaavvvaaaaaaaaaavvvvvaaaaaaaavvvaaaaaaaaavvvaaaaaabbbbbbb
 
 . fg=Rgb(140, 156, 248) bg=Reset mod=BOLD
 _ fg=Rgb(96, 102, 132) bg=Reset mod=NONE

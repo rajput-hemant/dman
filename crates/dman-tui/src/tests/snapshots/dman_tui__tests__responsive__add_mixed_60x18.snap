@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1         ● online
+ Downloads › Add downloads
+╭ Sources · 7 items (2 local) · 1 unsupported ─────────────╮
+│magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa… magnet│
+│https://example.org/files/big-dataset-2026.tar.zst   https│
+│ftp://mirror.example.net/pub/a.iso  ftp://mirro… 2 sources│
+│/home/me/Downloads/ubuntu-24.04.t… torrent file · 44.9 KiB│
+│/home/me/Downloads/gone.metalink metalink file · not found│
+│file:///tmp/x.iso            unsupported: scheme not supp…│
+╰──────────────────────────────────────────────────────────╯
+ ✗ Can't add `file:///tmp/x.iso` (unsupported: scheme not s…
+╭ Options · empty fields use your defaults ────────────────╮
+│  Download folder        your default folder (Ctrl-f brow…│
+│  Start paused           [ ] add now, start later (r in t…│
+│  Download limit         no extra limit (e.g. 2MiB; 0 = u…│
+│  ▸ Advanced options — 16 more, F2 shows them: mirrors, f…│
+╰──────────────────────────────────────────────────────────╯
+  Enter  review & add  Esc  back  Ctrl-p  palette  F1  help

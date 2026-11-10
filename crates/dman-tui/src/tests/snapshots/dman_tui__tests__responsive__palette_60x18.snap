@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+╭ Commands ────────────────────────────────── 92 commands ─╮
+│ ⌕  Type to search every group                            │
+│ ‹  All  › 1/8  Tab switches                              │
+│──────────────────────────────────────────────────────────│
+│  DOWNLOADS ╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌┃
+│▌ Pause                                                p  │
+│  Resume                                               r  │
+│  Pause all                                            P  │
+│  Resume all                                           R  │
+│  Remove from the list  Keep files                     d  │
+│  Remove and DELETE files  Deletes the files from di…  D  │
+│  Clear finished downloads  Drops finished and faile…  x  │
+│  Rename  Not while active; file under cursor in Det…  n  │
+│  Delete unselected partial files  Of a finished tor…  C  │
+│  Open details                                     Enter  │
+│ Enter runs it · Tab switches groups · Esc closes         │
+╰──────────────────────────────────────────────────────────╯
+  Enter  run  Esc  close  Tab  next group  ↑↓  choose

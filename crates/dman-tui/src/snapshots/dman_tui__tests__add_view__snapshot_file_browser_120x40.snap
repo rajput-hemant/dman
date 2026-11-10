@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 
 
 
- ADD   Enter  open/pick  Space  mark  ⌫/h  up  .  all files  Ctrl-p  palette  F1  help
+ ADD   Enter  open/pick  Space  mark  ⌫/h  up  .  all files  Esc  close  Ctrl-p  palette  F1  help

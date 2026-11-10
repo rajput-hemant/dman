@@ -11,4 +11,4 @@ expression: "render(&mut s, 120, 10)"
 │  ↑ debian-13.2.0-amd64-netinst.iso                          ████████████ 100% 256.0 KiB/s   r1.50  700.0 MiB     5/40│
 │── Waiting 2 ─────────────────────────────────────────────────────────────────────────────────────────────────────────│
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- LIST   Enter  details  p  pause  d  remove  D  delete files  :  palette  ?  help
+ LIST   Enter  details  p  pause  d  remove  D  delete files  q  quit  a  add  f  search  :  palette  ?  help

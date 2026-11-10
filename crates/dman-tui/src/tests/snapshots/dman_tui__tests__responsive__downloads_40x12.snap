@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman  ▼ 15.0M ▲ 1.0M          ● online
+  All 7   Active 3   Waiting 2   Done 1
+╭ Downloads ───────────────────────────╮
+│── Active 3 ──────────────────────────┃
+│  ↓ ubuntu-24.04.…op-amd64.iso   12.0M┃
+│ ●↓ big-dataset-2026.tar.zst      3.0M┃
+│▌ ↑ debian-13.2.0…-netinst.iso  256.0K┃
+│── Waiting 2 ─────────────────────────┃
+│  ◔ ▶ Big Buck Bun…(1080p).mp4 queued…│
+│  ⏸ archlinux-202…1-x86_64.iso  paused│
+╰──────────────────────────────────────╯
+  p  pause 1  Esc  unmark  ?  help

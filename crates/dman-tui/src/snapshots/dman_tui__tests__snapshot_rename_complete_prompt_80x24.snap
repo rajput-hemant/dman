@@ -2,7 +2,7 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
   All 7   Active 3   Waiting 2   Done 1   Failed 1                 sort queue ▼
 ╭ Downloads ───────────────────────────────────────────────────────────────────╮
 │── Active 3 ──────────────────────────────────────────────────────────────────│
@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 │                                                                              │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- INPUT   Enter  apply  Esc  cancel
+  Enter  apply  Esc  cancel

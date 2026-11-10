@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1         ● online
+ Downloads › ↓ ubuntu-24.04.1-desktop-amd64.iso
+ ↓ Downloading · 42 peers · 12.0 MiB/s · ETA 2m51s
+ ██████████████████████             66%  4.0 GiB / 6.0 GiB
+ ‹  3 Trackers   4 Pieces   5 Speed   6 Options   7 Info
+╭──────────────────────────────────────────────────────────╮
+│Option                 Value          Note                │
+│dir                    /home/me/Down…                     │
+│out                    (default)                          │
+│max_download_limit     2.0 MiB/s                          │
+│max_upload_limit       (default)                          │
+│select_files           1,2,4          use Space on the Fi…│
+│file_names             (default)      set when adding (re…│
+│seed_ratio             1.5                                │
+│seed_time              (default)                          │
+│sequential             (default)                          │
+╰──────────────────────────────────────────────────────────╯
+  Esc  back  p  pause  Enter  edit  :  palette  ?  help

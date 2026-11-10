@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 │                                                                              │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- LIST   a  add a link or torrent  f  search torrents  :  palette  ?  help
+  a  add a link or torrent  f  search torrents  q  quit  :  palette  ?  help

@@ -103,24 +103,67 @@ pub fn peers(job: &Job) -> String {
     }
 }
 
-/// Shorten `s` to at most `max` characters, ending in `…` when cut.
+/// Display width of `s` in terminal columns (wide CJK characters and most
+/// emoji take two, combining marks none).
+pub fn width(s: &str) -> usize {
+    unicode_width::UnicodeWidthStr::width(s)
+}
+
+fn char_width(c: char) -> usize {
+    unicode_width::UnicodeWidthChar::width(c).unwrap_or(0)
+}
+
+/// The longest prefix of `s` that fits in `max` columns.
+fn head(s: &str, max: usize) -> &str {
+    let mut used = 0;
+    for (i, c) in s.char_indices() {
+        let w = char_width(c);
+        if used + w > max {
+            return &s[..i];
+        }
+        used += w;
+    }
+    s
+}
+
+/// The longest suffix of `s` that fits in `max` columns.
+fn tail(s: &str, max: usize) -> &str {
+    let mut used = 0;
+    for (i, c) in s.char_indices().rev() {
+        let w = char_width(c);
+        if used + w > max {
+            return &s[i + c.len_utf8()..];
+        }
+        used += w;
+    }
+    s
+}
+
+/// Shorten `s` to at most `max` columns, ending in `…` when cut.
 pub fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
+    if width(s) <= max {
         return s.to_owned();
     }
-    let keep = max.saturating_sub(1);
-    let mut out: String = s.chars().take(keep).collect();
-    if max > 0 {
-        out.push('…');
+    if max == 0 {
+        return String::new();
     }
+    let mut out = head(s, max - 1).to_owned();
+    out.push('…');
     out
 }
 
-/// Shorten `s` to at most `max` characters by cutting the middle, so the
-/// start and the extension survive: `ubuntu-24.04…amd64.iso`.
+/// [`truncate`] and pad with spaces to exactly `cols` columns.
+pub fn fit(s: &str, cols: usize) -> String {
+    let mut out = truncate(s, cols);
+    let w = width(&out);
+    out.extend(std::iter::repeat_n(' ', cols.saturating_sub(w)));
+    out
+}
+
+/// Shorten `s` to at most `max` columns by cutting the middle, so the start
+/// and the extension survive: `ubuntu-24.04…amd64.iso`.
 pub fn middle(s: &str, max: usize) -> String {
-    let n = s.chars().count();
-    if n <= max {
+    if width(s) <= max {
         return s.to_owned();
     }
     if max < 8 {
@@ -128,11 +171,11 @@ pub fn middle(s: &str, max: usize) -> String {
     }
     let keep = max - 1;
     // Keep a little more of the head; the tail keeps the extension.
-    let tail = keep / 2;
-    let head = keep - tail;
-    let mut out: String = s.chars().take(head).collect();
+    let t = keep / 2;
+    let h = keep - t;
+    let mut out = head(s, h).to_owned();
     out.push('…');
-    out.extend(s.chars().skip(n - tail));
+    out.push_str(tail(s, t));
     out
 }
 
@@ -212,6 +255,23 @@ mod tests {
             "{m}"
         );
         assert_eq!(middle("abcdefghij", 5), "abcd…");
+    }
+
+    #[test]
+    fn wide_characters_are_measured_in_columns() {
+        // Each of these takes two columns.
+        let cjk = "日本語のファイル名.mkv";
+        assert_eq!(width(cjk), 22);
+        let t = truncate(cjk, 7);
+        assert!(width(&t) <= 7, "{t}");
+        assert_eq!(t, "日本語…");
+        let m = middle(cjk, 12);
+        assert!(width(&m) <= 12 && m.ends_with(".mkv"), "{m}");
+        assert_eq!(width(&fit(cjk, 9)), 9);
+        assert_eq!(fit("ab", 4), "ab  ");
+        // Combining marks and emoji never split a character.
+        assert!(width(&truncate("e\u{301}e\u{301}e\u{301}", 2)) <= 2);
+        assert!(width(&middle("🎬🎬🎬🎬🎬🎬🎬🎬🎬🎬.mp4", 9)) <= 9);
     }
 
     #[test]

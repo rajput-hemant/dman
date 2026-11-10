@@ -2,7 +2,7 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓4 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓4 ◔2 ✓1 ✗1             250.0 GiB free  ● online
  Downloads › ↓ Some Movie
 ╭ Some Movie ───────────────────────────────────────────────────── #20 · aria2 ╮
 │ ↓ Fetching torrent metadata… (asking peers for the file list)                │
@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 │                                                                              │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- DETAIL   Esc  back  p  pause  Tab  next tab  d  remove  :  palette  ?  help
+  Esc  back  p  pause  Tab  next tab  d  remove  n  rename  :  palette  ?  help

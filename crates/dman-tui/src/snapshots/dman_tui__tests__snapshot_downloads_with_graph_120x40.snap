@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 │          └───────────────────────────────────────────────────────────────────────────────────────────────────────────│
 │    89s ago                                                                            ▌✓ Speed graph on (w hides it) │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- LIST   Enter  details  p  pause  d  remove  D  delete files  :  palette  ?  help
+ LIST   Enter  details  p  pause  d  remove  D  delete files  q  quit  a  add  f  search  :  palette  ?  help

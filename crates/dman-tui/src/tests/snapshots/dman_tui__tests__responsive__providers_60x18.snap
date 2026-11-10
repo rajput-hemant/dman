@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1         ● online
+ Downloads › Search › Search providers
+╭ Search providers · 2 enabled of 4 ───────────────────────╮
+│On  Name          Kind    Verified   Origin  Order Timeout│
+│[x] 1337x         html    verified   builtin    10     15s│
+│[x] nyaa          html    unverified builtin    20     15s│
+│[ ] tpb           html    verified   builtin    30     15s│
+│[ ] mine          torznab unverified custom     40     15s│
+│                                                          │
+│──────────────────────────────────────────────────────────│
+│1337x https://1337x.example/search                        │
+│1337x test provider                                       │
+│max 100 results · rate limit 30/min                       │
+│Not tested yet — press t to test 1337x                    │
+│                                                          │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+  Space  toggle  t  test  Esc  back  :  palette  ?  help

@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 
 
 
- ADD   Enter  review & add  Ctrl-j  new line  Tab  options  Esc  back  Ctrl-p  palette  F1  help
+ ADD   Enter  review & add  Ctrl-j  new line  Tab  options  Esc  back  Ctrl-v  paste  Ctrl-p  palette  F1  help

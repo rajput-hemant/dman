@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1         ● online
+  All 7   Active 3   Waiting 2   Done 1   Failed 1
+╭ Downloads ───────────────────────────────────────────────╮
+│── Active 3 ──────────────────────────────────────────────│
+╭ Remove and DELETE files of 1 download? ──────────────────╮
+│ Removes 1 download from the list AND deletes the files   │
+│ from disk:                                               │
+│   • ubuntu-24.04.1-desktop-amd64.iso                     │
+│                                                          │
+│ This permanently deletes the files. It cannot be undone. │
+│                                                          │
+│ y / n                       [ Cancel ]  [ Delete files ] │
+╰──────────────────────────────────────────────────────────╯
+│                                                          │
+│                                                          │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+  y  delete files  n/Esc  cancel  Enter  delete files

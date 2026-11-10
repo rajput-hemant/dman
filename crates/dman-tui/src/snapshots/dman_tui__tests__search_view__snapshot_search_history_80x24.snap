@@ -2,7 +2,7 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
  Downloads › Search
 ╭ ⌕ Search torrents ───────────────────────────────────────────────────────────╮
 │  Query     ubuntu                                                            │
@@ -25,4 +25,4 @@ ubuntu                                               7 results  2024-08-28 12:00
 
 
 
- SEARCH   Enter  search again  ↑↓  choose  :  palette  ?  help
+  Enter  search again  ↑↓  choose  Esc  close  :  palette  ?  help

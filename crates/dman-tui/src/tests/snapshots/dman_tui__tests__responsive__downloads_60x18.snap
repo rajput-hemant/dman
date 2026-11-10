@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1         ● online
+  All 7   Active 3   Waiting 2   Done 1   Failed 1
+╭ Downloads ───────────────────────────────────────────────╮
+│── Active 3 ──────────────────────────────────────────────│
+│  ↓ ubuntu-24.0…-amd64.iso ██████▋     66%   12.0M   2m51s│
+│ ●↓ big-dataset…26.tar.zst █           10%    3.0M   1h42m│
+│▌ ↑ debian-13.2…etinst.iso ██████████ 100%  256.0K   r1.50│
+│── Waiting 2 ─────────────────────────────────────────────│
+│  ◔ ▶ Big Buck B…080p).mp4               –       queued #1│
+│  ⏸ archlinux-2…x86_64.iso ██▌         25%          paused│
+│── Stopped 2 ─────────────────────────────────────────────│
+│  ✓ report-q3.pdf          ██████████ 100%  done · 23h ago│
+│  ✗ missing-file.zip       404 Not Found                  │
+│                                                          │
+│                                                          │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+  p  pause 1  r  resume 1  Esc  unmark  :  palette  ?  help

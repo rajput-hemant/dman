@@ -2,7 +2,7 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
  Downloads › Help
 ╭ Keys ────────────────────────────────────────────────────────────────────────╮
 │ ⌕ pause                                                                      │
@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 │                                                                              │
 │                                                                              │
 ╰ Keys can be changed in config.toml [keys] pause = ["p"] ─────────────────────╯
- HELP   j  down  k  up  PgDn  page down  Esc  back  :  palette  ?  close help
+  j  down  k  up  PgDn  page down  Esc  back  :  palette  ?  close help

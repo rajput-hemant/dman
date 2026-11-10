@@ -235,6 +235,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
             width: w,
             height: 1,
         };
+        crate::widgets::clear_wide_edge(frame, rect);
         frame.render_widget(Clear, rect);
         frame.render_widget(Paragraph::new(line), rect);
         state.hit(rect, Hit::Toast(toast.id));

@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 │                                                                                                                      │
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- DETAIL   Esc  back  r  retry  Tab  next tab  d  remove  :  palette  ?  help
+ DETAIL   Esc  back  r  retry  Tab  next tab  d  remove  D  delete files  n  rename  :  palette  ?  help

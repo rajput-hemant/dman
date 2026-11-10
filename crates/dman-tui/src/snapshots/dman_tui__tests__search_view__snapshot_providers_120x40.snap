@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 │Not tested yet — press t to test mine                                             ▌● Testing 1337x in the background… │
 │                                                                                             ▌✓ 1337x: ok, 25 results │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- PROVIDERS   Space  toggle  t  test  K  queue up  J  queue down  :  palette  ?  help
+ PROVIDERS   Space  toggle  t  test  K  queue up  J  queue down  i  import  e  export  Esc  back  :  palette  ?  help

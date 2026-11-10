@@ -2,14 +2,14 @@
 source: crates/dman-tui/src/tests.rs
 expression: "detail_snapshot('1', 5, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
  Downloads › ⏸ archlinux-2026.11.01-x86_64.iso
 ╭ archlinux-2026.11.01-x86_64.iso ───────────────────────────────── #5 · aria2 ╮
 │ ⏸ Paused — press r to resume                                                 │
 │ ████████████▎                                      25%  300.0 MiB / 1.2 GiB  │
 │ ▼ 0 B/s                ▲ 0 B/s   peers 0/0                                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-  1 Files 4   2 Peers 3   3 Trackers 2   4 Pieces   5 Speed   6 Options
+  1 Files   2 Peers   3 Trackers   4 Pieces   5 Speed   6 Options   7 Info
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │  #    Path                                                 Size Done         │
 │☑ 1    archlinux-2026.11.01-x86_64.iso/part-1.bin      100.0 MiB ████      50%│
@@ -25,4 +25,4 @@ expression: "detail_snapshot('1', 5, 80, 24)"
 │                                                                              │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- DETAIL   Esc  back  r  resume  Space  toggle file  :  palette  ?  help
+  Esc  back  r  resume  Space  toggle file  a  all files  :  palette  ?  help

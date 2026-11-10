@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ ╭ Welcome to dman ───────────────────┃
+ │ dman downloads links, magnets,     ┃
+╭│ torrents and videos in the         ┃╮
+││ background: downloads keep going   ┃│
+││ after you close this screen.       ││
+││                                    ││
+││   a        add a link, magnet or   ││
+││ .torrent file                      ││
+││   f        search for torrents     ││
+││   Enter    details of the selected ││
+╰╰────────────────────────────────────│╯
+  a  add a link  Enter/Esc  close

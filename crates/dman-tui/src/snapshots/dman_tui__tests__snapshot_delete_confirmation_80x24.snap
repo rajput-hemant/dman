@@ -2,20 +2,19 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
   All 7   Active 3   Waiting 2   Done 1   Failed 1     ● 2 marked  sort queue ▼
 ╭ Downloads ───────────────────────────────────────────────────────────────────╮
 │── Active 3 ──────────────────────────────────────────────────────────────────│
 │ ●↓ ubuntu-24.04.1-desktop-amd64.iso   ██████▋     66%   12.0M   2m51s    6.0G│
 │ ●↓ big-dataset-2026.tar.zst           █           10%    3.0M   1h42m   20.0G│
-│▌ ↑ debian-13.2.0-amd64-netinst.iso    ██████████ 100%  256.0K   r1.50  700.0M│
-│── Wait╭ Remove and DELETE files of 2 downloads? ─────────────────────╮───────│
-│  ◔ ▶ B│ Removes 2 downloads from the list AND deletes the files from │      –│
-│  ⏸ arc│ disk:                                                        │   1.2G│
-│── Stop│   • ubuntu-24.04.1-desktop-amd64.iso                         │───────│
-│  ✓ rep│   • big-dataset-2026.tar.zst                                 │   3.0M│
-│  ✗ mis│                                                              │      –│
-│       │ This permanently deletes the files. It cannot be undone.     │       │
+│▌ ↑ deb╭ Remove and DELETE files of 2 downloads? ─────────────────────╮ 700.0M│
+│── Wait│ Removes 2 downloads from the list AND deletes the files from │───────│
+│  ◔ ▶ B│ disk:                                                        │      –│
+│  ⏸ arc│   • ubuntu-24.04.1-desktop-amd64.iso                         │   1.2G│
+│── Stop│   • big-dataset-2026.tar.zst                                 │───────│
+│  ✓ rep│                                                              │   3.0M│
+│  ✗ mis│ This permanently deletes the files. It cannot be undone.     │      –│
 │       │                                                              │       │
 │       │ y / n                           [ Cancel ]  [ Delete files ] │       │
 │       ╰──────────────────────────────────────────────────────────────╯       │
@@ -24,5 +23,6 @@ expression: "render(&mut s, 80, 24)"
 │                                                                              │
 │                                                                              │
 │                                                                              │
+│                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- CONFIRM   y  delete files  n/Esc  cancel  Enter  delete files
+  y  delete files  n/Esc  cancel  Enter  delete files  ←→  switch button

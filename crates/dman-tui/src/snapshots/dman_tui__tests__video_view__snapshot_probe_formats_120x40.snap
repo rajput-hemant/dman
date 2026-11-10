@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 │                                                                                                                      │
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- ADD   Enter  add & start  Space  choose  Tab  next list  Esc  change options  Ctrl-p  palette  F1  help
+ ADD   Enter  add & start  Space  choose  Tab  next list  Esc  change options  ↑↓  scroll  Ctrl-p  palette  F1  help

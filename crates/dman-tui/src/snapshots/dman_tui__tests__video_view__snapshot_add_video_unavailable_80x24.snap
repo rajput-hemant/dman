@@ -2,7 +2,7 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
  Downloads › Add downloads
  Engine yt-dlp unavailable: yt-dlp not found in PATH
 ╭ Sources · 1 item ────────────────────────────────────────────────────────────╮
@@ -25,4 +25,4 @@ expression: "render(&mut s, 80, 24)"
 │  Download limit         no extra limit (e.g. 2MiB; 0 = unlimited)            │
 │  ▸ Advanced options — 16 more, F2 shows them: mirrors, file name, upload lim…│
 ╰──────────────────────────────────────────────────────────────────────────────╯
- ADD   Enter  review & add  Ctrl-j  new line  Ctrl-p  palette  F1  help
+  Enter  review & add  Ctrl-j  new line  Esc  back  Ctrl-p  palette  F1  help

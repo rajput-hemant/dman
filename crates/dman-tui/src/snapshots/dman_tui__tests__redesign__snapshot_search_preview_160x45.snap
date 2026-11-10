@@ -46,4 +46,4 @@ expression: "render(&mut s, 160, 45)"
 │                                                                                              ││                                                              │
 │                                                                                              ││                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────────────────────╯
- SEARCH   Enter  download  e  change options first  Space  mark  i  new search  :  palette  ?  help
+ SEARCH   Enter  download  e  change options first  Space  mark  i  new search  /  filter  s  sort  Esc  cancel  :  palette  ?  help

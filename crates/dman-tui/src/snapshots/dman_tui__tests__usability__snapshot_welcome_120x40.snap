@@ -12,7 +12,6 @@ expression: "render(&mut s, 120, 40)"
 │                                                                      ││ Nothing under the cursor.                    │
 │                                                                      ││                                              │
 │                                                                      ││                                              │
-│                                                                      ││                                              │
 │                       ╭ Welcome to dman ─────────────────────────────────────────────────────╮                       │
 │                       │ ▼ dman  the download manager for your terminal                       │                       │
 │                       │                                                                      │                       │
@@ -25,8 +24,8 @@ expression: "render(&mut s, 120, 40)"
 │                       │   p / r    pause / resume                                            │                       │
 │                       │   d        remove a download (asks first; files are kept)            │                       │
 │                       │                                                                      │                       │
-│      a  add a link or │ Web UI  run dman serve in a terminal and open the address it shows   │                       │
-│                       │ Help    ? lists every key; : finds any command by name               │                       │
+│                       │ Web UI  run dman serve in a terminal and open the address it shows   │                       │
+│      a  add a link or │ Help    ? lists every key; : finds any command by name               │                       │
 │                       │ Mouse   m turns mouse support on (clicks, wheel, buttons)            │                       │
 │                       │                                                                      │                       │
 │                       │  a  Add a download     Enter  Close                                  │                       │
@@ -39,6 +38,7 @@ expression: "render(&mut s, 120, 40)"
 │                                                                      ││                                              │
 │                                                                      ││                                              │
 │                                                                      ││                                              │
+│                                                                      ││                                              │
 │                                                                      ││  a  add                                      │
 ╰──────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────╯
- WELCOME   a  add a link  f  search torrents  m  mouse  Enter/Esc  close
+ WELCOME   a  add a link  f  search torrents  m  mouse  Enter/Esc  close  ↑↓  scroll

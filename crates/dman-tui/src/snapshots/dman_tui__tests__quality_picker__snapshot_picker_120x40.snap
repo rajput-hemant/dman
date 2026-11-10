@@ -17,17 +17,17 @@ expression: "render(&mut s, 120, 40)"
 │                                                                                                                      │
 │                                                                                                                      │
 │       ╭ Choose quality · Big Buck Bunny ─────────────────────────────────────────────────────────────────────╮       │
-│       │ by Blender Foundation · 9:56 · ffmpeg available                                                      │       │
 │       │ Presets  1 Best  2 1080p  3 720p  4 480p  5 Audio only                                               │       │
-╰───────│ Video · 4                                                    Audio · 2                               │───────╯
-  ⏎ Ente│  2160p · VP9 · ~173 MiB  needs ffmpeg                       ▸ Opus · 135 kbps · ~10 MiB              │
-╭ Option│▸ 1080p60 · H.264 · ~83 MiB  needs ffmpeg                      AAC · 129 kbps · ~9 MiB                │───────╮
-│  Downl│  720p60 · H.264 · ~41 MiB  needs ffmpeg                                                              │       │
-│  Start│  360p · H.264 · ~12 MiB                                                                              │       │
-│  Downl│  Audio only (no video)                                                                               │       │
-│  Video│ [ ] Use as my default (u)   [ ] Never ask again (n)                                                  │       │
+│       │ Video · 4                                                    Audio · 2                               │       │
+╰───────│  2160p · VP9 · ~173 MiB  needs ffmpeg                       ▸ Opus · 135 kbps · ~10 MiB              │───────╯
+  ⏎ Ente│▸ 1080p60 · H.264 · ~83 MiB  needs ffmpeg                      AAC · 129 kbps · ~9 MiB                │
+╭ Option│  720p60 · H.264 · ~41 MiB  needs ffmpeg                                                              │───────╮
+│  Downl│  360p · H.264 · ~12 MiB                                                                              │       │
+│  Start│  Audio only (no video)                                                                               │       │
+│  Downl│                                                                                                      │       │
+│  Video│                                                                                                      │       │
 │  ▸ Adv│ Download 1080p60 · H.264 · ~83 MiB + Opus · 135 kbps · ~10 MiB                                       │       │
-╰───────│ Enter download Tab next list ↑↓ move 1-5 preset u my default n never ask Esc cancel                  │───────╯
+╰───────│ Enter download Esc cancel Tab next list ↑↓ move 1-5 preset u my default n never ask                  │───────╯
         ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
 
@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 
 
 
- ADD   Enter  download  Tab  next list  ↑↓  move  1-5  preset  Ctrl-p  palette  F1  help
+ ADD   Enter  download  Esc  cancel  Tab  next list  ↑↓  move  1-5  preset  u  my default  Ctrl-p  palette  F1  help

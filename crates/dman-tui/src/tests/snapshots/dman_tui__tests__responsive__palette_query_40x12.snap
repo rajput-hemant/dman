@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+╭ Commands ────────────────── 7 found ─╮
+│ ⌕ pause                              │
+│ ‹  All 7  › 1/8  Tab switches        │
+│──────────────────────────────────────│
+│▌ Pause                            p  ┃
+│  Pause all                        P  ┃
+│  Show only waiting and paused do… 3  ┃
+│  Toggle the file under the c… Space  ┃
+│  Select / deselect all files      a  │
+│ Enter runs it · Tab switches groups… │
+╰──────────────────────────────────────╯
+  Enter  run  Esc  close  ↑↓  choose

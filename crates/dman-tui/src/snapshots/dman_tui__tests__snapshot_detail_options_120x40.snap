@@ -11,24 +11,24 @@ expression: "detail_snapshot('6', 1, 120, 40)"
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
   1 Files 4   2 Peers 3   3 Trackers 2   4 Pieces   5 Speed   6 Options   7 Info
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│Option                  Value                                           Note                                          │
-│dir                     /home/me/Downloads                                                                            │
-│out                     (default)                                                                                     │
-│max_download_limit      2.0 MiB/s                                                                                     │
-│max_upload_limit        (default)                                                                                     │
-│select_files            1,2,4                                           use Space on the Files tab                    │
-│file_names              (default)                                       set when adding (rename comes later)          │
-│seed_ratio              1.5                                                                                           │
-│seed_time               (default)                                                                                     │
-│sequential              (default)                                                                                     │
-│headers                 (default)                                       set when adding                               │
-│user_agent              (default)                                                                                     │
-│referer                 (default)                                                                                     │
-│proxy                   (default)                                                                                     │
-│checksum                (default)                                                                                     │
-│connections_per_server  (default)                                                                                     │
-│split                   (default)                                                                                     │
-│engine_options          (default)                                       set when adding                               │
+│Option                 Value                                        Note                                              │
+│dir                    /home/me/Downloads                                                                             │
+│out                    (default)                                                                                      │
+│max_download_limit     2.0 MiB/s                                                                                      │
+│max_upload_limit       (default)                                                                                      │
+│select_files           1,2,4                                        use Space on the Files tab                        │
+│file_names             (default)                                    set when adding (rename comes later)              │
+│seed_ratio             1.5                                                                                            │
+│seed_time              (default)                                                                                      │
+│sequential             (default)                                                                                      │
+│headers                (default)                                    set when adding                                   │
+│user_agent             (default)                                                                                      │
+│referer                (default)                                                                                      │
+│proxy                  (default)                                                                                      │
+│checksum               (default)                                                                                      │
+│connections_per_server (default)                                                                                      │
+│split                  (default)                                                                                      │
+│engine_options         (default)                                    set when adding                                   │
 │                                                                                                                      │
 │                                                                                                                      │
 │                                                                                                                      │
@@ -41,4 +41,4 @@ expression: "detail_snapshot('6', 1, 120, 40)"
 │                                                                                                                      │
 │                                                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- DETAIL   Esc  back  p  pause  Enter  edit  Tab  next tab  :  palette  ?  help
+ DETAIL   Esc  back  p  pause  Enter  edit  Tab  next tab  d  remove  D  delete files  n  rename  :  palette  ?  help

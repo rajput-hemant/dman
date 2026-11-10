@@ -41,4 +41,4 @@ expression: "render(&mut s, 120, 40)"
 │                                                                      ││                                              │
 │                                                                      ││                        ▌✓ Minimum seeders: 5 │
 ╰──────────────────────────────────────────────────────────────────────╯╰──────────────────────────────────────────────╯
- SEARCH   Enter  download 1 marked  e  change options first  Space  mark  i  new search  :  palette  ?  help
+ SEARCH   Enter  download 1 marked  e  change options first  Space  mark  /  filter  Esc  cancel  :  palette  ?  help

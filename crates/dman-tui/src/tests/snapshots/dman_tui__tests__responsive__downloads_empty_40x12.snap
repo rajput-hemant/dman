@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman ▸ local  ▼ 0 ▲ 0         ● online
+  All 0                    sort queue ▼
+╭ Downloads ───────────────────────────╮
+│                   ▼                  │
+│           No downloads yet           │
+│                                      │
+│       a  add a link or torrent       │
+│          f  search torrents          │
+│              ?  all keys             │
+│                                      │
+╰──────────────────────────────────────╯
+  a  add a link or torrent  ?  help

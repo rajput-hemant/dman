@@ -114,9 +114,6 @@ pub fn hints(state: &State) -> Vec<Hint> {
     h
 }
 
-/// Most hints shown at once (including the pinned palette / help hints).
-pub const MAX_HINTS: usize = 6;
-
 fn width(h: &Hint) -> usize {
     h.0.chars().count() + h.1.chars().count() + 4
 }
@@ -131,25 +128,59 @@ pub fn key_label_for(state: &State, action: Action) -> Option<String> {
         .map(|k| key_label(*k))
 }
 
-/// The hints that fit in `cols` columns: as many of the body as fit (at most
-/// [`MAX_HINTS`] in all), always followed by the whole tail.
-pub fn fitted(state: &State, cols: usize) -> Vec<Hint> {
-    let tail = tail(state);
-    let tail_w: usize = tail.iter().map(width).sum();
-    let mut used = tail_w;
-    let mut out = Vec::new();
-    let room = MAX_HINTS.saturating_sub(tail.len());
-    for h in body(state).into_iter().take(room) {
-        let w = width(&h);
-        if used + w > cols {
-            break;
-        }
-        used += w;
-        out.push(h);
-    }
-    out.extend(tail);
-    out
+/// Whether a hint is the way out of the current screen (back, cancel,
+/// close, quit): such hints are never dropped for lack of room.
+/// (`q quit` on the downloads list is not one: it leaves the app.)
+fn way_out(h: &Hint) -> bool {
+    h.0.contains("Esc")
+        || ["back", "cancel", "close", "leave"]
+            .iter()
+            .any(|w| h.1.starts_with(w))
 }
+
+/// The hints that fit in `cols` columns, in their original order. Room is
+/// handed out by importance: the way out, help, the main action (the first
+/// hint), the palette, then the other hints in the view's order, as many as
+/// the width allows.
+pub fn fitted(state: &State, cols: usize) -> Vec<Hint> {
+    let body = body(state);
+    let tail = tail(state);
+    let exit = body.iter().position(way_out);
+    // Indices into body ++ tail, by importance.
+    let n = body.len();
+    let find = |label: &str| {
+        tail.iter()
+            .position(|h| h.1.ends_with(label))
+            .map(|i| n + i)
+    };
+    let (help, palette) = (find("help"), find("palette"));
+    let mut order: Vec<usize> = Vec::new();
+    order.extend(exit);
+    order.extend(help);
+    if !body.is_empty() && exit != Some(0) {
+        order.push(0);
+    }
+    order.extend(palette);
+    order.extend((0..n).filter(|i| Some(*i) != exit && *i != 0));
+    let all: Vec<Hint> = body.into_iter().chain(tail).collect();
+    let mut keep = vec![false; all.len()];
+    let mut used = 0;
+    for i in order {
+        let w = width(&all[i]);
+        if used + w <= cols {
+            used += w;
+            keep[i] = true;
+        }
+    }
+    all.into_iter()
+        .zip(keep)
+        .filter_map(|(h, k)| k.then_some(h))
+        .collect()
+}
+
+/// Narrower than this, the footer leaves out the mode pill (the hints
+/// matter more).
+const MODE_MIN_COLS: u16 = 90;
 
 /// The mode shown in the pill at the left of the footer.
 pub fn mode(state: &State) -> &'static str {
@@ -177,7 +208,11 @@ pub fn mode(state: &State) -> &'static str {
 /// calls are in flight.
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
-    let mode = format!(" {} ", mode(state));
+    let mode = if area.width >= MODE_MIN_COLS {
+        format!(" {} ", mode(state))
+    } else {
+        String::new()
+    };
     let mut spans = vec![Span::styled(mode.clone(), t.mode), Span::raw(" ")];
     let mut right: Vec<Span<'static>> = Vec::new();
     if state.pending > 0 {

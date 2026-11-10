@@ -21,6 +21,8 @@ pub mod input;
 pub mod palette;
 pub mod prompt;
 pub mod status;
+pub mod table;
+pub mod text;
 pub mod toast;
 pub mod welcome;
 pub mod whichkey;
@@ -130,7 +132,7 @@ impl Modal {
     /// Handle a key. `state` is the app state without this modal.
     pub fn handle_key(&mut self, key: KeyEvent, state: &mut State) -> ModalOutcome {
         match self {
-            Modal::Palette(p) => p.handle_key(key),
+            Modal::Palette(p) => p.handle_key(key, state),
             Modal::Confirm(c) => c.handle_key(key),
             Modal::Prompt(p) => p.handle_key(key),
             Modal::Filter(f) => f.handle_key(key, state),
@@ -182,6 +184,30 @@ impl Modal {
     }
 }
 
+/// Where modals may draw: everything but the footer row, which keeps showing
+/// the dialog's keys (and so the way out).
+pub fn modal_bounds(area: Rect) -> Rect {
+    Rect {
+        height: area.height.saturating_sub(1),
+        ..area
+    }
+}
+
+/// Where a large popup goes: centred at `width` × `height` when that leaves
+/// a margin around it, else the whole of `area` (small terminals need every
+/// cell; a margin would only hide content).
+pub fn popup_rect(area: Rect, width: u16, height: u16) -> Rect {
+    if area.width < width.saturating_add(4) || area.height < height.saturating_add(2) {
+        Rect {
+            height: height.min(area.height).max(area.height.min(3)),
+            y: area.y + area.height.saturating_sub(height.min(area.height)) / 2,
+            ..area
+        }
+    } else {
+        centered(area, width, height)
+    }
+}
+
 /// A `width` × `height` rectangle centred in `area` (clamped to it).
 pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
     let w = width.min(area.width);
@@ -191,6 +217,22 @@ pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
         y: area.y + (area.height - h) / 2,
         width: w,
         height: h,
+    }
+}
+
+/// Before drawing a popup over `rect`: a wide character (CJK, emoji) just
+/// left of it would spill its second half into the popup's first column, so
+/// it is replaced by a space.
+pub fn clear_wide_edge(frame: &mut Frame<'_>, rect: Rect) {
+    let Some(x) = rect.x.checked_sub(1) else {
+        return;
+    };
+    let area = frame.area();
+    let buf = frame.buffer_mut();
+    for y in rect.top()..rect.bottom().min(area.bottom()) {
+        if x >= area.left() && crate::format::width(buf[(x, y)].symbol()) > 1 {
+            buf[(x, y)].set_symbol(" ");
+        }
     }
 }
 
@@ -241,6 +283,7 @@ pub fn modal_frame(
 ) -> Rect {
     dim_backdrop(frame, rect, theme);
     shadow(frame, rect, theme);
+    clear_wide_edge(frame, rect);
     frame.render_widget(Clear, rect);
     let block = theme
         .popup()

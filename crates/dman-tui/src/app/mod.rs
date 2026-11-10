@@ -39,6 +39,13 @@ use crate::widgets::prompt::PromptKind;
 use crate::widgets::toast::{ToastAction, Toasts, UNDO_TTL};
 use crate::widgets::{FilterState, Modal, ModalOutcome};
 
+mod actions;
+mod events;
+
+pub use actions::{apply_action, on_modal_outcome, toggle_mouse};
+use actions::{on_key, on_paste};
+use events::{apply_event, on_conn, on_result};
+
 /// Input to [`update`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
@@ -330,6 +337,8 @@ pub struct State {
     /// Recent download (or, while seeding, upload) speeds per job, oldest
     /// first, sampled with every global stats event (per-row sparklines).
     pub job_speeds: HashMap<JobId, Vec<u64>>,
+    /// Commands recently run from the palette, newest first (memory only).
+    pub recent_actions: Vec<Action>,
     /// The "which key" popup after a prefix key (e.g. sort).
     pub whichkey: Option<crate::widgets::whichkey::WhichKey>,
     /// Click targets of the last frame (filled while rendering).
@@ -374,6 +383,7 @@ impl State {
             ui: opts.ui,
             anim: Anim::default(),
             job_speeds: HashMap::new(),
+            recent_actions: Vec::new(),
             whichkey: None,
             hits: RefCell::new(Vec::new()),
             dirty: true,
@@ -540,7 +550,18 @@ impl State {
 /// Apply `msg` to `state`; returns the side effects to perform.
 pub fn update(state: &mut State, msg: Msg) -> Vec<Cmd> {
     let mark = state.status.toasts.mark();
+    // What the palette can run depends on the connection and the jobs.
+    let refresh_palette = matches!(
+        msg,
+        Msg::Conn(_) | Msg::Event(Event::Snapshot { .. } | Event::JobsRemoved { .. })
+    );
     let cmds = update_inner(state, msg);
+    if refresh_palette && matches!(state.modal, Some(Modal::Palette(_))) {
+        let disabled = crate::widgets::palette::unavailable(state);
+        if let Some(Modal::Palette(p)) = &mut state.modal {
+            p.disabled = disabled;
+        }
+    }
     // One message produces at most one toast (the most important one).
     state.status.toasts.collapse_since(mark);
     views::add::sync_engine(state);
@@ -610,509 +631,11 @@ fn on_tick(state: &mut State) -> Vec<Cmd> {
     cmds
 }
 
-fn on_key(state: &mut State, key: KeyEvent) -> Vec<Cmd> {
-    if key.kind == KeyEventKind::Release {
-        state.dirty = false;
-        return Vec::new();
-    }
-    if let Some(mut modal) = state.modal.take() {
-        let outcome = modal.handle_key(key, state);
-        state.modal = Some(modal);
-        return on_modal_outcome(state, outcome);
-    }
-    if let Some(cmds) = crate::widgets::whichkey::handle_key(state, key) {
-        return cmds;
-    }
-    if let Some(cmds) = views::handle_raw_key(state, key) {
-        return cmds;
-    }
-    match state.keymap.resolve_event(state.context(), key) {
-        Some(action) => apply_action(state, action),
-        None => {
-            state.dirty = false;
-            Vec::new()
-        }
-    }
-}
-
-fn on_paste(state: &mut State, text: &str) -> Vec<Cmd> {
-    if let Some(mut modal) = state.modal.take() {
-        modal.paste(text, state);
-        state.modal = Some(modal);
-        return Vec::new();
-    }
-    views::on_paste(state, text)
-}
-
-/// Act on what a modal decided.
-pub fn on_modal_outcome(state: &mut State, outcome: ModalOutcome) -> Vec<Cmd> {
-    match outcome {
-        ModalOutcome::Stay => Vec::new(),
-        ModalOutcome::Close => {
-            state.modal = None;
-            Vec::new()
-        }
-        ModalOutcome::Run(action) => {
-            state.modal = None;
-            apply_action(state, action)
-        }
-        ModalOutcome::Api(call) => {
-            state.modal = None;
-            state.call(call)
-        }
-        ModalOutcome::LeaveView => {
-            state.modal = None;
-            if state.views.len() > 1 {
-                state.views.pop();
-            }
-            Vec::new()
-        }
-        ModalOutcome::Replace(m) => {
-            state.modal = Some(m);
-            Vec::new()
-        }
-        ModalOutcome::Submit(kind, value) => {
-            state.modal = None;
-            on_submit(state, kind, &value)
-        }
-    }
-}
-
-fn on_submit(state: &mut State, kind: PromptKind, value: &str) -> Vec<Cmd> {
-    match kind {
-        PromptKind::JobOption(field) => views::detail::submit_option(state, field, value),
-        PromptKind::Rename { id, file_index } => {
-            views::rename::submit(state, id, file_index, value)
-        }
-        PromptKind::SearchSeeders
-        | PromptKind::SearchSize
-        | PromptKind::SearchSource
-        | PromptKind::SearchTitle => views::search::submit(state, kind, value),
-        PromptKind::ProvidersImport | PromptKind::ProvidersExport => {
-            views::providers::submit(state, kind, value)
-        }
-        PromptKind::VideoQuality => views::add::quality::submit_default(state, false, value),
-        PromptKind::VideoAudio => views::add::quality::submit_default(state, true, value),
-        PromptKind::MaxConcurrent => match value.parse::<u32>() {
-            Ok(n) if (1..=1000).contains(&n) => {
-                state.call(ApiCall::SetLimits(dman_proto::method::LimitsUpdate {
-                    max_concurrent: Some(n),
-                    ..Default::default()
-                }))
-            }
-            _ => {
-                state.status.error(format!(
-                    "Max concurrent must be a number from 1 to 1000, got '{value}'"
-                ));
-                Vec::new()
-            }
-        },
-    }
-}
-
-/// Apply an action in the context of the top view.
-pub fn apply_action(state: &mut State, action: Action) -> Vec<Cmd> {
-    if action.needs_connection()
-        && let Some(reason) = state.offline_reason()
-    {
-        state
-            .status
-            .error(format!("{} is disabled: {reason}", action.title()));
-        return Vec::new();
-    }
-    // Add-view actions run from the palette elsewhere open the view first.
-    let mut cmds = Vec::new();
-    if action.home_context() == Context::Add && !matches!(state.view(), View::Add(_)) {
-        cmds = views::add::push(state, views::add::AddState::default());
-    }
-    cmds.extend(apply_action_inner(state, action));
-    cmds
-}
-
-fn apply_action_inner(state: &mut State, action: Action) -> Vec<Cmd> {
-    match action {
-        Action::Quit => vec![Cmd::Quit],
-        Action::Palette => {
-            state.modal = Some(Modal::Palette(PaletteState::default()));
-            Vec::new()
-        }
-        Action::Help => {
-            if matches!(state.view(), View::Help(_)) {
-                state.views.pop();
-            } else {
-                state
-                    .views
-                    .push(View::Help(views::help::HelpState::default()));
-            }
-            Vec::new()
-        }
-        Action::Back => {
-            if let View::Add(a) = state.view()
-                && a.overlay.is_none()
-                && a.is_dirty()
-            {
-                state.modal = Some(Modal::Confirm(views::add::discard_confirm()));
-                return Vec::new();
-            }
-            if state.views.len() > 1 {
-                state.views.pop();
-            }
-            Vec::new()
-        }
-        Action::Add => views::add::push(state, views::add::AddState::default()),
-        Action::Shutdown => {
-            state.modal = Some(Modal::Confirm(views::downloads::shutdown_confirm()));
-            Vec::new()
-        }
-        Action::VideoQualityToggle => views::add::quality::toggle_ask(state),
-        Action::VideoDefaultQuality => views::add::quality::edit_default(state, false),
-        Action::VideoDefaultAudio => views::add::quality::edit_default(state, true),
-        Action::Search => views::search::open(state),
-        Action::ToggleMouse => toggle_mouse(state),
-        Action::Undo => undo(state),
-        Action::SearchProviders => views::providers::open(state),
-        Action::Filter if !matches!(state.view(), View::Search) => {
-            state.views.truncate(1);
-            state.modal = Some(Modal::Filter(FilterState::new(&state.list.filter)));
-            Vec::new()
-        }
-        _ => {
-            let handled = views::apply_action(state, action);
-            handled.unwrap_or_else(|| {
-                state
-                    .status
-                    .info(format!("{} is not available in this view", action.title()));
-                Vec::new()
-            })
-        }
-    }
-}
-
-/// `m`: switch mouse support on or off now (and remember it in the config).
-pub fn toggle_mouse(state: &mut State) -> Vec<Cmd> {
-    state.mouse = !state.mouse;
-    let mut cmds = vec![Cmd::SetMouseCapture(state.mouse)];
-    if state.ui.persist_mouse {
-        cmds.push(Cmd::SaveMouse(state.mouse));
-    }
-    let key = crate::widgets::footer::key_label_for(state, Action::ToggleMouse).unwrap_or_default();
-    state.status.info(if state.mouse {
-        format!("Mouse on — click, wheel, tabs and buttons work; Shift-drag selects text ({key} turns it off)")
-    } else {
-        format!("Mouse off — the terminal selects text again ({key} turns it on)")
-    });
-    cmds
-}
-
-/// `u`: undo the last remove-from-list while its toast is up; otherwise
-/// unmark (the key's old meaning).
-fn undo(state: &mut State) -> Vec<Cmd> {
-    if let Some(ids) = state.status.toasts.take_undo() {
-        return state.call(ApiCall::Restore(ids));
-    }
-    if matches!(state.view(), View::Downloads) {
-        return apply_action_inner(state, Action::SelectNone);
-    }
-    state.status.info("Nothing to undo");
-    Vec::new()
-}
-
 /// The clock of unit tests: a day after the fixtures' `added_at`.
 pub const TEST_NOW: i64 = 1_700_086_400;
 
 /// Lines of context kept above and below the list cursor.
 pub const SCROLLOFF: usize = 3;
 
-fn apply_event(state: &mut State, event: Event) -> Vec<Cmd> {
-    match event {
-        Event::Snapshot {
-            jobs,
-            stats,
-            limits,
-        } => {
-            state.jobs = jobs.into_iter().map(|j| (j.id, j)).collect();
-            state.stats = stats;
-            state.limits = limits;
-            state.refresh_list();
-            views::detail::close_if_gone(state);
-            return crate::widgets::welcome::on_snapshot(state);
-        }
-        Event::JobsUpdated { jobs } => {
-            for j in jobs {
-                if state.ui.animations
-                    && let Some(old) = state.jobs.get(&j.id)
-                {
-                    state.anim.on_change(old, &j);
-                }
-                state.jobs.insert(j.id, j);
-            }
-            state.refresh_list();
-        }
-        Event::JobsRemoved { ids } => {
-            for id in ids {
-                state.jobs.remove(&id);
-            }
-            state.refresh_list();
-            views::detail::close_if_gone(state);
-        }
-        Event::Stats { stats } => {
-            state
-                .graph
-                .push_live(stats.download_speed, stats.upload_speed);
-            sample_job_speeds(state);
-            state.stats = stats;
-        }
-        Event::Limits { limits } => state.limits = limits,
-        Event::Message { level, text } => state.status.set(level, text),
-        Event::Engine { status } => {
-            state.engines.retain(|e| e.engine != status.engine);
-            state.engines.push(status);
-        }
-        Event::CleanupPending {
-            id,
-            name,
-            count,
-            bytes,
-        } => {
-            // List the files first; the answer opens the confirmation unless
-            // another dialog is open by then.
-            if state.connected() && state.modal.is_none() {
-                return state.call_quiet(ApiCall::Cleanup { id, dry_run: true });
-            }
-            state.status.info(format!(
-                "{name}: {count} unselected partial files ({}) can be deleted (palette: cleanup)",
-                crate::format::size(bytes)
-            ));
-        }
-        Event::SearchUpdate {
-            search_id,
-            provider,
-            status,
-            results,
-        } => views::search::on_update(state, search_id, &provider, status, results),
-        Event::SearchFinished { search_id } => views::search::on_finished(state, search_id),
-        Event::JobFinished {
-            name,
-            path,
-            outcome,
-            ..
-        } => {
-            let (title, body, level) = match &outcome {
-                JobOutcome::Completed => ("Download complete", name.clone(), Level::Info),
-                JobOutcome::SeedCompleted => ("Seeding finished", name.clone(), Level::Info),
-                JobOutcome::Failed { error } => {
-                    ("Download failed", format!("{name}: {error}"), Level::Error)
-                }
-            };
-            state.status.set(level, format!("{title}: {body}"));
-            if state.desktop && state.connected() {
-                let body = if level == Level::Info && path != name {
-                    format!("{name}\n{path}")
-                } else {
-                    body
-                };
-                return vec![Cmd::Notify {
-                    title: title.to_owned(),
-                    body,
-                }];
-            }
-        }
-    }
-    Vec::new()
-}
-
 /// Samples kept per job for the row sparklines.
 pub const JOB_SPEED_SAMPLES: usize = 60;
-
-fn sample_job_speeds(state: &mut State) {
-    state.job_speeds.retain(|id, _| state.jobs.contains_key(id));
-    for j in state.jobs.values() {
-        let v = match j.state {
-            JobState::Active => j.download_speed,
-            JobState::Seeding => j.upload_speed,
-            _ => {
-                if let Some(h) = state.job_speeds.get_mut(&j.id)
-                    && h.last().is_some_and(|x| *x != 0)
-                {
-                    h.push(0);
-                }
-                continue;
-            }
-        };
-        let h = state.job_speeds.entry(j.id).or_default();
-        h.push(v);
-        let extra = h.len().saturating_sub(JOB_SPEED_SAMPLES);
-        h.drain(..extra);
-    }
-}
-
-fn on_conn(state: &mut State, conn: ConnState) -> Vec<Cmd> {
-    let mut cmds = Vec::new();
-    match &conn {
-        ConnState::Connected { daemon_version } => {
-            if matches!(state.conn, ConnState::Disconnected { .. }) {
-                state
-                    .status
-                    .info(format!("Reconnected to the daemon ({daemon_version})"));
-            }
-            // The header graph starts with the daemon's recent history
-            // (not counted as pending; the answer fills the graph).
-            state.graph.inflight = false;
-            if state.graph.history.is_empty() {
-                cmds.push(Cmd::Api(ApiCall::StatsHistory));
-            }
-            // The daemon only pushes engine changes; ask for the current
-            // status after every (re)connect (not counted as pending).
-            cmds.push(Cmd::Api(ApiCall::EngineStatus));
-            cmds.push(Cmd::Api(ApiCall::VideoPrefsGet(PrefsIntent::Cache)));
-        }
-        ConnState::Disconnected { retry_in, .. } => {
-            state.retry_left = *retry_in;
-            state.pending = 0;
-            views::detail::on_disconnect(state);
-            graph::on_disconnect(state);
-            views::add::on_disconnect(state);
-            views::search::on_disconnect(state);
-        }
-        ConnState::Failed { error } => {
-            state.status.error(format!("Cannot connect: {error}"));
-            state.pending = 0;
-        }
-        ConnState::Connecting => {}
-    }
-    state.conn = conn;
-    cmds
-}
-
-fn on_result(state: &mut State, call: &ApiCall, result: &Result<ApiReply, String>) -> Vec<Cmd> {
-    if let ApiCall::Detail(id) = call {
-        views::detail::on_detail_result(state, *id, result);
-        return Vec::new();
-    }
-    if matches!(call, ApiCall::StatsHistory) {
-        graph::on_result(state, result);
-        return Vec::new();
-    }
-    if matches!(call, ApiCall::VideoPrefsGet(PrefsIntent::Cache)) {
-        views::add::quality::on_prefs(state, PrefsIntent::Cache, result);
-        return Vec::new();
-    }
-    if matches!(call, ApiCall::EngineStatus) {
-        // Background refresh: never counted, silent on failure.
-        if let Ok(ApiReply::Engines(list)) = result {
-            for status in list {
-                state.engines.retain(|e| e.engine != status.engine);
-                state.engines.push(status.clone());
-            }
-        }
-        return Vec::new();
-    }
-    state.pending = state.pending.saturating_sub(1);
-    if let ApiCall::PreviewMagnet { uri } = call {
-        views::add::on_magnet_preview(state, uri, result);
-        return Vec::new();
-    }
-    if let ApiCall::VideoProbe(params) = call {
-        return views::add::on_video_probe(state, params, result);
-    }
-    if let ApiCall::VideoPrefsGet(intent) = call {
-        return views::add::quality::on_prefs(state, *intent, result);
-    }
-    if let (ApiCall::VideoPrefsSet(_), Ok(ApiReply::VideoPreferences(p))) = (call, result) {
-        state.video_prefs = Some((**p).clone());
-    }
-    if matches!(call, ApiCall::FsList(_)) {
-        views::add::on_fs_listing(state, result);
-        return Vec::new();
-    }
-    if let Some(cmds) = views::search::on_result(state, call, result)
-        .or_else(|| views::providers::on_result(state, call, result))
-    {
-        return cmds;
-    }
-    if let ApiCall::Cleanup { id, dry_run: true } = call {
-        return match result {
-            Ok(ApiReply::Cleanup(r)) if r.files.is_empty() => {
-                state.status.info("No unselected partial files to delete");
-                Vec::new()
-            }
-            Ok(ApiReply::Cleanup(_)) if state.modal.is_some() => {
-                state
-                    .status
-                    .info("Unselected partial files can be deleted (palette: cleanup)");
-                Vec::new()
-            }
-            Ok(ApiReply::Cleanup(r)) => {
-                let name = state
-                    .jobs
-                    .get(id)
-                    .map(|j| j.name.clone())
-                    .unwrap_or_default();
-                let files: Vec<(String, u64)> =
-                    r.files.iter().map(|f| (f.path.clone(), f.bytes)).collect();
-                state.modal = Some(Modal::Confirm(views::downloads::cleanup_confirm(
-                    *id, &name, &files,
-                )));
-                Vec::new()
-            }
-            Err(e) => {
-                state.status.error(format!("Cleanup failed: {e}"));
-                Vec::new()
-            }
-            Ok(_) => Vec::new(),
-        };
-    }
-    if let Ok(ApiReply::Limits(l)) = result {
-        state.limits = l.clone();
-    }
-    let (outcome, text) = summarize(call, result);
-    let own_message = matches!(
-        (call, result),
-        (ApiCall::Remove { .. } | ApiCall::Restore(_), Ok(ApiReply::Batch(b))) if b.failed.is_empty()
-    );
-    match outcome {
-        Outcome::Ok if own_message => {}
-        Outcome::Ok => state.status.info(text),
-        Outcome::Partial => state.status.warn(text),
-        Outcome::Failed => state.status.error(text),
-    }
-    if let (ApiCall::Remove { ids, delete_files }, Ok(ApiReply::Batch(b))) = (call, result)
-        && b.failed.is_empty()
-    {
-        let text = views::downloads::removed_message(state, ids, *delete_files);
-        if *delete_files {
-            // Files are gone: never offer an undo for these.
-            state.status.info(text);
-        } else {
-            // Files were kept: the daemon can restore the jobs for a while.
-            state.status.toasts.drop_undo();
-            state.status.toasts.push_full(
-                Level::Info,
-                text.clone(),
-                Some(ToastAction::Undo(ids.clone())),
-                UNDO_TTL,
-            );
-            state.status.progress(text);
-        }
-    }
-    if let (ApiCall::Restore(ids), Ok(ApiReply::Batch(b))) = (call, result)
-        && b.failed.is_empty()
-    {
-        let text = views::downloads::restored_message(state, ids);
-        state.status.info(text);
-        if let Some(id) = ids.first() {
-            state.list.focus_when_listed(*id);
-        }
-    }
-    if let ApiCall::Add(params) = call {
-        views::add::on_add_result(state, params, result);
-    }
-    if *call == ApiCall::Shutdown && result.is_ok() {
-        return vec![Cmd::Quit];
-    }
-    if let ApiCall::SetOptions { id, .. } | ApiCall::Rename { id, .. } = call {
-        // Success or refusal, re-read so the view shows what is really stored.
-        return views::detail::refetch(state, *id);
-    }
-    Vec::new()
-}

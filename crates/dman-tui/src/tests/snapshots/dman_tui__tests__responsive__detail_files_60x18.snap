@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1         ● online
+ Downloads › ↓ ubuntu-24.04.1-desktop-amd64.iso
+ ↓ Downloading · 42 peers · 12.0 MiB/s · ETA 2m51s
+ ██████████████████████             66%  4.0 GiB / 6.0 GiB
+  1 Files   2 Peers   3 Trackers   4 Pieces   5 Speed  ›
+╭──────────────────────────────────────────────────────────╮
+│  #    Path                                     Size Done │
+│☑ 1    ubuntu-24.04.1-de…4.iso/part-1.bin  100.0 MiB   50%│
+│☑ 2    ubuntu-24.04.1-de…4.iso/part-2.bin  200.0 MiB   50%│
+│☐ 3    ubuntu-24.04.1-de…4.iso/part-3.bin  300.0 MiB skip…│
+│☑ 4    ubuntu-24.04.1-de…4.iso/part-4.bin  400.0 MiB   50%│
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+╰──────────────────────────────────────────────────────────╯
+  Esc  back  p  pause  Tab  next tab  :  palette  ?  help

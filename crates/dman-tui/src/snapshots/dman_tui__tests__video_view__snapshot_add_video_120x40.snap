@@ -41,4 +41,4 @@ expression: "snap_form(120, 40, Field::VQuality)"
 
 
 
- ADD   Enter  review & add  Tab  next  Esc  back  Ctrl-v  paste  Ctrl-p  palette  F1  help
+ ADD   Enter  review & add  Tab  next  Esc  back  Ctrl-v  paste  Ctrl-o  files  Ctrl-p  palette  F1  help

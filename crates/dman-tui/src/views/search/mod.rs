@@ -421,11 +421,12 @@ pub fn first_run_prompt() -> ConfirmState {
     ConfirmState::run(
         "Choose search providers first?",
         vec![
-            "No search site is switched on yet (they are all off until".into(),
-            "you choose), so a search would find nothing.".into(),
+            "No search site is switched on yet (they are all off until you choose), \
+             so a search would find nothing."
+                .into(),
             String::new(),
-            "Yes opens the provider list: Space switches one on, Esc".into(),
-            "comes back here to search.".into(),
+            "Yes opens the provider list: Space switches one on, Esc comes back here to search."
+                .into(),
         ],
         Action::SearchProviders,
     )

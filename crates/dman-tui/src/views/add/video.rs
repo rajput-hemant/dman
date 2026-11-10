@@ -433,7 +433,7 @@ impl ProbeUi {
 }
 
 fn row(text: String, on: bool, theme: &Theme, ind: &str) -> Line<'static> {
-    let text = format!("{}{text}", &ind[..2]);
+    let text = format!("{}{text}", ind.get(..2).unwrap_or(ind));
     if on {
         Line::styled(text, theme.accent)
     } else {

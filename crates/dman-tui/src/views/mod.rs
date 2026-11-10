@@ -178,10 +178,11 @@ fn on_modal_mouse(
         (Modal::Confirm(c), Some((_, Hit::Button(i))), _) if left => c.press(*i == 1),
         (Modal::Palette(p), Some((_, Hit::PaletteItem(i))), _) if left => {
             p.selected = *i;
-            match p.items.get(*i) {
-                Some(a) => ModalOutcome::Run(*a),
-                None => ModalOutcome::Stay,
-            }
+            p.run(state)
+        }
+        (Modal::Palette(p), Some((_, Hit::PaletteTab(i))), _) if left => {
+            p.set_tab(*i);
+            ModalOutcome::Stay
         }
         (Modal::Palette(p), _, MouseEventKind::ScrollDown) => {
             p.step(3);
@@ -259,18 +260,17 @@ pub fn render(state: &State, frame: &mut Frame<'_>) {
         graph::render_panel(frame, l.graph, state);
     }
     footer::render(frame, l.footer, state);
-    whichkey::render(frame, l.body, state);
+    let card = whichkey::render(frame, l.body, state);
+    // Toasts stack at the bottom right of the body, above the which-key card
+    // while it shows.
+    let bottom = card.map_or(l.graph.bottom().max(l.body.bottom()), |c| c.y);
     let toast_area = ratatui::layout::Rect {
-        height: (l.body.height + l.graph.height).saturating_sub(if state.whichkey.is_some() {
-            5
-        } else {
-            1
-        }),
+        height: bottom.saturating_sub(l.body.y).saturating_sub(1),
         width: l.body.width.saturating_sub(1),
         ..l.body
     };
     toast::render(frame, toast_area, state);
     if let Some(m) = &state.modal {
-        m.render(frame, frame.area(), state);
+        m.render(frame, crate::widgets::modal_bounds(frame.area()), state);
     }
 }

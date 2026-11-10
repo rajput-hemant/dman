@@ -88,9 +88,9 @@ pub fn handle_key(state: &mut State, key: KeyEvent) -> Option<Vec<Cmd>> {
     }
 }
 
-/// Draw the card centred at the bottom of `area`.
-pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
-    let Some(w) = &state.whichkey else { return };
+/// Draw the card centred at the bottom of `area`; returns where.
+pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) -> Option<Rect> {
+    let w = state.whichkey.as_ref()?;
     let t = &state.theme;
     let mut items: Vec<Vec<Span<'static>>> = Vec::new();
     match w.prefix {
@@ -133,7 +133,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let width = lines.iter().map(Line::width).max().unwrap_or(0) + 3;
     let height = lines.len() + 2;
     if usize::from(area.height) < height + 1 {
-        return;
+        return None;
     }
     let block = t.popup().title(Span::styled(
         " sort by — or keep going ",
@@ -147,6 +147,8 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
         width: w,
         height: h,
     };
+    crate::widgets::clear_wide_edge(frame, rect);
     frame.render_widget(Clear, rect);
     frame.render_widget(Paragraph::new(lines).block(block), rect);
+    Some(rect)
 }

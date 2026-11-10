@@ -6,6 +6,73 @@
 
 use crate::keymap::Context;
 
+/// A tab of the command palette. Every action belongs to exactly one group
+/// ([`Action::group`] is an exhaustive match).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Group {
+    /// Act on downloads: pause, resume, remove, rename, files.
+    Downloads,
+    /// Queue order and speed limits.
+    Queue,
+    /// Adding downloads and video quality preferences.
+    Add,
+    /// Torrent search and its providers.
+    Search,
+    /// What the list and the detail view show: sorting, filters, tabs.
+    View,
+    /// Moving the cursor and marking rows.
+    Navigate,
+    /// The app itself: help, settings, quitting.
+    App,
+}
+
+impl Group {
+    /// Every group, in tab order.
+    pub const ALL: &'static [Group] = &[
+        Group::Downloads,
+        Group::Queue,
+        Group::Add,
+        Group::Search,
+        Group::View,
+        Group::Navigate,
+        Group::App,
+    ];
+
+    /// Tab label.
+    pub const fn label(self) -> &'static str {
+        match self {
+            Group::Downloads => "Downloads",
+            Group::Queue => "Queue & Speed",
+            Group::Add => "Add & Video",
+            Group::Search => "Search",
+            Group::View => "View",
+            Group::Navigate => "Navigate",
+            Group::App => "App",
+        }
+    }
+
+    /// A shorter tab label for narrow terminals.
+    pub const fn short(self) -> &'static str {
+        match self {
+            Group::Downloads => "Downloads",
+            Group::Queue => "Queue",
+            Group::Add => "Add",
+            Group::Search => "Search",
+            Group::View => "View",
+            Group::Navigate => "Move",
+            Group::App => "App",
+        }
+    }
+
+    /// The actions of this group, in palette order.
+    pub fn actions(self) -> impl Iterator<Item = Action> {
+        Action::ALL
+            .iter()
+            .copied()
+            .filter(move |a| a.group() == self)
+    }
+}
+
 /// A user operation. Adding a variant requires adding it to [`Action::ALL`], a
 /// default binding in [`crate::keymap::Keymap::defaults`] and metadata below;
 /// unit tests enforce all three.
@@ -503,6 +570,171 @@ impl Action {
         }
     }
 
+    /// The palette group of this action.
+    pub const fn group(self) -> Group {
+        match self {
+            Action::Pause
+            | Action::Resume
+            | Action::PauseAll
+            | Action::ResumeAll
+            | Action::Remove
+            | Action::RemoveDelete
+            | Action::Purge
+            | Action::Rename
+            | Action::CleanupUnselected
+            | Action::OpenDetail
+            | Action::Undo
+            | Action::DetailToggleFile
+            | Action::DetailToggleAllFiles
+            | Action::DetailEditOption => Group::Downloads,
+            Action::MoveUp
+            | Action::MoveDown
+            | Action::MoveTop
+            | Action::MoveBottom
+            | Action::LimitUp
+            | Action::LimitDown
+            | Action::SetMaxConcurrent => Group::Queue,
+            Action::Add
+            | Action::AddSubmit
+            | Action::AddNextField
+            | Action::AddPrevField
+            | Action::AddBrowseFiles
+            | Action::AddPasteClipboard
+            | Action::AddToggleMirror
+            | Action::AddPickDir
+            | Action::AddToggleVideo
+            | Action::AddToggleAdvanced
+            | Action::VideoQualityToggle
+            | Action::VideoDefaultQuality
+            | Action::VideoDefaultAudio => Group::Add,
+            Action::Search
+            | Action::SearchRun
+            | Action::SearchEdit
+            | Action::SearchNextField
+            | Action::SearchPrevField
+            | Action::SearchCancel
+            | Action::SearchAdd
+            | Action::SearchAddDirect
+            | Action::SearchHistory
+            | Action::SearchHistoryClear
+            | Action::SearchProviders
+            | Action::SearchFilterSeeders
+            | Action::SearchFilterSize
+            | Action::SearchFilterSource
+            | Action::ProviderToggle
+            | Action::ProviderTest
+            | Action::ProviderImport
+            | Action::ProviderExport
+            | Action::ProviderRemove => Group::Search,
+            Action::SortNext
+            | Action::SortReverse
+            | Action::Filter
+            | Action::ClearFilter
+            | Action::StoppedNextPage
+            | Action::StoppedPrevPage
+            | Action::ToggleGraph
+            | Action::ToggleRemoved
+            | Action::ShowAll
+            | Action::ShowActive
+            | Action::ShowWaiting
+            | Action::ShowDone
+            | Action::ShowFailed
+            | Action::DetailNextTab
+            | Action::DetailPrevTab
+            | Action::DetailFiles
+            | Action::DetailPeers
+            | Action::DetailTrackers
+            | Action::DetailPieces
+            | Action::DetailSpeed
+            | Action::DetailOptions
+            | Action::DetailInfo => Group::View,
+            Action::Up
+            | Action::Down
+            | Action::PageUp
+            | Action::PageDown
+            | Action::Top
+            | Action::Bottom
+            | Action::ToggleSelect
+            | Action::SelectAll
+            | Action::SelectNone
+            | Action::SelectRange
+            | Action::Back => Group::Navigate,
+            Action::Palette
+            | Action::Help
+            | Action::Quit
+            | Action::ReloadConfig
+            | Action::ToggleMouse
+            | Action::Shutdown => Group::App,
+        }
+    }
+
+    /// The palette's wording: a short name and, where the full title says
+    /// more, a description line. Derived from [`Action::title`]: the view
+    /// prefix ("Detail: ") goes (the group tab says where it belongs) and a
+    /// trailing parenthesis becomes the description.
+    pub fn palette_text(self) -> (String, Option<String>) {
+        let own = |name: &str, desc: &str| (name.to_owned(), Some(desc.to_owned()));
+        match self {
+            Action::Purge => {
+                return own(
+                    "Clear finished downloads",
+                    "Drops finished and failed downloads from the list; files are kept",
+                );
+            }
+            Action::RemoveDelete => {
+                return own(
+                    "Remove and DELETE files",
+                    "Deletes the files from disk; asks first",
+                );
+            }
+            Action::CleanupUnselected => {
+                return own(
+                    "Delete unselected partial files",
+                    "Of a finished torrent whose files you deselected; asks first",
+                );
+            }
+            Action::SearchAdd => {
+                return own(
+                    "Open results in the Add view",
+                    "Change options before adding",
+                );
+            }
+            Action::SearchAddDirect => {
+                return own("Download results now", "With your default options");
+            }
+            Action::VideoQualityToggle => {
+                return own(
+                    "Video quality picker on/off",
+                    "Ask every time, or use the defaults",
+                );
+            }
+            Action::AddToggleVideo => {
+                return own(
+                    "Try as video / as plain http",
+                    "Downloads the URL with yt-dlp, or back",
+                );
+            }
+            Action::SetMaxConcurrent => {
+                return own(
+                    "Max downloads at once",
+                    "How many downloads run at the same time",
+                );
+            }
+            _ => {}
+        }
+        let mut t = self.title();
+        for p in ["Detail: ", "Add view: ", "Search: ", "Providers: "] {
+            if let Some(rest) = t.strip_prefix(p) {
+                t = rest;
+            }
+        }
+        let (name, desc) = match t.split_once(" (") {
+            Some((name, rest)) if rest.ends_with(')') => (name, Some(&rest[..rest.len() - 1])),
+            _ => (t, None),
+        };
+        (capitalize(name), desc.map(capitalize))
+    }
+
     /// One-word label for the footer.
     pub const fn short(self) -> &'static str {
         match self {
@@ -700,9 +932,57 @@ impl Action {
     }
 }
 
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_action_belongs_to_exactly_one_group() {
+        let mut seen = std::collections::HashSet::new();
+        for g in Group::ALL {
+            for a in g.actions() {
+                assert!(seen.insert(a), "{a:?} is in two groups");
+            }
+        }
+        assert_eq!(seen.len(), Action::ALL.len(), "an action has no group");
+        assert!(
+            Group::ALL.len() < 8,
+            "the palette has at most 8 tabs with All"
+        );
+        for g in Group::ALL {
+            assert!(g.actions().count() > 0, "{g:?} is empty");
+        }
+    }
+
+    #[test]
+    fn palette_text_splits_names_and_descriptions() {
+        assert_eq!(
+            Action::Rename.palette_text(),
+            (
+                "Rename".to_owned(),
+                Some("Not while active; file under cursor in Detail".to_owned())
+            )
+        );
+        assert_eq!(
+            Action::DetailNextTab.palette_text(),
+            ("Next tab".to_owned(), None)
+        );
+        assert_eq!(
+            Action::PauseAll.palette_text(),
+            ("Pause all".to_owned(), None)
+        );
+        for a in Action::ALL {
+            let (name, _) = a.palette_text();
+            assert!(!name.is_empty() && name.len() <= 40, "{a:?}: {name}");
+        }
+    }
 
     #[test]
     fn ids_round_trip_and_are_unique() {

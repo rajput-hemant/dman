@@ -18,7 +18,6 @@ use ratatui::widgets::Paragraph;
 
 use crate::format::{size, truncate};
 use crate::theme::Theme;
-use crate::widgets::centered;
 
 /// Most entries kept per local directory.
 pub const LOCAL_CAP: usize = 5000;
@@ -525,11 +524,7 @@ fn render_popup(
     loading: bool,
     empty: &str,
 ) {
-    let rect = centered(
-        area,
-        area.width.saturating_sub(6).min(90),
-        area.height.saturating_sub(2).min(30),
-    );
+    let rect = crate::widgets::popup_rect(area, 90, area.height.saturating_sub(2).clamp(10, 30));
     let inner = crate::widgets::modal_frame(
         frame,
         rect,

@@ -1,6 +1,7 @@
 //! The downloads view: list actions, confirmations and mouse handling; the
 //! drawing lives in [`render`].
 
+mod preview;
 mod render;
 
 pub use render::{chip_counts, render};
@@ -48,7 +49,7 @@ pub fn footer_hints(state: &State) -> Vec<Hint> {
             h(Action::Pause, &format!("pause {marked}")),
             h(Action::Resume, &format!("resume {marked}")),
             h(Action::Remove, &format!("remove {marked}")),
-            h(Action::RemoveDelete, "delete files"),
+            h(Action::RemoveDelete, &format!("delete {marked}")),
             h(Action::SelectNone, "unmark"),
             h(Action::ToggleSelect, "mark"),
         ]
@@ -94,16 +95,20 @@ pub fn footer_hints(state: &State) -> Vec<Hint> {
             ],
         }
     };
+    // Quitting comes after the job's own actions (and deleting its files)
+    // but before the general ones.
     if marked == 0 && job.is_some() {
         v.push(h(Action::RemoveDelete, "delete files"));
+        v.push(h(Action::Quit, "quit"));
         v.extend([
             h(Action::Add, "add"),
             h(Action::Search, "search"),
             h(Action::Filter, "filter"),
             h(Action::ToggleSelect, "mark"),
         ]);
+    } else {
+        v.push(h(Action::Quit, "quit"));
     }
-    v.push(h(Action::Quit, "quit"));
     v.into_iter().flatten().collect()
 }
 

@@ -11,7 +11,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::app::State;
-use crate::format::truncate;
+use crate::format::{self, truncate};
 use crate::layout::Hit;
 use crate::list::Chip;
 use crate::views::View;
@@ -161,14 +161,16 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let width = usize::from(area.width);
     let card = crate::layout::card_shown(state.size, state);
     let (down, up) = shown_speeds(state);
-    let mut left: Vec<Segment> = vec![(
-        0,
-        vec![
-            Span::styled(" dman", t.accent),
-            Span::styled(" ▸ ", t.faint),
-            Span::styled(state.profile.clone(), t.dim),
-        ],
-    )];
+    let mut left: Vec<Segment> = vec![
+        (0, vec![Span::styled(" dman", t.accent)]),
+        (
+            2,
+            vec![
+                Span::styled(" ▸ ", t.faint),
+                Span::styled(state.profile.clone(), t.dim),
+            ],
+        ),
+    ];
     if !card {
         let mut s = vec![Span::raw("  ")];
         s.extend(speed_spans(state, t.icons.down, down, t.graph_down, true));
@@ -257,7 +259,8 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let mut prios: Vec<u8> = segs.iter().map(|(_, s)| s.0).collect();
     prios.sort_unstable();
     prios.dedup();
-    while total(&segs) + 1 > width {
+    // At least one space between the left and the right side.
+    while total(&segs) + 2 > width {
         let Some(p) = prios.pop() else { break };
         if p == 0 {
             break;
@@ -381,7 +384,7 @@ pub fn render_context(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
     if !matches!(state.view(), View::Downloads) {
         let mut spans = vec![Span::raw(" ")];
-        let crumbs = breadcrumb(state);
+        let crumbs = fit_crumbs(breadcrumb(state), usize::from(area.width).saturating_sub(2));
         let n = crumbs.len();
         for (i, c) in crumbs.into_iter().enumerate() {
             if i > 0 {
@@ -445,6 +448,29 @@ pub fn render_context(frame: &mut Frame<'_>, area: Rect, state: &State) {
         spans.extend(right);
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
+}
+
+/// Make the crumbs fit `cols` (separators are three columns): earlier
+/// crumbs collapse to `…` first, then the last one is cut in the middle.
+fn fit_crumbs(mut crumbs: Vec<String>, cols: usize) -> Vec<String> {
+    let total = |c: &[String]| -> usize {
+        c.iter().map(|s| format::width(s)).sum::<usize>() + c.len().saturating_sub(1) * 3
+    };
+    let mut i = 0;
+    while total(&crumbs) > cols && i + 1 < crumbs.len() {
+        crumbs[i] = "…".to_owned();
+        i += 1;
+    }
+    // Several collapsed crumbs read as one.
+    crumbs.dedup_by(|a, b| a == "…" && b == "…");
+    let over = total(&crumbs).saturating_sub(cols);
+    if over > 0
+        && let Some(last) = crumbs.last_mut()
+    {
+        let keep = format::width(last).saturating_sub(over);
+        *last = format::middle(last, keep);
+    }
+    crumbs
 }
 
 fn breadcrumb(state: &State) -> Vec<String> {

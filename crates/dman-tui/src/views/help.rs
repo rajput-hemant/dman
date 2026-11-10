@@ -8,6 +8,7 @@ use ratatui::widgets::Paragraph;
 
 use crate::action::Action;
 use crate::app::{Cmd, State};
+use crate::format;
 use crate::keymap::{Context, Keymap};
 use crate::theme::Theme;
 use crate::views::View;
@@ -353,10 +354,13 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, h: &HelpState) {
     let block = t
         .block_focus(true)
         .title(Span::styled(" Keys ", t.accent))
-        .title_bottom(Line::from(vec![
-            Span::styled(" Keys can be changed in config.toml ", t.faint),
-            Span::styled("[keys] pause = [\"p\"] ", t.faint),
-        ]));
+        .title_bottom(Line::from(Span::styled(
+            format::truncate(
+                " Keys can be changed in config.toml [keys] pause = [\"p\"] ",
+                usize::from(area.width).saturating_sub(2),
+            ),
+            t.faint,
+        )));
     let inner = block.inner(area).inner(Margin::new(1, 0));
     frame.render_widget(block, area);
     let [search, _, body] = Layout::vertical([

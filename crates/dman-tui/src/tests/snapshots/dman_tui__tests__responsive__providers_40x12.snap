@@ -1,0 +1,16 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman  ▼ 15.0M ▲ 1.0M          ● online
+ Downloads › Search › Search providers
+╭ Search providers · 2 enabled of 4 ───╮
+│On  Name            Verified   Timeout│
+│[x] 1337x           verified       15s│
+│[x] nyaa            unverified     15s│
+│[ ] tpb             verified       15s│
+│[ ] mine            unverified     15s│
+│                                      │
+│                                      │
+╰──────────────────────────────────────╯
+  Space  toggle  Esc  back  ?  help

@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
  Downloads › Add downloads
 ╭ Sources ─────────────────────────────────────────────────────────────────────╮
-│  ╭ Add local file · 2 marked ─────────────────────────────────────────────╮  │
-│Pa│/home/me/torrents                                                       │  │
-│On│                                                                        │  │
-│Ct│    archive/                                                            │  │
-│  │    linux/                                                              │  │
-│  │[x] debian-13.2.0-netinst.iso.torrent                           40.0 KiB│  │
-│  │[x] ubuntu-24.04.torrent                                        45.0 KiB│  │
-│  │    pack.meta4                                                   1.2 KiB│  │
-│  │                                                                        │  │
-│  │                                                                        │  │
-│  │                                                                        │  │
-│  │                                                                        │  │
-╰──│                                                                        │──╯
- ⏎ │                                                                        │
-╭ O│                                                                        │──╮
-│  │                                                                        │l…│
-│  │                                                                        │  │
-│  │                                                                        │  │
-│  ╰────────────────────────────────────────────────────────────────────────╯m…│
+╭ Add local file · 2 marked ───────────────────────────────────────────────────╮
+│/home/me/torrents                                                             │
+│                                                                              │
+│    archive/                                                                  │
+│    linux/                                                                    │
+│[x] debian-13.2.0-netinst.iso.torrent                                 40.0 KiB│
+│[x] ubuntu-24.04.torrent                                              45.0 KiB│
+│    pack.meta4                                                         1.2 KiB│
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
+│                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- ADD   Enter  open/pick  Space  mark  ⌫/h  up  Ctrl-p  palette  F1  help
+╰──────────────────────────────────────────────────────────────────────────────╯
+  Enter  open/pick  Space  mark  ⌫/h  up  Esc  close  Ctrl-p  palette  F1  help

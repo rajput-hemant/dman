@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+╭ Commands ────────────────────────────────────── 7 found ─╮
+│ ⌕ pause                                                  │
+│ ‹  All 7  › 1/8  Tab switches                            │
+│──────────────────────────────────────────────────────────│
+│▌ Pause                                     Downloads  p  │
+│  Pause all                                 Downloads  P  │
+│  Show only waiting and paused downloads         View  3  │
+│  Toggle the file under the cursor      Downloads  Space  │
+│  Select / deselect all files  ⊘ open …     Downloads  a  │
+│  Video quality picker on/off            Add & Video  F6  │
+│  Delete unselected partial files           Downloads  C  │
+│                                                          │
+│                                                          │
+│                                                          │
+│                                                          │
+│ Enter runs it · Tab switches groups · Esc closes         │
+╰──────────────────────────────────────────────────────────╯
+  Enter  run  Esc  close  Tab  next group  ↑↓  choose

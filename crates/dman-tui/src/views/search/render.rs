@@ -1,7 +1,7 @@
 //! Drawing of the search view.
 
 use ratatui::Frame;
-use ratatui::layout::{Alignment, Constraint, Layout, Margin, Rect};
+use ratatui::layout::{Alignment, Constraint, Margin, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row as TableRow, Table, Wrap};
@@ -62,18 +62,18 @@ fn status_segments(state: &State) -> Vec<(String, Style)> {
     out
 }
 
-/// Pack segments into at most [`MAX_STATUS_LINES`] lines of `width`.
-fn status_lines(segments: &[(String, Style)], width: usize) -> Vec<Line<'static>> {
+/// Pack segments into at most `max` lines of `width`.
+fn status_lines(segments: &[(String, Style)], width: usize, max: usize) -> Vec<Line<'static>> {
     let mut done: Vec<Vec<Span<'static>>> = Vec::new();
     let mut cur: Vec<Span<'static>> = vec![Span::raw(" ")];
     let mut used = 0;
     let mut cut = false;
     for (text, style) in segments {
         let text = truncate(text, width.saturating_sub(3).max(1));
-        let w = text.chars().count();
+        let w = format::width(&text);
         let sep = if used == 0 { 0 } else { 3 };
         if used > 0 && used + sep + w > width.saturating_sub(1) {
-            if done.len() + 1 == MAX_STATUS_LINES {
+            if done.len() + 1 >= max {
                 cut = true;
                 break;
             }
@@ -96,19 +96,44 @@ fn status_lines(segments: &[(String, Style)], width: usize) -> Vec<Line<'static>
 
 fn areas(area: Rect, state: &State) -> Areas {
     let s = &state.search;
-    let status_h = if s.run.is_some() {
-        u16::try_from(status_lines(&status_segments(state), usize::from(area.width)).len())
-            .unwrap_or(1)
+    let h = area.height;
+    let status_full = if s.run.is_some() {
+        u16::try_from(
+            status_lines(
+                &status_segments(state),
+                usize::from(area.width),
+                MAX_STATUS_LINES,
+            )
+            .len(),
+        )
+        .unwrap_or(1)
     } else {
         0
     };
-    let [form, status, filters, table] = Layout::vertical([
-        Constraint::Length(5),
-        Constraint::Length(status_h),
-        Constraint::Length(1),
-        Constraint::Fill(1),
-    ])
-    .areas(area);
+    // The results matter most: the form shrinks from three fields to the
+    // focused one, then to a bare line, before the results lose rows.
+    let (form_h, status_h) = if h >= 5 + status_full + 1 + 8 {
+        (5, status_full)
+    } else if h >= 3 + status_full.min(1) + 1 + 5 {
+        (3, status_full.min(1))
+    } else {
+        (1.min(h), 0)
+    };
+    let filters_h = u16::from(h >= form_h + status_h + 1 + 4);
+    let mut y = area.y;
+    let mut take = |height: u16| {
+        let r = Rect {
+            y,
+            height: height.min(area.bottom().saturating_sub(y)),
+            ..area
+        };
+        y = r.bottom();
+        r
+    };
+    let form = take(form_h);
+    let status = take(status_h);
+    let filters = take(filters_h);
+    let table = take(h);
     Areas {
         form,
         status,
@@ -198,12 +223,18 @@ fn render_form(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let t = &state.theme;
     let s = &state.search;
     let form_focus = s.focus != Focus::Results && !s.history_open;
-    let block = t.block_focus(form_focus).title(Span::styled(
-        format!(" {} Search torrents ", t.icons.search),
-        t.accent,
-    ));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let bare = area.height < 3;
+    let inner = if bare {
+        area
+    } else {
+        let block = t.block_focus(form_focus).title(Span::styled(
+            format!(" {} Search torrents ", t.icons.search),
+            t.accent,
+        ));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        inner
+    };
     let width = usize::from(inner.width).saturating_sub(LABEL_W + 2);
     let label = |text: &str, focused: bool| {
         Span::styled(
@@ -216,22 +247,35 @@ fn render_form(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let p_focus = form_focus && s.focus == Focus::Providers;
     let mut query = vec![label("Query", q_focus)];
     if s.query.text().is_empty() && !q_focus {
-        query.push(Span::styled("type what to look for", t.dim));
+        query.push(Span::styled(
+            truncate("type what to look for", width),
+            t.dim,
+        ));
     } else {
-        query.extend(s.query.line(t, q_focus).spans);
+        query.extend(s.query.line_fit(t, q_focus, width).spans);
     }
     let mut cat = vec![label("Category", c_focus)];
     if s.category.text().is_empty() && !c_focus {
-        cat.push(Span::styled("(optional, e.g. movies, tv, software)", t.dim));
+        cat.push(Span::styled(
+            truncate("(optional, e.g. movies, tv, software)", width),
+            t.dim,
+        ));
     } else {
-        cat.extend(s.category.line(t, c_focus).spans);
+        cat.extend(s.category.line_fit(t, c_focus, width).spans);
     }
     let mut prov = vec![label("Providers", p_focus)];
     prov.extend(provider_line(state, p_focus, width).spans);
-    frame.render_widget(
-        Paragraph::new(vec![Line::from(query), Line::from(cat), Line::from(prov)]),
-        inner,
-    );
+    let mut lines = vec![Line::from(query), Line::from(cat), Line::from(prov)];
+    if inner.height < 3 {
+        // Short terminals: only the field being edited (else the query).
+        let keep = match s.focus {
+            Focus::Category if form_focus => 1,
+            Focus::Providers if form_focus => 2,
+            _ => 0,
+        };
+        lines = vec![lines.swap_remove(keep)];
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn arrow(key: SortKey, reverse: bool) -> &'static str {
@@ -595,7 +639,10 @@ fn render_history(frame: &mut Frame<'_>, area: Rect, state: &State) {
         .borders(Borders::TOP)
         .border_style(t.border)
         .title(Span::styled(
-            " History · Enter re-runs · x clears · h closes ",
+            truncate(
+                " History · Enter re-runs · x clears · h closes ",
+                usize::from(area.width).saturating_sub(2),
+            ),
             t.accent,
         ));
     let inner = block.inner(area);
@@ -629,8 +676,13 @@ fn render_history(frame: &mut Frame<'_>, area: Rect, state: &State) {
                 what.push_str(&format!("  @{}", e.providers.join(",")));
             }
             let tail = format!("{:>4} results  {when}", e.result_count);
-            let left = w.saturating_sub(tail.chars().count() + 1);
-            let text = format!("{:<left$} {tail}", truncate(&what, left));
+            let tail = if w < 40 {
+                format!("{:>4}", e.result_count)
+            } else {
+                tail
+            };
+            let left = w.saturating_sub(format::width(&tail) + 1);
+            let text = format!("{} {tail}", format::fit(&what, left));
             let style = if i == s.hist_cursor { t.cursor } else { t.text };
             Line::styled(text, style)
         })
@@ -642,7 +694,11 @@ fn render_history(frame: &mut Frame<'_>, area: Rect, state: &State) {
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let a = areas(area, state);
     render_form(frame, a.form, state);
-    let lines = status_lines(&status_segments(state), usize::from(a.status.width));
+    let lines = status_lines(
+        &status_segments(state),
+        usize::from(a.status.width),
+        usize::from(a.status.height),
+    );
     frame.render_widget(Paragraph::new(lines), a.status);
     render_filters(frame, a.filters, state);
     if state.search.history_open {

@@ -1,0 +1,22 @@
+---
+source: crates/dman-tui/src/tests/responsive.rs
+expression: "render(&mut s, w, h)"
+---
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1         ● online
+ Downloads › Help
+╭ Keys ────────────────────────────────────────────────────╮
+│ ⌕ / to search keys and commands                          ┃
+│                                                          │
+│ ── Downloads keys ────────────────────────────────────── │
+│    k ↑             Move up                               │
+│    j ↓             Move down                             │
+│    PgUp Ctrl-u     Page up                               │
+│    PgDn Ctrl-d     Page down                             │
+│    g Home          Go to top                             │
+│    G End           Go to bottom                          │
+│    Space           Toggle selection                      │
+│    Ctrl-a          Select all                            │
+│    Esc             Clear selection                       │
+│    u Ctrl-z        Undo the last remove from the list (… │
+╰ Keys can be changed in config.toml [keys] pause = ["p"] ─╯
+  j  down  k  up  Esc  back  :  palette  ?  close help

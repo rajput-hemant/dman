@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "render(&mut s, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
   All 7   Active 3   Waiting 2   Done 1   Failed 1                 sort queue ▼
-╭ Downloads ───────────────────────────────────────────────────────────────────╮
-│─╭ Commands ───────────────────────────────────────────────────────── 8/92 ─╮─│
-│▌│ › pause                                                                  │G│
-│ │──────────────────────────────────────────────────────────────────────────│G│
-│ │▌ Pause                                            Downloads           p  │M│
-│─│  Pause all                                        Downloads           P  │─│
-│ │  Show only waiting and paused downloads                View           3  │–│
-│ │  Toggle the file under the cursor (waiting/paused only)           Space  │G│
-│─│  Select / deselect all files (waiting/paused only)   Detail           a  │─│
-│ │  Video quality picker: ask every time / use defaults                 F6  │M│
-│ │  Remove a custom provider                         Providers           D  │–│
-│ │  Delete unselected partial files of a finished torrent                C  │ │
-│ ╰──────────────────────────────────────────────────────────────────────────╯ │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
-│                                                                              │
+╭ Downl╭ Commands ──────────────────────────────────────────── 7 found ─╮──────╮
+│── Act│ ⌕ pause                                                        │──────│
+│▌ ↓ ub│ ‹  All 7  › 1/8  Tab switches                                  │  6.0G│
+│  ↓ bi│────────────────────────────────────────────────────────────────│ 20.0G│
+│  ↑ de│▌ Pause                                           Downloads  p  │700.0M│
+│── Wai│  Pause all                                       Downloads  P  │──────│
+│  ◔ ▶ │  Show only waiting and paused downloads               View  3  │     –│
+│  ⏸ ar│  Toggle the file under the cursor            Downloads  Space  │  1.2G│
+│── Sto│  Select / deselect all files  ⊘ open a down…     Downloads  a  │──────│
+│  ✓ re│  Video quality picker on/off  Ask every ti…   Add & Video  F6  │  3.0M│
+│  ✗ mi│  Delete unselected partial files  Of a fini…     Downloads  C  │     –│
+│      │                                                                │      │
+│      │                                                                │      │
+│      │                                                                │      │
+│      │                                                                │      │
+│      │                                                                │      │
+│      │                                                                │      │
+│      │ Enter runs it · Tab switches groups · Esc closes               │      │
+│      ╰────────────────────────────────────────────────────────────────╯      │
 │                                                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- COMMAND   Enter  run  ↑↓  choose  Esc  close
+  Enter  run  Esc  close  Tab  next group  ↑↓  choose

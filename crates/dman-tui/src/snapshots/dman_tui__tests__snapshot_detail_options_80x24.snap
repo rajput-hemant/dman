@@ -2,27 +2,27 @@
 source: crates/dman-tui/src/tests.rs
 expression: "detail_snapshot('6', 1, 80, 24)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
  Downloads › ↓ ubuntu-24.04.1-desktop-amd64.iso
 ╭ ubuntu-24.04.1-desktop-amd64.iso ──────────────────────────────── #1 · aria2 ╮
 │ ↓ Downloading · 42 peers · 12.0 MiB/s · ETA 2m51s                            │
 │ ██████████████████████████████████                   66%  4.0 GiB / 6.0 GiB  │
 │ ▼ 12.0 MiB/s                ▲ 800.0 KiB/s   peers 42/118   ratio 0.25        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
-  1 Files 4   2 Peers 3   3 Trackers 2   4 Pieces   5 Speed   6 Options
+  1 Files   2 Peers   3 Trackers   4 Pieces   5 Speed   6 Options   7 Info
 ╭──────────────────────────────────────────────────────────────────────────────╮
-│Option                  Value                       Note                      │
-│dir                     /home/me/Downloads                                    │
-│out                     (default)                                             │
-│max_download_limit      2.0 MiB/s                                             │
-│max_upload_limit        (default)                                             │
-│select_files            1,2,4                       use Space on the Files tab│
-│file_names              (default)                   set when adding (rename co│
-│seed_ratio              1.5                                                   │
-│seed_time               (default)                                             │
-│sequential              (default)                                             │
-│headers                 (default)                   set when adding           │
-│user_agent              (default)                                             │
-│referer                 (default)                                             │
+│Option                 Value                    Note                          │
+│dir                    /home/me/Downloads                                     │
+│out                    (default)                                              │
+│max_download_limit     2.0 MiB/s                                              │
+│max_upload_limit       (default)                                              │
+│select_files           1,2,4                    use Space on the Files tab    │
+│file_names             (default)                set when adding (rename comes…│
+│seed_ratio             1.5                                                    │
+│seed_time              (default)                                              │
+│sequential             (default)                                              │
+│headers                (default)                set when adding               │
+│user_agent             (default)                                              │
+│referer                (default)                                              │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- DETAIL   Esc  back  p  pause  Enter  edit  Tab  next tab  :  palette  ?  help
+  Esc  back  p  pause  Enter  edit  Tab  next tab  :  palette  ?  help

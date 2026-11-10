@@ -115,6 +115,55 @@ impl LineInput {
             Span::raw(after),
         ])
     }
+
+    /// Like [`Self::line`], but scrolled horizontally so that the cursor stays
+    /// visible in `width` columns; cut ends are marked with `…`.
+    pub fn line_fit(&self, theme: &Theme, focused: bool, width: usize) -> Line<'static> {
+        use crate::format::width as w;
+        let chars: Vec<char> = self.text.chars().collect();
+        let cursor = self.cursor.min(chars.len());
+        // Columns needed: the text plus one cell for a cursor at the end.
+        let total = w(&self.text) + usize::from(focused && cursor == chars.len());
+        if total <= width || width < 3 {
+            return self.line(theme, focused);
+        }
+        let cw = |c: &char| unicode_width::UnicodeWidthChar::width(*c).unwrap_or(0);
+        // Start at the cursor and grow to the left first (the text being
+        // typed), then to the right.
+        let mut start = cursor;
+        let mut end = (cursor + 1).min(chars.len());
+        let mut used = chars.get(cursor).map_or(1, cw);
+        let room = width.saturating_sub(2);
+        while start > 0 && used + cw(&chars[start - 1]) <= room {
+            start -= 1;
+            used += cw(&chars[start]);
+        }
+        while end < chars.len() && used + cw(&chars[end]) <= room {
+            used += cw(&chars[end]);
+            end += 1;
+        }
+        let text = |a: usize, b: usize| chars[a..b].iter().collect::<String>();
+        let mut spans = Vec::new();
+        if start > 0 {
+            spans.push(Span::styled("…", theme.faint));
+        }
+        if focused {
+            spans.push(Span::raw(text(start, cursor)));
+            let at = if cursor < chars.len() {
+                text(cursor, cursor + 1)
+            } else {
+                " ".to_owned()
+            };
+            spans.push(Span::styled(at, theme.cursor));
+            spans.push(Span::raw(text((cursor + 1).min(end), end)));
+        } else {
+            spans.push(Span::raw(text(start, end)));
+        }
+        if end < chars.len() {
+            spans.push(Span::styled("…", theme.faint));
+        }
+        Line::from(spans)
+    }
 }
 
 #[cfg(test)]
@@ -141,5 +190,26 @@ mod tests {
         i.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
         assert_eq!(i.text(), ">ha ll");
         assert!(!i.handle_key(k(KeyCode::Enter)));
+    }
+
+    #[test]
+    fn long_text_scrolls_to_keep_the_cursor_visible() {
+        let t = Theme::default_theme();
+        let i = LineInput::new("archlinux-2026.11.01-x86_64.iso");
+        let line = i.line_fit(&t, true, 12);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(line.width() <= 12, "{text}");
+        assert!(text.starts_with('…') && text.ends_with("iso "), "{text}");
+        let mut i = i;
+        i.handle_key(k(KeyCode::Home));
+        let line = i.line_fit(&t, true, 12);
+        let text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            line.width() <= 12 && text.starts_with("arch") && text.ends_with('…'),
+            "{text}"
+        );
+        // Wide characters never overflow.
+        let wide = LineInput::new("日本語のファイル名日本語のファイル名");
+        assert!(wide.line_fit(&t, true, 9).width() <= 9);
     }
 }

@@ -2,7 +2,7 @@
 source: crates/dman-tui/src/tests.rs
 expression: "snap_form(80, 24, Field::VQuality)"
 ---
- dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1  250.0 GiB free  mouse off  ● online
+ dman ▸ local  ▼ 15.0M ▲ 1.0M  ↓3 ◔2 ✓1 ✗1             250.0 GiB free  ● online
  Downloads › Add downloads
 ╭ Sources · 3 items ───────────────────────────────────────────────────────────╮
 │https://www.youtube.com/watch?v=abc123                                   video│
@@ -25,4 +25,4 @@ expression: "snap_form(80, 24, Field::VQuality)"
 │▸ Video quality          1080p                                                │
 │  ▸ Advanced options — 1 set: Subtitles (F2 shows them)                       │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- ADD   Enter  review & add  Tab  next  Esc  back  Ctrl-p  palette  F1  help
+  Enter  review & add  Tab  next  Esc  back  Ctrl-p  palette  F1  help

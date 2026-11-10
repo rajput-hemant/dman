@@ -19,6 +19,8 @@ crossterm = { version = "0.29", default-features = false, features = ["event-str
 tokio = { workspace = true, features = ["rt", "macros", "sync", "time", "signal"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 nucleo-matcher = "0.3"
+# Display widths of names (CJK, emoji); already in the tree via ratatui.
+unicode-width = "0.2"
 crokey = { version = "1.5", default-features = false }
 bytesize.workspace = true
 anyhow.workspace = true

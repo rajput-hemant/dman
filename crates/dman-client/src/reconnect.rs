@@ -22,6 +22,8 @@ use crate::tls::TlsOptions;
 
 const EVENT_CAPACITY: usize = 256;
 const INITIAL_BACKOFF: Duration = Duration::from_millis(250);
+/// A connection must survive this long before the backoff starts over.
+const STABLE_AFTER: Duration = Duration::from_secs(5);
 const MAX_BACKOFF: Duration = Duration::from_secs(10);
 
 /// Connection state published by [`ReconnectingClient::state`].
@@ -211,7 +213,7 @@ async fn supervise(
         .await;
         let last_error = match attempt {
             Ok(client) => {
-                delay = initial;
+                let connected_at = tokio::time::Instant::now();
                 let version = client.daemon_version().to_owned();
                 *current.lock().unwrap_or_else(PoisonError::into_inner) = Some(client.clone());
                 tracing::info!(daemon_version = %version, "connected to daemon");
@@ -219,6 +221,11 @@ async fn supervise(
                     daemon_version: version,
                 });
                 client.closed().await;
+                // A connection that dies at once must not reset the backoff,
+                // or a flapping daemon would be hammered at the initial rate.
+                if connected_at.elapsed() >= STABLE_AFTER {
+                    delay = initial;
+                }
                 *current.lock().unwrap_or_else(PoisonError::into_inner) = None;
                 ClientError::Disconnected.to_string()
             }

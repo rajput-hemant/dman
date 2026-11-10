@@ -272,7 +272,13 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 }
 
 fn to_unix(y: i64, mo: i64, d: i64, h: i64, mi: i64, s: i64) -> Option<i64> {
-    if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || s > 60 {
+    if !(1..=9999).contains(&y)
+        || !(1..=12).contains(&mo)
+        || !(1..=31).contains(&d)
+        || !(0..=23).contains(&h)
+        || !(0..=59).contains(&mi)
+        || !(0..=60).contains(&s)
+    {
         return None;
     }
     Some(days_from_civil(y, mo, d) * 86_400 + h * 3600 + mi * 60 + s)
@@ -400,7 +406,7 @@ pub fn parse_relative(s: &str, now: i64) -> Option<i64> {
         "year" | "y" => 365 * 86_400,
         _ => return None,
     };
-    Some(now - n * secs)
+    n.checked_mul(secs).and_then(|d| now.checked_sub(d))
 }
 
 pub fn now_unix() -> i64 {
@@ -527,6 +533,18 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn hostile_dates_do_not_overflow() {
+        assert_eq!(
+            parse_rfc2822("Sun, 09 Nov 99999999999999999 10:00:00 +0000"),
+            None
+        );
+        assert_eq!(parse_rfc3339("99999999999999999-01-01"), None);
+        assert_eq!(parse_rfc3339("2026-11-09T-1:00:00Z"), None);
+        assert_eq!(parse_relative("9223372036854775807 years ago", 1000), None);
+        assert!(parse_relative("2 hours ago", 10_000).is_some());
+    }
 
     #[test]
     fn sizes() {

@@ -56,9 +56,29 @@ impl AsRef<str> for Gid {
 }
 
 /// aria2 options: always string-valued key/value pairs.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Options(pub BTreeMap<String, String>);
+
+/// Options whose values can carry credentials (passwords, auth headers,
+/// proxy URLs with `user:pass@`).
+fn is_sensitive(key: &str) -> bool {
+    key.ends_with("passwd") || key.ends_with("proxy") || key == "header"
+}
+
+impl fmt::Debug for Options {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut m = f.debug_map();
+        for (k, v) in &self.0 {
+            if is_sensitive(k) {
+                m.entry(k, &"<redacted>");
+            } else {
+                m.entry(k, v);
+            }
+        }
+        m.finish()
+    }
+}
 
 impl Options {
     /// Empty option set.

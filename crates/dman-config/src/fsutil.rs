@@ -33,8 +33,24 @@ pub(crate) fn atomic_write(
     #[cfg(not(unix))]
     let _ = mode;
 
+    // Without an explicit mode the replacement keeps the target's permissions
+    // (a 0600 config must not become world-readable by being edited).
+    let keep = if mode.is_none() {
+        std::fs::metadata(path).ok().map(|m| m.permissions())
+    } else {
+        None
+    };
     let result = (|| {
         let mut f = opts.open(&tmp)?;
+        #[cfg(unix)]
+        if let Some(m) = mode {
+            use std::os::unix::fs::PermissionsExt;
+            // A stale temp file would otherwise keep its old, wider mode.
+            f.set_permissions(std::fs::Permissions::from_mode(m))?;
+        }
+        if let Some(p) = keep {
+            f.set_permissions(p)?;
+        }
         f.write_all(contents)?;
         f.sync_all()?;
         drop(f);

@@ -28,6 +28,11 @@ use crate::tls::{TlsOptions, connect_error};
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const EVENT_CAPACITY: usize = 256;
+/// How often an idle connection is pinged, and how long silence (no frame of any
+/// kind, pongs included) is tolerated before the connection counts as dead.
+/// Without this a half-open TCP connection would never be noticed.
+const PING_EVERY: Duration = Duration::from_secs(20);
+const DEAD_AFTER: Duration = Duration::from_secs(60);
 
 type Reply = oneshot::Sender<Result<Value, ClientError>>;
 
@@ -161,6 +166,11 @@ impl Client {
         events: broadcast::Sender<Event>,
         tls: &TlsOptions,
     ) -> Result<Self, ClientError> {
+        if url.scheme() == "ws" && !is_loopback_host(url) {
+            tracing::warn!(
+                "connecting over plain ws:// to a non-loopback host: the access token is sent unencrypted; use wss://"
+            );
+        }
         let connector = if url.scheme() == "wss" {
             Some(tls.connector()?)
         } else {
@@ -300,6 +310,15 @@ impl Client {
             return Err(e);
         }
         Ok(rx)
+    }
+}
+
+fn is_loopback_host(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(d)) => d.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(a)) => a.is_loopback(),
+        Some(url::Host::Ipv6(a)) => a.is_loopback(),
+        None => false,
     }
 }
 
@@ -691,8 +710,18 @@ async fn run(
     closed_tx: watch::Sender<bool>,
 ) {
     let mut pending: HashMap<u64, Reply> = HashMap::new();
+    let mut ping = tokio::time::interval_at(tokio::time::Instant::now() + PING_EVERY, PING_EVERY);
+    ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut last_rx = tokio::time::Instant::now();
     loop {
         tokio::select! {
+            _ = ping.tick() => {
+                if last_rx.elapsed() > DEAD_AFTER
+                    || ws.send(Message::Ping(Vec::new().into())).await.is_err()
+                {
+                    break;
+                }
+            }
             cmd = cmd_rx.recv() => match cmd {
                 None => break,
                 Some(Command::Cancel(id)) => { pending.remove(&id); }
@@ -703,10 +732,13 @@ async fn run(
                     }
                 }
             },
-            msg = ws.next() => match msg {
-                Some(Ok(Message::Text(t))) => handle_text(t.as_str(), &mut pending, &events),
-                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
-                Some(Ok(_)) => {}
+            msg = ws.next() => {
+                last_rx = tokio::time::Instant::now();
+                match msg {
+                    Some(Ok(Message::Text(t))) => handle_text(t.as_str(), &mut pending, &events),
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    Some(Ok(_)) => {}
+                }
             },
         }
     }

@@ -43,6 +43,27 @@ impl SearchResult {
                 *f = None;
             }
         }
+        // Provider data is untrusted: only keep links that are safe to hand to
+        // a downloader or render as a hyperlink.
+        let is_magnet = |s: &str| {
+            s.trim()
+                .get(..7)
+                .is_some_and(|p| p.eq_ignore_ascii_case("magnet:"))
+        };
+        let is_web = |s: &str| {
+            let s = s.trim_start();
+            ["http://", "https://"]
+                .iter()
+                .any(|p| s.get(..p.len()).is_some_and(|h| h.eq_ignore_ascii_case(p)))
+        };
+        if self.magnet.as_deref().is_some_and(|m| !is_magnet(m)) {
+            self.magnet = None;
+        }
+        for f in [&mut self.torrent_url, &mut self.detail_url] {
+            if f.as_deref().is_some_and(|u| !is_web(u)) {
+                *f = None;
+            }
+        }
         if self.magnet.is_none()
             && let Some(h) = &self.info_hash
         {
@@ -68,5 +89,31 @@ impl Query {
             text: text.into(),
             ..Self::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_drops_unsafe_links() {
+        let mut r = SearchResult {
+            title: " a  b ".into(),
+            magnet: Some("javascript:alert(1)".into()),
+            torrent_url: Some("file:///etc/passwd".into()),
+            detail_url: Some("HTTPS://x.invalid/d".into()),
+            ..SearchResult::default()
+        };
+        r.normalize();
+        assert_eq!(r.title, "a b");
+        assert!(r.magnet.is_none() && r.torrent_url.is_none());
+        assert!(r.detail_url.is_some());
+        let mut m = SearchResult {
+            magnet: Some("Magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567".into()),
+            ..SearchResult::default()
+        };
+        m.normalize();
+        assert!(m.magnet.is_some() && m.info_hash.is_some());
     }
 }

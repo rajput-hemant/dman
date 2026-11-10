@@ -33,7 +33,7 @@ fn all_events() -> Vec<NotifyEvent> {
 }
 
 /// Webhook target (`[notify.webhook]`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Webhook {
     /// `http://` or `https://` URL receiving a JSON POST.
@@ -48,6 +48,18 @@ pub struct Webhook {
     /// (`X-Dman-Signature: sha256=<hex HMAC-SHA256>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secret_ref: Option<String>,
+}
+
+impl std::fmt::Debug for Webhook {
+    // The URL often embeds a token (path or query), so it is redacted.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Webhook")
+            .field("url", &crate::redact::redact_url(&self.url))
+            .field("timeout_secs", &self.timeout_secs)
+            .field("retries", &self.retries)
+            .field("secret_ref", &self.secret_ref)
+            .finish()
+    }
 }
 
 fn default_webhook_timeout() -> u64 {
@@ -117,7 +129,7 @@ impl Notify {
                 Ok(_) => {
                     return Err(format!(
                         "notify.webhook.url `{}` must be http:// or https:// with a host",
-                        w.url
+                        crate::redact::redact_url(&w.url)
                     ));
                 }
                 Err(e) => return Err(format!("notify.webhook.url is invalid: {e}")),

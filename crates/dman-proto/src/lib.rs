@@ -7,6 +7,7 @@
 pub mod error;
 pub mod job;
 pub mod method;
+pub mod redact;
 pub mod rpc;
 pub mod search;
 pub mod video;

@@ -10,6 +10,7 @@ mod error;
 mod fsutil;
 mod notify;
 mod paths;
+mod redact;
 mod schedule;
 mod schema;
 mod search;

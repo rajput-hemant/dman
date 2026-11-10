@@ -570,11 +570,12 @@ impl Config {
                         }
                         Ok(_) => {
                             return bad(format!(
-                                "profile `{name}`: url `{url}` must be ws:// or wss:// with a host"
+                                "profile `{name}`: url `{}` must be ws:// or wss:// with a host",
+                                crate::redact::redact_url(url)
                             ));
                         }
                         Err(e) => {
-                            return bad(format!("profile `{name}`: invalid url `{url}`: {e}"));
+                            return bad(format!("profile `{name}`: invalid url: {e}"));
                         }
                     };
                     if !wss && (ca.is_some() || *insecure_skip_verify) {
@@ -658,6 +659,35 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn remote_url_errors_do_not_echo_credentials() {
+        let mut c = Config::default();
+        c.profiles.get_mut("local").unwrap().daemon = DaemonTarget::Remote {
+            url: "http://bob:hunter2@x:1/p?token=SEKRIT".into(),
+            secret_ref: "s".into(),
+            ca: None,
+            insecure_skip_verify: false,
+        };
+        let e = c.validate().unwrap_err().to_string();
+        assert!(!e.contains("hunter2") && !e.contains("SEKRIT"), "{e}");
+        assert!(e.contains("x:1"), "{e}");
+    }
+
+    #[test]
+    fn webhook_debug_and_validation_hide_url_secrets() {
+        let mut c = Config::default();
+        c.notify.webhook = Some(crate::notify::Webhook {
+            url: "ftp://bob:hunter2@h/hook?key=SEKRIT".into(),
+            timeout_secs: 5,
+            retries: 1,
+            secret_ref: None,
+        });
+        let d = format!("{:?}", c.notify.webhook);
+        assert!(!d.contains("hunter2") && !d.contains("SEKRIT"), "{d}");
+        let e = c.validate().unwrap_err().to_string();
+        assert!(!e.contains("hunter2") && !e.contains("SEKRIT"), "{e}");
+    }
+
     use super::*;
 
     fn parse(s: &str) -> Result<Config, ConfigError> {

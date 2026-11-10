@@ -58,12 +58,23 @@ pub const EVENT: &str = "event";
 
 /// First message on every connection. The WebSocket transport rejects any other
 /// method until `session.hello` succeeded.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct HelloParams {
     pub token: String,
     pub api_version: u32,
     /// Free text such as `dman-tui/0.1.0`, for logs.
     pub client: String,
+}
+
+impl std::fmt::Debug for HelloParams {
+    // The token is a credential and must never reach a log line.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HelloParams")
+            .field("token", &"<redacted>")
+            .field("api_version", &self.api_version)
+            .field("client", &self.client)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -438,6 +449,16 @@ impl Outcome {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hello_debug_hides_token() {
+        let h = HelloParams {
+            token: "s3cret-token".into(),
+            api_version: 1,
+            client: "t".into(),
+        };
+        assert!(!format!("{h:?}").contains("s3cret-token"));
+    }
+
     use super::*;
 
     #[test]

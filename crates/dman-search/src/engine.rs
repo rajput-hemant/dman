@@ -152,16 +152,24 @@ fn map_reqwest(e: reqwest::Error) -> ProviderError {
     ProviderError::Network(err_chain(&e))
 }
 
-/// URL without query/fragment, safe to show (API keys live in the query).
+/// URL without credentials/query/fragment, safe to show (API keys live in the query).
 fn redact(url: &str) -> String {
     Url::parse(url).map_or_else(
         |_| "(invalid url)".into(),
         |mut u| {
+            let _ = u.set_username("");
+            let _ = u.set_password(None);
             u.set_query(None);
             u.set_fragment(None);
             u.to_string()
         },
     )
+}
+
+/// Whether `url` has the same scheme, host and port as the provider's search
+/// URL template.
+fn same_origin(url: &Url, template: &str) -> bool {
+    Url::parse(&template.replace(['{', '}'], "")).is_ok_and(|t| t.origin() == url.origin())
 }
 
 impl Searcher {
@@ -524,13 +532,24 @@ impl Inner {
         spec: &HtmlSpec,
         url: &str,
     ) -> Result<String, ProviderError> {
+        let target = Url::parse(url)
+            .map_err(|e| ProviderError::Definition(format!("bad detail url: {e}")))?;
+        if !matches!(target.scheme(), "http" | "https") {
+            return Err(ProviderError::Definition(
+                "detail url must be http or https".into(),
+            ));
+        }
         self.throttle(def).await;
-        let req = self.headers(
-            def,
-            self.client
-                .get(url)
-                .header("Accept", "text/html,application/xhtml+xml"),
-        );
+        let req = self
+            .client
+            .get(target.clone())
+            .header("Accept", "text/html,application/xhtml+xml");
+        // Provider headers (cookies, auth) must not leak to other sites.
+        let req = if same_origin(&target, &spec.search_url) {
+            self.headers(def, req)
+        } else {
+            req
+        };
         let body = self.send(req).await?;
         html::parse_detail_magnet(spec, &body)
     }
@@ -562,5 +581,34 @@ impl Inner {
                 Err(e) => tracing::debug!(provider = %def.name, error = %e, "detail page failed"),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_strips_credentials_and_query() {
+        let r = redact("socks5://user:hunter2@proxy.invalid:1080/p?apikey=k#f");
+        assert_eq!(r, "socks5://proxy.invalid:1080/p");
+        assert!(!r.contains("hunter2") && !r.contains("apikey"));
+    }
+
+    #[test]
+    fn same_origin_compares_scheme_host_port() {
+        let t = "https://site.invalid/search?q={query}";
+        assert!(same_origin(
+            &Url::parse("https://site.invalid/d/1").unwrap(),
+            t
+        ));
+        assert!(!same_origin(
+            &Url::parse("https://evil.invalid/d/1").unwrap(),
+            t
+        ));
+        assert!(!same_origin(
+            &Url::parse("http://site.invalid/d/1").unwrap(),
+            t
+        ));
     }
 }

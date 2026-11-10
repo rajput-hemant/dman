@@ -398,7 +398,8 @@ pub fn job_options_to_aria2(opts: &JobOptions) -> Result<Options, OptionError> {
             match h.split_once(':') {
                 Some((name, _))
                     if !name.trim().is_empty() && !name.contains(char::is_whitespace) => {}
-                _ => return Err(invalid("headers", format!("`{h}` is not `Name: value`"))),
+                // The header itself is not echoed: it may carry credentials.
+                _ => return Err(invalid("headers", "every header must be `Name: value`")),
             }
         }
         out.set("header", opts.headers.join("\n"));
@@ -728,5 +729,23 @@ mod tests {
         ] {
             assert!(requires_pause(k), "{k}");
         }
+    }
+
+    #[test]
+    fn credentials_stay_out_of_debug_and_errors() {
+        let o = JobOptions {
+            headers: vec!["Bearer-token-without-colon".into()],
+            ..JobOptions::default()
+        };
+        let e = err(&o).to_string();
+        assert!(!e.contains("Bearer"), "{e}");
+        let opts = Options::new()
+            .with("http-passwd", "hunter2")
+            .with("all-proxy", "http://u:pw@h")
+            .with("header", "Authorization: Bearer abc")
+            .with("max-tries", "3");
+        let dbg = format!("{opts:?}");
+        assert!(!dbg.contains("hunter2") && !dbg.contains("pw@") && !dbg.contains("abc"));
+        assert!(dbg.contains("max-tries"));
     }
 }

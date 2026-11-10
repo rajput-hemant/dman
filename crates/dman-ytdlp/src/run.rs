@@ -47,6 +47,8 @@ pub struct Running {
     pub progress: mpsc::Receiver<Progress>,
     stop: Arc<Notify>,
     task: Option<JoinHandle<Outcome>>,
+    /// Process group led by the yt-dlp child (it also holds ffmpeg and friends).
+    pgid: Option<u32>,
 }
 
 /// Cloneable handle to stop a [`Running`] from elsewhere.
@@ -75,8 +77,12 @@ impl Running {
 
     /// Wait for the process to end. Drain [`Running::progress`] concurrently if you want events.
     pub async fn wait(mut self) -> Outcome {
-        let task = self.task.take().expect("wait called once");
-        task.await.unwrap_or_else(|e| Outcome::Failed {
+        // The handle stays in `self` while waiting so that dropping this future
+        // still aborts the task and kills the process group (see `Drop`).
+        let task = self.task.as_mut().expect("wait called once");
+        let result = task.await;
+        self.task = None;
+        result.unwrap_or_else(|e| Outcome::Failed {
             exit_code: None,
             message: format!("supervisor task failed: {e}"),
         })
@@ -86,8 +92,15 @@ impl Running {
 impl Drop for Running {
     fn drop(&mut self) {
         if let Some(t) = &self.task {
-            // Aborting drops the Child, which has kill_on_drop set.
+            // Only while the supervisor still runs: afterwards the group is gone
+            // and its id may already belong to someone else.
+            let live = !t.is_finished();
+            // Aborting drops the Child, which has kill_on_drop set (the child only).
             t.abort();
+            if live && let Some(pgid) = self.pgid {
+                // Take the grandchildren (ffmpeg, ...) down too.
+                signal_group(pgid, Signal::SIGKILL);
+            }
         }
     }
 }
@@ -203,6 +216,7 @@ pub fn spawn(spec: &DownloadSpec, tools: &Tools, job_tag: &str) -> Result<Runnin
         progress: rx,
         stop,
         task: Some(task),
+        pgid: pid,
     })
 }
 
@@ -257,7 +271,10 @@ pub fn classify_outcome(
     if exit_code != Some(0) {
         let from_tail = error_message(&tail.join("\n"));
         let message = if tail.is_empty() {
-            format!("yt-dlp exited with {exit_code:?}")
+            match exit_code {
+                Some(c) => format!("yt-dlp exited with status {c}"),
+                None => "yt-dlp was terminated by a signal".to_string(),
+            }
         } else {
             from_tail
         };
@@ -418,5 +435,65 @@ mod tests {
             spawn(&spec, &t, "../x"),
             Err(Error::InvalidSpec(_))
         ));
+    }
+
+    /// A pid that exists and is not a zombie.
+    fn alive(pid: u32) -> bool {
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|s| s.rsplit_once(')').map(|(_, r)| r.trim_start().to_owned()))
+            .is_some_and(|r| !r.starts_with('Z'))
+    }
+
+    /// Dropping a `Running` must kill grandchildren too (yt-dlp's ffmpeg).
+    #[cfg(target_os = "linux")]
+    #[tokio::test]
+    async fn drop_kills_the_whole_process_group() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let pidfile = d.path().join("grandchild.pid");
+        let script = d.path().join("fake-yt-dlp");
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nsleep 300 &\necho $! > '{}'\nwait\n",
+                pidfile.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+        let tools = Tools {
+            ytdlp: Some(crate::tools::ToolInfo {
+                path: script,
+                version: "0".into(),
+            }),
+            ffmpeg: None,
+        };
+        let spec = DownloadSpec::new(
+            url::Url::parse("https://example.com/v").unwrap(),
+            d.path().join("dl"),
+        );
+        let run = spawn(&spec, &tools, "t").unwrap();
+        let mut pid = None;
+        for _ in 0..100 {
+            if let Some(p) = fs::read_to_string(&pidfile)
+                .ok()
+                .and_then(|s| s.trim().parse::<u32>().ok())
+            {
+                pid = Some(p);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let pid = pid.expect("fake yt-dlp started its child");
+        assert!(alive(pid));
+        drop(run);
+        for _ in 0..100 {
+            if !alive(pid) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("grandchild {pid} survived dropping Running");
     }
 }

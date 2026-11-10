@@ -148,7 +148,7 @@ impl Job {
 /// Per-job options. Every field is optional; unset fields inherit the defaults of
 /// the profile. `engine_options` passes engine-specific options through verbatim
 /// (validated by the engine adapter) so every engine feature stays reachable.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JobOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -197,8 +197,52 @@ pub struct JobOptions {
     pub engine_options: BTreeMap<String, String>,
 }
 
+impl std::fmt::Debug for JobOptions {
+    // Headers, proxy URLs and engine passwords may carry credentials, so
+    // `Debug` (and therefore logs) shows only that they are set.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let secret = |key: &str| {
+            let k = key.to_ascii_lowercase();
+            k.ends_with("passwd") || k.ends_with("password") || k.ends_with("proxy")
+        };
+        let engine: BTreeMap<&str, &str> = self
+            .engine_options
+            .iter()
+            .map(|(k, v)| {
+                (
+                    k.as_str(),
+                    if secret(k) { "<redacted>" } else { v.as_str() },
+                )
+            })
+            .collect();
+        f.debug_struct("JobOptions")
+            .field("dir", &self.dir)
+            .field("out", &self.out)
+            .field("max_download_limit", &self.max_download_limit)
+            .field("max_upload_limit", &self.max_upload_limit)
+            .field("select_files", &self.select_files)
+            .field("file_names", &self.file_names)
+            .field("seed", &self.seed)
+            .field("seed_ratio", &self.seed_ratio)
+            .field("seed_time", &self.seed_time)
+            .field("sequential", &self.sequential)
+            .field(
+                "headers",
+                &format_args!("<{} redacted>", self.headers.len()),
+            )
+            .field("user_agent", &self.user_agent)
+            .field("referer", &self.referer)
+            .field("proxy", &self.proxy.as_ref().map(|_| "<redacted>"))
+            .field("checksum", &self.checksum)
+            .field("connections_per_server", &self.connections_per_server)
+            .field("split", &self.split)
+            .field("engine_options", &engine)
+            .finish()
+    }
+}
+
 /// One thing to add.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AddSource {
     /// One download from one or more mirror URIs (HTTP/FTP/SFTP/magnet).
@@ -213,6 +257,42 @@ pub enum AddSource {
         #[serde(default)]
         video: Box<crate::video::VideoOptions>,
     },
+}
+
+impl std::fmt::Debug for AddSource {
+    // URIs may carry `user:pass@` or token query values, and torrent payloads are
+    // large, so `Debug` shows a redacted summary only.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use crate::redact::redact_url;
+        match self {
+            AddSource::Uris { uris } => f
+                .debug_struct("Uris")
+                .field(
+                    "uris",
+                    &uris.iter().map(|u| redact_url(u)).collect::<Vec<_>>(),
+                )
+                .finish(),
+            AddSource::Torrent { name, data_base64 } => f
+                .debug_struct("Torrent")
+                .field("name", name)
+                .field("data_base64_len", &data_base64.len())
+                .finish(),
+            AddSource::Metalink { name, data_base64 } => f
+                .debug_struct("Metalink")
+                .field("name", name)
+                .field("data_base64_len", &data_base64.len())
+                .finish(),
+            AddSource::Video { url, video } => {
+                let mut shown = (**video).clone();
+                let args = std::mem::take(&mut shown.extra_args).len();
+                f.debug_struct("Video")
+                    .field("url", &redact_url(url))
+                    .field("video", &shown)
+                    .field("extra_args", &format_args!("<{args} redacted>"))
+                    .finish()
+            }
+        }
+    }
 }
 
 /// Parameters of `jobs.add`.
@@ -399,6 +479,45 @@ pub struct Limits {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn add_source_debug_hides_credentials() {
+        let u = AddSource::Uris {
+            uris: vec!["https://bob:pw@h.example/f?sig=SECRETSIG".into()],
+        };
+        let d = format!("{u:?}");
+        assert!(
+            d.contains("h.example/f") && !d.contains("pw") && !d.contains("SECRETSIG"),
+            "{d}"
+        );
+        let v = AddSource::Video {
+            url: "https://h/v?token=T0K".into(),
+            video: Box::new(crate::video::VideoOptions {
+                extra_args: vec!["--add-header".into(), "Authorization: Bearer ZZZ".into()],
+                ..Default::default()
+            }),
+        };
+        let d = format!("{v:?}");
+        assert!(!d.contains("T0K") && !d.contains("ZZZ"), "{d}");
+    }
+
+    #[test]
+    fn job_options_debug_hides_credentials() {
+        let mut o = JobOptions {
+            headers: vec!["Authorization: Bearer abc123".into()],
+            proxy: Some("http://u:pw@proxy".into()),
+            ..JobOptions::default()
+        };
+        o.engine_options
+            .insert("http-passwd".into(), "hunter2".into());
+        o.engine_options.insert("max-tries".into(), "3".into());
+        let d = format!("{o:?}");
+        assert!(
+            !d.contains("abc123") && !d.contains("pw@") && !d.contains("hunter2"),
+            "{d}"
+        );
+        assert!(d.contains("max-tries"));
+    }
+
     use super::*;
 
     fn job() -> Job {

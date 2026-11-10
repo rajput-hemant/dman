@@ -131,7 +131,7 @@ pub struct VideoOptions {
 }
 
 /// `video.probe` parameters.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VideoProbeParams {
     pub url: String,
     /// List the playlist entries instead of probing a single video.
@@ -139,6 +139,16 @@ pub struct VideoProbeParams {
     pub playlist: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cookies_from_browser: Option<String>,
+}
+
+impl std::fmt::Debug for VideoProbeParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VideoProbeParams")
+            .field("url", &crate::redact::redact_url(&self.url))
+            .field("playlist", &self.playlist)
+            .field("cookies_from_browser", &self.cookies_from_browser)
+            .finish()
+    }
 }
 
 /// What a format contains.

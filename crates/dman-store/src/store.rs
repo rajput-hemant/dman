@@ -249,8 +249,15 @@ impl Store {
         let table = tx.open_table(JOBS)?;
         let mut out = Vec::new();
         for entry in table.iter()? {
-            let (_, v) = entry?;
-            out.push(serde_json::from_slice::<JobRecord>(v.value())?);
+            let (k, v) = entry?;
+            // One unreadable record must not hide every other job (or stop the
+            // daemon from starting); it stays in the database untouched.
+            match serde_json::from_slice::<JobRecord>(v.value()) {
+                Ok(r) => out.push(r),
+                Err(e) => {
+                    tracing::warn!(job = k.value(), error = %e, "skipping unreadable job record")
+                }
+            }
         }
         out.sort_by_key(|j| (j.queue_key, j.id));
         Ok(out)
@@ -398,7 +405,7 @@ impl Store {
 fn bump(tx: &redb::WriteTransaction, key: &str, first: u64) -> Result<u64> {
     let mut meta = tx.open_table(META)?;
     let cur = meta.get(key)?.map_or(first, |v| v.value());
-    meta.insert(key, cur + 1)?;
+    meta.insert(key, cur.saturating_add(1))?;
     Ok(cur)
 }
 
@@ -491,6 +498,21 @@ mod tests {
         assert_eq!(s.get_blob(JobId(1)).unwrap().unwrap(), b"d8:announce");
         s.delete_job(JobId(1)).unwrap();
         assert!(s.get_blob(JobId(1)).unwrap().is_none());
+    }
+
+    #[test]
+    fn unreadable_record_does_not_hide_the_others() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = open(&dir);
+        s.put_job(&rec(1, 1)).unwrap();
+        let tx = s.db.begin_write().unwrap();
+        tx.open_table(JOBS)
+            .unwrap()
+            .insert(2, b"{not json".as_slice())
+            .unwrap();
+        tx.commit().unwrap();
+        let ids: Vec<u64> = s.list_jobs().unwrap().iter().map(|j| j.id.0).collect();
+        assert_eq!(ids, [1]);
     }
 
     #[test]

@@ -220,7 +220,7 @@ pub fn parse_torrent(data: &[u8]) -> Result<TorrentMeta, String> {
     };
     Ok(TorrentMeta {
         name,
-        total: files.iter().map(|f| f.length).sum(),
+        total: files.iter().fold(0u64, |t, f| t.saturating_add(f.length)),
         files,
         info_hash: hex(&Sha1::digest(&data[a..b])),
     })
@@ -373,6 +373,20 @@ mod tests {
         assert_eq!(m.name, "good");
         assert!(parse_torrent(&torrent(b"d4:name1:xe")).is_err());
         assert!(parse_torrent(b"d4:infoi1ee").is_err());
+    }
+
+    #[test]
+    fn huge_file_sizes_do_not_overflow_the_total() {
+        let info = info_dict(
+            "x",
+            &[
+                (&["a"], i64::MAX as u64),
+                (&["b"], i64::MAX as u64),
+                (&["c"], 9),
+            ],
+        );
+        let m = parse_torrent(&torrent(&info)).unwrap();
+        assert!(m.total >= i64::MAX as u64);
     }
 
     #[test]

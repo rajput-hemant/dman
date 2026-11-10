@@ -1,5 +1,5 @@
 # cargo-deny configuration. Run: cargo deny check
-# Licenses: permissive only (decision Q8, dman itself stays proprietary-capable).
+# Licenses: permissive only, so dman itself can stay proprietary-capable.
 
 [graph]
 targets = [

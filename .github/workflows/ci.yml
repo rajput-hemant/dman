@@ -79,12 +79,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4.2.2
-      - uses: EmbarkStudios/cargo-deny-action@v2.0.1
+      # Same cargo-deny release that deny.toml is written for; the bundled
+      # version in cargo-deny-action is older and rejects its schema.
+      - uses: taiki-e/install-action@v2
         with:
-          command: check
-          arguments: --all-features
+          tool: cargo-deny@0.20.2
+      - run: cargo deny --all-features check
 
-  # Release binary size (decision D23): musl, stripped, as shipped.
+  # Release binary size: musl, stripped, exactly as shipped.
   size:
     runs-on: ubuntu-24.04
     steps:

@@ -24,7 +24,12 @@ JSON-RPC-over-WebSocket API.
 - Every change must pass: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
   `cargo test --workspace`.
 - Commits: one per coherent unit of work (a crate, a feature, a fix) — not per file,
-  not per milestone. Imperative subject ≤ 72 chars, body explains why.
+  not per milestone. Conventional Commits format (`feat:`, `fix:`, `refactor:`,
+  `docs:`, `test:`, `chore:`, `perf:`, `ci:`; optional scope), imperative subject
+  ≤ 72 chars, body explains why. Author: `rajput-hemant <rajput.hemant2001@gmail.com>`.
+  No `Co-Authored-By` or other attribution trailers.
+- Code comments must not reference planning IDs (decision codes like D22, Q3, U1
+  or milestone numbers); explain the reason in plain words instead.
 - Planning notes and scratch files go in `.plan/`, `spikes/` or `notes/` (git-ignored).
   Only `README.md`, `CLAUDE.md` and `PROGRESS.md` are committed markdown at the root.
 - Report progress to the user in 10 % steps of overall completion (weights in `PROGRESS.md`).

@@ -75,7 +75,7 @@ commit this file together with the code it describes.
 - [x] Remove-unselected-files cleanup (D28: opt-in + confirmation) after torrent completion
 - [x] Real-aria2 tests for seeding/ratio stop (dman now enforces seed ratio/time itself; fixed re-add of completed torrents with check-integrity) (D12) using the local seeder fixture (crates/dman-daemon/tests/fixtures/seeder.py)
 - [x] `config.reload` (limits, schedule, torrents, notify, search, video live; aria2/web/profile need restart)
-- [ ] Follow-up: store .torrent metadata for magnet jobs on follow-up so seeding survives restarts; web UI for cleanup/reload
+- [x] Follow-up: store .torrent metadata for magnet jobs (daemon review); web UI for cleanup/reload (web review)
 
 ### M5 — Search (12 %)
 - [x] `dman-search` library: declarative provider defs (torznab/feed/html/json), built-ins (Nyaa, YTS, TPB, Knaben, 1337x, Torznab template; all off, unverified against live sites), concurrent fan-out with per-provider timeout/rate limit/cap, dedupe by info-hash, ranking, test_provider, import/export, tracker-list fetch
@@ -99,7 +99,7 @@ commit this file together with the code it describes.
 - [x] Daemon wiring: implement `Backend` over the dispatch, `[web]` config (enabled, bind, port, base_path, token_ref, exposed warning), mount on its own listener, `dman serve` (D3: foreground daemon with web on / enable on running daemon), `web.status` API
 - [x] Use engine.status (yt-dlp availability) instead of the empty-URL video.probe hack for showing video options
 - [x] Browser smoke test with Playwright (49/49 checks, desktop + iPhone 13; fixed: per-add download limit, no-provider search message, logout styling)
-- [ ] Web UX: phone filter/sort controls too tall; refused delete-confirm should be inline; detail speed row via SSE instead of 3 s polling
+- [x] Web UX: phone filter/sort controls, inline refused delete-confirm, detail speed via SSE
 - [x] (SIGPIPE fixed with completions; removed jobs hidden + undo) Follow-ups found by the browser test: resume of an HTTP download from a server without Range support ends in aria2 "No URI available" → restart from zero automatically or explain; `dman ... | head` panics on SIGPIPE (println!) — handle broken pipe in the CLI; decide whether removed jobs should stay listed (currently state `removed` until purged) (desktop + phone viewport): load, add a download, live progress, pause/resume, remove with delete confirmation, search
 - [x] Missing web features vs TUI: magnet file selection, daemon folder picker, multi-select (web overhaul)
 
@@ -107,8 +107,8 @@ commit this file together with the code it describes.
 - [x] History rewritten by the owner; author `rajput-hemant`, Conventional Commits, no attribution trailers (CLAUDE.md)
 - [x] Planning IDs removed from code comments
 - [x] CI: deny job uses cargo-deny 0.20.2 (cargo-deny-action v2.0.1 rejected the config); macOS test job is cancelled by GitHub (no macOS runner for the repo), not a code failure. CI will be switched off during development by the owner.
-- [ ] Full code review + fixes: daemon (+ magnet .torrent persistence, HTTP no-Range recovery, flaky test), library crates, TUI (+ responsive layout at any size, tabbed/grouped command palette, file splits), web + CLI (+ cleanup/reload UI, exit-code audit)
-- [ ] Final size pass: optional cargo features
+- [x] Full code review + fixes: library crates (575eb0f), web + CLI incl. cleanup/reload UI and exit-code audit (d7d5751), daemon incl. magnet .torrent persistence, no-Range restart, load-cookies + search.resolve hardening, flaky waits (caab3e0), TUI incl. responsive layout at any size, grouped command palette, file splits, braille piece map (38f8a81)
+- [ ] Minor review notes left: jobs.detail makes 3 sequential aria2 calls; failing global-limit push warns every tick; searches evicted from the kept list can't be cancelled at shutdown; video.preferences.set/redetect do blocking file I/O on the async task; Job/JobDetail lack `cleanup_pending` (web uses a dry run); ephemeral test ports can race
 
 ### UX pass (requested by the user, 2026-11-09)
 - [x] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
@@ -118,20 +118,20 @@ commit this file together with the code it describes.
 - [x] Fix (user): TUI treated YouTube URLs as plain http because engine status only arrived on engine changes — daemon now sends engine status after the snapshot on subscribe [x]; TUI also queries engine.status on connect [x]
 - [x] Single delete confirmation (U1) in TUI, CLI, web
 - [x] Top-notch TUI (user request): research brief (.plan/tui-design-brief.md) + redesign P0 and most of P1 (themes, dashboard, preview pane, two-line rows, toasts + undo, layered dialogs, which-key for sort, mouse toggle, animations)
-- [ ] TUI leftovers: two-pane Add form (P1.8), braille piece map + speed windows, which-key for g/v/l, custom theme files; split app.rs/theme.rs/render.rs
+- [ ] TUI leftovers: two-pane Add form, speed windows, custom theme files (done: braille piece map, file splits; which-key for g/v/l declined — keys stay as they are)
 - [x] Web UI modern redesign (user request): app shell + sidebar, design tokens, light/dark + toggle, command menu, list rows, stat tiles, toasts with actions; access model U3
-- [ ] Flaky: one gated daemon test failed once in a full run (not reproduced in 2 reruns) — watch
+- [x] Flaky gated test: timing waits replaced by polling; failures only seen when two real-engine suites ran at once
 - [x] Video quality picker UI in TUI, CLI and web (+ undo remove via jobs.restore): if ask_quality → probe → picker (video + audio lists, presets) with "Use as my default" and "Never ask again" checkboxes; else add with defaults; Settings toggle to ask again
 - [x] Web UI overhaul: paste-to-add + drag & drop, cards with progress bars, compact filters, bulk actions, one-click download from search, magnet file picker, folder picker, live detail, grouped settings, toasts, accessible responsive design
 
 ### M8 — Remote and release (11 %)
 - [x] Built-in TLS (D24) for the API listener and web listener (rustls, user cert/key paths in config; `wss://`/`https://` in client + remote profiles) + docs for SSH tunnel / reverse proxy
 - [x] Remote profiles end to end (TLS + custom CA pin, reconnect across daemon restart, docs/remote.md): TUI/CLI against a remote daemon (paths are daemon-side; uploads for local .torrent), reconnect hardening tests (kill/restart daemon while TUI attached)
-- [ ] CLI robustness: SIGPIPE-safe output (done), consistent exit codes audit (in the CLI review)
+- [x] CLI robustness: SIGPIPE-safe output, exit codes audit
 - [x] Packaging: cargo-dist config (Linux musl x86_64/aarch64, macOS universal), Homebrew tap formula, install receipt; `dman update` with install-method detection (D22) + `--check`; opt-in update check (D27)
 - [x] cargo-deny (licenses permissive only + MPL-2.0 exception — Q8, advisories), CI workflow (GitHub Actions: fmt, clippy, test, gated aria2/yt-dlp jobs, size report)
 - [x] README (concise, root) — `dman --help` polish is part of the CLI review
-- [ ] Security review: secrets never logged (grep logs in tests), path traversal (rename/delete/cleanup), webhook SSRF note, web auth, CSP; fix findings
+- [x] Security review (done in the review pass): secrets never logged (grep logs in tests), path traversal (rename/delete/cleanup), webhook SSRF note, web auth, CSP; fix findings
 - [ ] Final size pass: measure, consider optional features (notify-rust/web/search/video as cargo features, default all on)
 
 ### Follow-ups noted during M1

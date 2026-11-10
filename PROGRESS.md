@@ -1,6 +1,6 @@
 # dman — progress tracker
 
-**Overall: 92 %** · Current milestone: **M7 — web UI leftovers, then M8** · Last updated: 2026-11-09
+**Overall: 92 %** · Current milestone: **M7 — web UI leftovers, then M8** · Last updated: 2026-11-10
 
 Resume rule: start at the first unchecked item in "Next up". Tick items here and
 commit this file together with the code it describes.
@@ -36,7 +36,7 @@ commit this file together with the code it describes.
 
 ### M1 — foundation (15 %)
 - [x] Workspace skeleton, lints, release profile, check script (`scripts/check.sh`) — cargo-deny config still to add in M8
-- [ ] `dman-proto`: Job model, states, options, events, JSON-RPC envelope, error codes
+- [x] `dman-proto`: Job model, states, options, events, JSON-RPC envelope, error codes
 - [x] `dman-config`: profiles, TOML load/validate, secrets.toml (0600), paths (`~/.config/dman`)
 - [x] `dman-aria2`: typed JSON-RPC/WebSocket client, notifications, multicall
 - [x] `dman-aria2` supervisor + adapter: JobOptions→aria2 option mapping, capability detection (getVersion features), spawn/attach, port probe, generated aria2 config, restart with backoff, clean shutdown
@@ -100,15 +100,22 @@ commit this file together with the code it describes.
 - [x] Use engine.status (yt-dlp availability) instead of the empty-URL video.probe hack for showing video options
 - [x] Browser smoke test with Playwright (49/49 checks, desktop + iPhone 13; fixed: per-add download limit, no-provider search message, logout styling)
 - [ ] Web UX: phone filter/sort controls too tall; refused delete-confirm should be inline; detail speed row via SSE instead of 3 s polling
-- [ ] Follow-ups found by the browser test: resume of an HTTP download from a server without Range support ends in aria2 "No URI available" → restart from zero automatically or explain; `dman ... | head` panics on SIGPIPE (println!) — handle broken pipe in the CLI; decide whether removed jobs should stay listed (currently state `removed` until purged) (desktop + phone viewport): load, add a download, live progress, pause/resume, remove with delete confirmation, search
-- [ ] Missing web features vs TUI: magnet file selection (preview_magnet), daemon folder picker (fs.list), multi-select
+- [x] (SIGPIPE fixed with completions; removed jobs hidden + undo) Follow-ups found by the browser test: resume of an HTTP download from a server without Range support ends in aria2 "No URI available" → restart from zero automatically or explain; `dman ... | head` panics on SIGPIPE (println!) — handle broken pipe in the CLI; decide whether removed jobs should stay listed (currently state `removed` until purged) (desktop + phone viewport): load, add a download, live progress, pause/resume, remove with delete confirmation, search
+- [x] Missing web features vs TUI: magnet file selection, daemon folder picker, multi-select (web overhaul)
+
+### Review pass (2026-11-10)
+- [x] History rewritten by the owner; author `rajput-hemant`, Conventional Commits, no attribution trailers (CLAUDE.md)
+- [x] Planning IDs removed from code comments
+- [x] CI: deny job uses cargo-deny 0.20.2 (cargo-deny-action v2.0.1 rejected the config); macOS test job is cancelled by GitHub (no macOS runner for the repo), not a code failure. CI will be switched off during development by the owner.
+- [ ] Full code review + fixes: daemon (+ magnet .torrent persistence, HTTP no-Range recovery, flaky test), library crates, TUI (+ responsive layout at any size, tabbed/grouped command palette, file splits), web + CLI (+ cleanup/reload UI, exit-code audit)
+- [ ] Final size pass: optional cargo features
 
 ### UX pass (requested by the user, 2026-11-09)
 - [x] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
 - [x] CLI: dynamic completions (job IDs, providers, profiles), `dman completions install`, help examples, SIGPIPE-safe output
 - [x] Seeding OFF by default (`[torrents] seed = false`; per-job `seed` override; setting a seed ratio/time on a job implies seeding)
 - [x] Video quality picker (user request): backend — `[video] ask_quality` (default true) + `default_audio`, `video.preferences.get/set` (persisted), probe `video_choices`/`audio_choices`/`needs_choice`, "v+a" format ids, defaults used when no choice
-- [ ] Fix (user): TUI treated YouTube URLs as plain http because engine status only arrived on engine changes — daemon now sends engine status after the snapshot on subscribe [x]; TUI also queries engine.status on connect [x]
+- [x] Fix (user): TUI treated YouTube URLs as plain http because engine status only arrived on engine changes — daemon now sends engine status after the snapshot on subscribe [x]; TUI also queries engine.status on connect [x]
 - [x] Single delete confirmation (U1) in TUI, CLI, web
 - [x] Top-notch TUI (user request): research brief (.plan/tui-design-brief.md) + redesign P0 and most of P1 (themes, dashboard, preview pane, two-line rows, toasts + undo, layered dialogs, which-key for sort, mouse toggle, animations)
 - [ ] TUI leftovers: two-pane Add form (P1.8), braille piece map + speed windows, which-key for g/v/l, custom theme files; split app.rs/theme.rs/render.rs
@@ -120,10 +127,10 @@ commit this file together with the code it describes.
 ### M8 — Remote and release (11 %)
 - [x] Built-in TLS (D24) for the API listener and web listener (rustls, user cert/key paths in config; `wss://`/`https://` in client + remote profiles) + docs for SSH tunnel / reverse proxy
 - [x] Remote profiles end to end (TLS + custom CA pin, reconnect across daemon restart, docs/remote.md): TUI/CLI against a remote daemon (paths are daemon-side; uploads for local .torrent), reconnect hardening tests (kill/restart daemon while TUI attached)
-- [ ] CLI robustness: SIGPIPE-safe output, consistent exit codes audit
+- [ ] CLI robustness: SIGPIPE-safe output (done), consistent exit codes audit (in the CLI review)
 - [x] Packaging: cargo-dist config (Linux musl x86_64/aarch64, macOS universal), Homebrew tap formula, install receipt; `dman update` with install-method detection (D22) + `--check`; opt-in update check (D27)
 - [x] cargo-deny (licenses permissive only + MPL-2.0 exception — Q8, advisories), CI workflow (GitHub Actions: fmt, clippy, test, gated aria2/yt-dlp jobs, size report)
-- [ ] README (install, quick start, config reference, security notes), `dman --help` polish, man page optional
+- [x] README (concise, root) — `dman --help` polish is part of the CLI review
 - [ ] Security review: secrets never logged (grep logs in tests), path traversal (rename/delete/cleanup), webhook SSRF note, web auth, CSP; fix findings
 - [ ] Final size pass: measure, consider optional features (notify-rust/web/search/video as cargo features, default all on)
 

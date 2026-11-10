@@ -28,6 +28,11 @@ use crate::manager::{ManagerHandle, Request};
 
 /// Outgoing frames buffered per connection before back-pressure applies.
 const OUT_BUFFER: usize = 256;
+/// Requests of one connection handled at the same time; further requests
+/// wait (and the connection stops being read) until one finishes.
+const MAX_IN_FLIGHT: usize = 32;
+/// Largest accepted WebSocket message (a base64 `.torrent` upload fits easily).
+const MAX_MESSAGE: usize = 32 * 1024 * 1024;
 
 /// Shared state of all connections.
 pub struct ServerState {
@@ -65,7 +70,8 @@ pub fn router(state: Arc<ServerState>) -> Router {
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<ServerState>>) -> HttpResponse {
-    ws.on_upgrade(move |socket| session(socket, state))
+    ws.max_message_size(MAX_MESSAGE)
+        .on_upgrade(move |socket| session(socket, state))
 }
 
 fn wire(code: i64, message: impl Into<String>) -> WireError {
@@ -78,7 +84,12 @@ fn wire(code: i64, message: impl Into<String>) -> WireError {
 
 fn encode(r: &Response) -> String {
     serde_json::to_string(r).unwrap_or_else(|e| {
-        format!(r#"{{"jsonrpc":"2.0","id":null,"error":{{"code":-32603,"message":"{e}"}}}}"#)
+        json!({
+            "jsonrpc": "2.0",
+            "id": null,
+            "error": {"code": -32603, "message": format!("cannot encode the response: {e}")},
+        })
+        .to_string()
     })
 }
 
@@ -270,6 +281,7 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
     };
 
     let mut shutdown = state.shutdown.clone();
+    let in_flight = Arc::new(tokio::sync::Semaphore::new(MAX_IN_FLIGHT));
     let mut authed = false;
     let mut forwarder: Option<tokio::task::JoinHandle<()>> = None;
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
@@ -379,7 +391,15 @@ async fn session(socket: WebSocket, state: Arc<ServerState>) {
                     &mut tasks
                 };
                 list.retain(|t| !t.is_finished());
+                let permit = tokio::select! {
+                    p = in_flight.clone().acquire_owned() => match p {
+                        Ok(p) => p,
+                        Err(_) => break,
+                    },
+                    _ = shutdown.wait_for(|v| *v) => break,
+                };
                 list.push(tokio::spawn(async move {
+                    let _permit = permit;
                     let resp = match dispatch(&state, &method, req.params).await {
                         Ok(v) => Response::ok(id, v),
                         Err(e) => Response::err(id, e),

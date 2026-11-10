@@ -12,9 +12,11 @@ mod detail;
 mod events;
 pub(crate) mod finish;
 mod fs;
+mod metadata;
 mod poll;
 mod remove;
 mod rename;
+mod restart;
 mod scheduler;
 pub mod seeding;
 mod timetable;
@@ -198,6 +200,12 @@ pub(crate) struct Entry {
     /// Held back by the disk guard (warning already sent).
     disk_blocked: bool,
     pub(crate) missing: u32,
+    /// aria2 failed it because its server cannot resume: start it over.
+    pub(crate) restart_from_zero: bool,
+    /// A magnet job whose `.torrent` metadata should now be stored as its blob.
+    pub(crate) need_metadata: bool,
+    /// Attempts to find that metadata so far.
+    pub(crate) metadata_tries: u8,
     /// The running yt-dlp process of a video job.
     pub(crate) video: Option<video::VideoRun>,
     /// Playlist position `(n, m)` of a running video job.
@@ -209,6 +217,7 @@ impl Entry {
         let need_details = rec.engine == Engine::Aria2
             && !rec.state.is_stopped()
             && rec.extra.get("details_final").and_then(Value::as_bool) != Some(true);
+        let need_metadata = metadata::wanted_at_load(&rec);
         Self {
             rec,
             live: LiveFigures::default(),
@@ -220,6 +229,9 @@ impl Entry {
             need_details,
             disk_blocked: false,
             missing: 0,
+            restart_from_zero: false,
+            need_metadata,
+            metadata_tries: 0,
             video: None,
             video_item: None,
         }
@@ -254,6 +266,8 @@ pub struct Manager {
     pub(crate) store: Store,
     pub(crate) profile: Profile,
     pub(crate) default_dir: PathBuf,
+    /// dman's configuration directory (the only place cookie files are read from).
+    pub(crate) config_dir: Option<PathBuf>,
     /// Limits in effect (base, window and temporary overrides applied).
     pub(crate) limits: Limits,
     pub(crate) timetable: Timetable,
@@ -296,7 +310,9 @@ impl Manager {
         let (video_tx, video_rx) = mpsc::unbounded_channel();
         let tools = cfg.video_tools.borrow().clone();
         let default_dir = cfg.profile.download_path();
+        let config_dir = cfg.config_paths.as_ref().map(|p| p.config_dir().to_owned());
         let mgr = Manager {
+            config_dir,
             store: cfg.store,
             profile: cfg.profile,
             default_dir,

@@ -125,7 +125,17 @@ impl Manager {
 
     /// Re-adds `id`; on failure marks it as failed (resume retries it).
     pub(crate) async fn readd_or_fail(&mut self, client: &Aria2Client, id: JobId) {
-        if let Err(err) = self.readd(client, id).await {
+        self.readd_with_or_fail(client, id, &[]).await;
+    }
+
+    /// [`Self::readd_with`]; on failure marks the job as failed (resume retries it).
+    pub(crate) async fn readd_with_or_fail(
+        &mut self,
+        client: &Aria2Client,
+        id: JobId,
+        extra: &[(&str, &str)],
+    ) {
+        if let Err(err) = self.readd_with(client, id, extra).await {
             let name = self.jobs.get(&id).map(|e| e.rec.name.clone());
             if let Some(e) = self.jobs.get_mut(&id) {
                 let prev = e.rec.state;
@@ -151,6 +161,16 @@ impl Manager {
     /// Adds job `id` to aria2 again (paused) from its stored source and
     /// options, and points the job at the new gid.
     pub(crate) async fn readd(&mut self, client: &Aria2Client, id: JobId) -> Result<(), String> {
+        self.readd_with(client, id, &[]).await
+    }
+
+    /// [`Self::readd`] with `extra` aria2 options for this one addition.
+    pub(crate) async fn readd_with(
+        &mut self,
+        client: &Aria2Client,
+        id: JobId,
+        extra: &[(&str, &str)],
+    ) -> Result<(), String> {
         let rec = self
             .jobs
             .get(&id)
@@ -169,21 +189,23 @@ impl Manager {
             // to touch the existing files ("control file does not exist").
             opts.set("check-integrity", "true");
         }
+        for (k, v) in extra {
+            opts.set(*k, *v);
+        }
         tokio::fs::create_dir_all(&rec.dir)
             .await
             .map_err(|e| format!("cannot create {}: {e}", rec.dir))?;
         let blob = if rec.has_blob {
-            Some(
-                self.db(move |s| s.get_blob(id))
-                    .await
-                    .map_err(|e| e.message)?
-                    .ok_or("the stored .torrent/.metalink data is missing")?,
-            )
+            self.db(move |s| s.get_blob(id))
+                .await
+                .map_err(|e| e.message)?
         } else {
             None
         };
         let gid: Gid = match (rec.kind, blob) {
-            (SourceKind::Torrent, Some(b)) => client
+            // A magnet job whose metadata was stored starts from it: no peer
+            // has to serve the metadata again.
+            (SourceKind::Torrent | SourceKind::Magnet, Some(b)) => client
                 .add_torrent(&b, &[], &opts, None)
                 .await
                 .map_err(|e| e.to_string())?,
@@ -209,7 +231,7 @@ impl Manager {
                 keep
             }
             (SourceKind::Torrent | SourceKind::Metalink, None) => {
-                return Err("no stored .torrent/.metalink data".into());
+                return Err("the stored .torrent/.metalink data is missing".into());
             }
             _ => {
                 let uris: Vec<String> = rec

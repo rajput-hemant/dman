@@ -28,7 +28,8 @@ fn is_bittorrent(src: &AddSource) -> bool {
 impl Manager {
     // ----- add ---------------------------------------------------------------
 
-    pub(super) async fn add(&mut self, p: AddParams) -> Result<Vec<AddOutcome>, RpcError> {
+    pub(super) async fn add(&mut self, mut p: AddParams) -> Result<Vec<AddOutcome>, RpcError> {
+        super::util::check_cookie_file(&mut p.options, self.config_dir.as_deref())?;
         if p.sources.is_empty() {
             return Err(RpcError::invalid("no sources given"));
         }

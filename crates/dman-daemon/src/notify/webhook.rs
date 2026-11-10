@@ -59,8 +59,14 @@ pub struct WebhookSender {
 
 impl WebhookSender {
     /// Builds the HTTP client; the TLS provider must be installed.
+    ///
+    /// The URL is the user's choice and may name any host, internal ones
+    /// included. Redirects are never followed: a `3xx` answer counts as a
+    /// failed attempt, so a webhook endpoint cannot bounce the signed body to
+    /// another host or scheme.
     pub fn new(cfg: Webhook, secret: Option<SecretString>) -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
             .timeout(Duration::from_secs(cfg.timeout_secs))
             .user_agent(concat!("dman/", env!("CARGO_PKG_VERSION")))
             .build()?;

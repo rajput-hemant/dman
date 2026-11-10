@@ -39,6 +39,7 @@ impl Manager {
                 }
             }
         }
+        self.capture_metadata().await;
         self.enforce_seeding().await;
         self.flag_cleanups().await;
         self.pump_videos();
@@ -211,6 +212,8 @@ impl Manager {
         self.pending_transfer.0 = self.pending_transfer.0.saturating_add(down);
         self.pending_transfer.1 = self.pending_transfer.1.saturating_add(up);
 
+        self.restart_unresumable(client).await;
+
         // 3. Jobs that vanished from aria2.
         let mut readd: Vec<JobId> = Vec::new();
         for e in self.jobs.values_mut() {
@@ -258,6 +261,13 @@ impl Manager {
                 e.rec.name = name;
                 changed = true;
             }
+            if e.rec.kind == SourceKind::Magnet
+                && !e.rec.has_blob
+                && tick::details_final(SourceKind::Magnet, &st)
+            {
+                // aria2 has the metadata now (and saved it next to the files).
+                e.need_metadata = true;
+            }
             if let Some(files) = &st.files {
                 let paths = file_paths(files);
                 if !paths.is_empty() {
@@ -300,6 +310,10 @@ impl Manager {
         if follow_up && e.rec.kind == SourceKind::Http {
             // A .torrent fetched over HTTP turned into a torrent download.
             e.rec.kind = SourceKind::Torrent;
+        }
+        if follow_up && e.rec.kind == SourceKind::Magnet && !e.rec.has_blob {
+            e.need_metadata = true;
+            e.metadata_tries = 0;
         }
         e.counters = Some(Counters::fresh(new_gid));
         e.need_details = true;
@@ -348,6 +362,15 @@ pub(super) fn update_entry(e: &mut Entry, st: &Status, gid: &str, now: i64) -> (
         },
     };
     e.aria2 = st.status;
+    if st.status == Some(DownloadStatus::Error)
+        && rec.state != JobState::Error
+        && super::restart::should_restart(rec, st)
+    {
+        // Restarted from zero after this poll instead of failing.
+        e.restart_from_zero = true;
+        e.live = LiveFigures::default();
+        return (d, u, false);
+    }
     let mut transition = false;
     if let Some(status) = st.status
         && let Some(state) = tick::map_state(status, st.seeder.unwrap_or(false), rec.desired)
@@ -366,14 +389,16 @@ pub(super) fn update_entry(e: &mut Entry, st: &Status, gid: &str, now: i64) -> (
                 }
                 JobState::Error => {
                     rec.desired = Desired::Stopped;
-                    rec.error = Some(
+                    rec.error = Some(if super::restart::resume_unsupported(st) {
+                        super::restart::explain(st)
+                    } else {
                         st.error_message
                             .clone()
                             .filter(|m| !m.is_empty())
                             .unwrap_or_else(|| {
                                 format!("aria2 error {}", st.error_code.unwrap_or(0))
-                            }),
-                    );
+                            })
+                    });
                 }
                 JobState::Removed => rec.desired = Desired::Stopped,
                 JobState::Seeding => {

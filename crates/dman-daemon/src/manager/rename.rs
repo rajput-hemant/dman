@@ -306,7 +306,7 @@ impl Manager {
         if n > 0 {
             return Some(n);
         }
-        if e.rec.kind == SourceKind::Torrent && e.rec.has_blob {
+        if matches!(e.rec.kind, SourceKind::Torrent | SourceKind::Magnet) && e.rec.has_blob {
             let id = e.rec.id;
             let blob = self.db(move |s| s.get_blob(id)).await.ok().flatten()?;
             return dman_torrent::parse_torrent(&blob)

@@ -417,6 +417,58 @@ async fn per_job_seed_false_overrides_config() {
     assert_no_aria2(root.path());
 }
 
+/// A job added from a magnet link keeps the metadata aria2 fetched: after a
+/// daemon restart, with no other peer left to serve the metadata, it comes
+/// back seeding from the stored `.torrent`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs aria2c and python3; run with DMAN_TEST_ARIA2=1 and --include-ignored"]
+async fn magnet_job_survives_a_restart_from_its_stored_metadata() {
+    if !aria2_enabled() {
+        eprintln!("DMAN_TEST_ARIA2 != 1; skipping");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let mut seeder = Seeder::start(&root.path().join("seeder"));
+    let magnet = seeder.info["magnet"].as_str().unwrap().to_owned();
+    let mut cfg = config(root.path(), "aria2c", DiskThreshold::Absolute(0));
+    cfg.torrents.seed = true;
+    cfg.torrents.seed_ratio = 0.0; // seed until stopped
+
+    let d = Daemon::start(root.path(), cfg.clone()).await;
+    let c = d.client().await;
+    let out = c
+        .add(AddParams {
+            sources: vec![AddSource::Uris {
+                uris: vec![magnet.clone()],
+            }],
+            options: JobOptions::default(),
+            paused: false,
+        })
+        .await
+        .unwrap();
+    let id = added(&out)[0];
+    wait_jobs(&c, 90, "seeding", |j| job(j, id).state == JobState::Seeding).await;
+    // The metadata is captured on the tick after the follow-up; give it time
+    // and make sure nothing else can serve it from now on.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    seeder.cmd("stop-seeder");
+    d.stop(&c).await;
+
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    let jobs = wait_jobs(&c, 60, "seeding again after the restart", |j| {
+        job(j, id).state == JobState::Seeding
+    })
+    .await;
+    let j = job(&jobs, id);
+    assert_eq!(j.total_bytes, SIZE, "{j:?}");
+    assert_eq!(j.completed_bytes, SIZE, "{j:?}");
+    assert_eq!(j.name, "Album", "{j:?}");
+    d.stop(&c).await;
+    drop(seeder);
+    assert_no_aria2(root.path());
+}
+
 /// Live (non-zombie) aria2c processes whose command line mentions `root`.
 fn aria2_pids(root: &Path) -> Vec<u32> {
     let needle = root.display().to_string();

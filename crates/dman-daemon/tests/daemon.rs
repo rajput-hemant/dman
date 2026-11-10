@@ -660,20 +660,22 @@ async fn lifecycle_with_real_aria2() {
     )
     .await;
     assert!(up.is_some(), "engine did not come back");
-    tokio::time::sleep(Duration::from_millis(800)).await;
-    let jobs = c.list(ListParams::default()).await.unwrap();
-    assert_eq!(jobs.len(), 3, "{jobs:#?}");
-    assert_eq!(job(&jobs, dj).state, JobState::Paused);
-    assert_eq!(job(&jobs, cc).state, JobState::Complete);
+    // The engine is announced before the reconciliation finishes: poll.
+    wait_jobs(&c, 10, "reconciled after the crash", |j| {
+        j.len() == 3
+            && job(j, dj).state == JobState::Paused
+            && job(j, cc).state == JobState::Complete
+    })
+    .await;
 
     // engine.restart on a running engine restarts it cleanly and reconciles.
     let status: Vec<EngineStatus> = c.engine_restart().await.unwrap();
     assert!(status[0].available, "{status:?}");
     assert_eq!(aria2_pids(root.path()).len(), 1);
-    tokio::time::sleep(Duration::from_millis(800)).await;
-    let jobs = c.list(ListParams::default()).await.unwrap();
-    assert_eq!(jobs.len(), 3, "{jobs:#?}");
-    assert_eq!(job(&jobs, dj).state, JobState::Paused);
+    wait_jobs(&c, 10, "reconciled after engine.restart", |j| {
+        j.len() == 3 && job(j, dj).state == JobState::Paused
+    })
+    .await;
     // aria2 forgot the finished job; detail falls back to the stored record.
     let det = c.detail(cc).await.unwrap();
     assert_eq!(det.files.len(), 1, "{:?}", det.files);
@@ -914,4 +916,115 @@ async fn restore_resumes_an_unfinished_job_with_real_aria2() {
     assert_eq!(c.get(a).await.unwrap().state, JobState::Complete);
     assert!(dl.join("a.bin").exists());
     d.stop(&c).await;
+}
+
+/// Serves one file and ignores `Range`: every answer is `200` with the whole
+/// body, like a server without resume support.
+async fn serve_without_ranges(data: Vec<u8>) -> SocketAddr {
+    let data = Arc::new(data);
+    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = l.local_addr().unwrap();
+    tokio::spawn(async move {
+        while let Ok((mut s, _)) = l.accept().await {
+            let data = data.clone();
+            tokio::spawn(async move {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 2048];
+                while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match s.read(&mut chunk).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let head = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n\r\n",
+                    data.len()
+                );
+                if s.write_all(head.as_bytes()).await.is_err() || buf.starts_with(b"HEAD") {
+                    return;
+                }
+                for c in data.chunks(16 * 1024) {
+                    if s.write_all(c).await.is_err() {
+                        return;
+                    }
+                }
+                let _ = s.shutdown().await;
+            });
+        }
+    });
+    addr
+}
+
+/// Pause and resume against a server without range support: aria2 cannot
+/// continue (error 8, "No URI available."), so dman restarts the download from
+/// zero once and says why; a second such failure leaves the job failed with
+/// an explanation, and a retry by the user starts it over again.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs aria2c; run with DMAN_TEST_ARIA2=1 and --include-ignored"]
+async fn resume_without_range_support_restarts_from_zero_with_real_aria2() {
+    if !aria2_enabled() {
+        eprintln!("DMAN_TEST_ARIA2 != 1; skipping");
+        return;
+    }
+    const SIZE: usize = 800 * 1024;
+    let data = content(9, SIZE);
+    let http = serve_without_ranges(data.clone()).await;
+    let root = tempfile::tempdir().unwrap();
+    let dl = root.path().join("dl");
+    let cfg = config(root.path(), "aria2c", DiskThreshold::Absolute(0));
+    let d = Daemon::start(root.path(), cfg).await;
+    let c = d.client().await;
+    let mut events = c.subscribe().await.unwrap();
+    let out = c
+        .add(AddParams {
+            sources: vec![AddSource::Uris {
+                uris: vec![format!("http://{http}/plain.bin")],
+            }],
+            options: JobOptions {
+                max_download_limit: Some(100 * 1024),
+                ..Default::default()
+            },
+            paused: false,
+        })
+        .await
+        .unwrap();
+    let id = added(&out)[0];
+    let pause_resume = async |what: &str| {
+        wait_jobs(&c, 20, what, |j| {
+            let j = job(j, id);
+            j.state == JobState::Active && j.completed_bytes >= 100 * 1024
+        })
+        .await;
+        assert!(c.pause(&[id]).await.unwrap().failed.is_empty());
+        wait_jobs(&c, 10, "paused", |j| job(j, id).state == JobState::Paused).await;
+        assert!(c.resume(&[id]).await.unwrap().failed.is_empty());
+    };
+
+    // 1st interruption: restarted from zero automatically, with a message.
+    pause_resume("partly downloaded").await;
+    let msg = wait_event(&mut events, 20, |e| {
+        matches!(e, Event::Message { level: Level::Warn, text } if text.contains("does not support resuming"))
+    })
+    .await;
+    assert!(msg.is_some(), "no message about the restart");
+    let j = c.get(id).await.unwrap();
+    assert_ne!(j.state, JobState::Error, "{j:?}");
+
+    // 2nd interruption: no endless loop; the job fails with an explanation.
+    pause_resume("partly downloaded again").await;
+    let jobs = wait_jobs(&c, 20, "failed", |j| job(j, id).state == JobState::Error).await;
+    let err = job(&jobs, id).error.clone().unwrap_or_default();
+    assert!(err.contains("does not support resuming"), "{err}");
+
+    // A retry by the user starts over (once more automatically) and completes.
+    assert!(c.resume(&[id]).await.unwrap().failed.is_empty());
+    let jobs = wait_jobs(&c, 30, "complete", |j| {
+        job(j, id).state == JobState::Complete
+    })
+    .await;
+    assert_eq!(job(&jobs, id).error, None);
+    assert_eq!(std::fs::read(dl.join("plain.bin")).unwrap(), data);
+    assert!(!dl.join("plain.bin.aria2").exists());
+    d.stop(&c).await;
+    assert_no_aria2(root.path());
 }

@@ -601,7 +601,10 @@ impl SearchService {
                 (url, provider)
             }
             (None, _) => match (p.detail_url, p.provider) {
-                (Some(u), Some(pr)) => (u, pr),
+                (Some(u), Some(pr)) => {
+                    self.check_detail_url(&u, &pr)?;
+                    (u, pr)
+                }
                 _ => {
                     return Err(RpcError::invalid(
                         "give `search_id` with `index`, or `detail_url` with `provider`",
@@ -616,6 +619,43 @@ impl SearchService {
             .await
             .map_err(|e| provider_err(&e))?;
         Ok(api::ResolvedMagnet { magnet })
+    }
+
+    /// A `detail_url` given by a client is only fetched when it belongs to
+    /// `provider`: a detail page one of the kept searches returned for it, or a
+    /// page on the host of its own search URL. Anything else (internal hosts,
+    /// other sites) is refused, so `search.resolve` cannot be used to make the
+    /// daemon fetch arbitrary URLs.
+    fn check_detail_url(&self, url: &str, provider: &str) -> Result<(), RpcError> {
+        let returned = self.state().searches.iter().any(|s| {
+            s.results.iter().any(|r| {
+                r.detail_url.as_deref() == Some(url)
+                    && r.sources.iter().any(|p| p.eq_ignore_ascii_case(provider))
+            })
+        });
+        if returned {
+            return Ok(());
+        }
+        let def = self
+            .searcher()
+            .providers()
+            .into_iter()
+            .find(|d| d.name.eq_ignore_ascii_case(provider))
+            .ok_or_else(|| RpcError::not_found(format!("provider `{provider}`")))?;
+        let refuse = || {
+            RpcError::refused(format!(
+                "`detail_url` is not a page of provider `{}`",
+                def.name
+            ))
+        };
+        let target = url::Url::parse(url).map_err(|_| refuse())?;
+        let home = provider_home(&def.kind).ok_or_else(refuse)?;
+        let same_host = matches!(target.scheme(), "http" | "https")
+            && target
+                .host_str()
+                .is_some_and(|h| home.host_str().is_some_and(|ph| ph.eq_ignore_ascii_case(h)))
+            && target.port() == home.port();
+        if same_host { Ok(()) } else { Err(refuse()) }
     }
 
     async fn history(&self) -> Result<Vec<SearchHistoryEntry>, RpcError> {
@@ -639,4 +679,15 @@ fn not_found(id: u64) -> RpcError {
         ErrorCode::NotFound,
         format!("no search {id} (only the last {KEEP_SEARCHES} searches are kept)"),
     )
+}
+
+/// The search URL of a provider definition, placeholders filled in.
+fn provider_home(kind: &dman_search::def::Kind) -> Option<url::Url> {
+    use dman_search::def::Kind;
+    let template = match kind {
+        Kind::Torznab { url, .. } | Kind::Feed { url, .. } => url,
+        Kind::Html(h) => &h.search_url,
+        Kind::Json(j) => &j.url,
+    };
+    url::Url::parse(&dman_search::util::fill_url(template, "x", "x")).ok()
 }

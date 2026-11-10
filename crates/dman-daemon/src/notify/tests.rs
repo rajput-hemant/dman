@@ -228,6 +228,34 @@ async fn webhook_gives_up_after_retries_without_leaking() {
 }
 
 #[tokio::test]
+async fn webhook_never_follows_redirects() {
+    install_crypto_provider();
+    let target = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(0)
+        .mount(&target)
+        .await;
+    let server = MockServer::start().await;
+    for location in [
+        format!("{}/elsewhere", target.uri()),
+        "file:///etc/passwd".into(),
+    ] {
+        server.reset().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(307).insert_header("Location", location.as_str()))
+            .mount(&server)
+            .await;
+        let w = WebhookSender::new(webhook_cfg(&server, 0, None), None)
+            .unwrap()
+            .with_backoff(fast());
+        let e = w.send(b"{}").await.unwrap_err();
+        assert!(e.contains("307"), "{location}: {e}");
+    }
+    assert!(target.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn webhook_unreachable_is_an_error() {
     install_crypto_provider();
     let cfg = Webhook {

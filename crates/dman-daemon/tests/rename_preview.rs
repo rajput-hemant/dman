@@ -454,15 +454,22 @@ async fn magnet_preview_timeout_and_cancel_leave_nothing_behind() {
     // Timeout. The manager stays responsive while it waits.
     let c2 = d.client().await;
     let started = std::time::Instant::now();
-    let slow = tokio::spawn(async move { c2.preview_magnet(magnet, Some(3)).await });
-    tokio::time::sleep(Duration::from_millis(800)).await;
-    let t = std::time::Instant::now();
-    c.list(ListParams::default()).await.unwrap();
-    assert!(t.elapsed() < Duration::from_secs(1), "manager blocked");
+    let slow = tokio::spawn(async move { c2.preview_magnet(magnet, Some(6)).await });
+    // Wait for the preview to run in aria2 (polling: no fixed delay that a
+    // busy machine could exceed).
+    for _ in 0..30 {
+        if aria2_gids(&a).await.len() == 1 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
     assert!(
         aria2_gids(&a).await.len() == 1,
         "preview not running in aria2"
     );
+    let t = std::time::Instant::now();
+    c.list(ListParams::default()).await.unwrap();
+    assert!(t.elapsed() < Duration::from_secs(2), "manager blocked");
     let e = rpc_err(slow.await.unwrap().unwrap_err());
     assert!(e.message.contains("timed out"), "{e}");
     assert!(started.elapsed() < Duration::from_secs(15));

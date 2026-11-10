@@ -802,6 +802,50 @@ async fn resolve_reads_the_magnet_from_a_detail_page() {
         .await
         .unwrap();
     assert_eq!(m, m2);
+    // Another page on the provider's own host is fine ...
+    let m3 = c
+        .search_resolve(dman_proto::search::SearchResolveParams {
+            detail_url: Some(format!("{base}/t/1?again=1")),
+            provider: Some("scrape".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(m, m3);
+    // ... but the daemon never fetches a URL that is not the provider's.
+    let port = url::Url::parse(&base).unwrap().port().unwrap();
+    for bad in [
+        "http://169.254.169.254/latest/meta-data/".to_owned(),
+        format!("http://localhost:{port}/t/1"),
+        format!("http://127.0.0.1:{}/t/1", port.wrapping_add(1)),
+        "file:///etc/passwd".to_owned(),
+        "not a url".to_owned(),
+    ] {
+        let err = c
+            .search_resolve(dman_proto::search::SearchResolveParams {
+                detail_url: Some(bad.clone()),
+                provider: Some("scrape".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&err, ClientError::Rpc(e) if e.code == ErrorCode::Refused),
+            "{bad}: {err:?}"
+        );
+    }
+    let err = c
+        .search_resolve(dman_proto::search::SearchResolveParams {
+            detail_url: Some(format!("{base}/t/1")),
+            provider: Some("nobody".into()),
+            ..Default::default()
+        })
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, ClientError::Rpc(e) if e.code == ErrorCode::NotFound),
+        "{err:?}"
+    );
     let err = c
         .search_resolve(dman_proto::search::SearchResolveParams {
             search_id: Some(s.search_id),

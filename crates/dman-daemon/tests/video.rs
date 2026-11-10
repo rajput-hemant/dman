@@ -482,7 +482,9 @@ async fn global_limit_throttles_ytdlp_with_hysteresis() {
     );
     cfg.limits.download = dman_config::ByteLimit(1_000_000);
     // Read when the daemon starts; only this test's cap changes depend on it.
-    dman_daemon::budget::RESPAWN_OVERRIDE_MS.store(2000, std::sync::atomic::Ordering::Relaxed);
+    // Long enough that the "too soon" check below has seconds of margin on a
+    // busy machine.
+    dman_daemon::budget::RESPAWN_OVERRIDE_MS.store(4000, std::sync::atomic::Ordering::Relaxed);
     let d = Daemon::start(root.path(), cfg).await;
     dman_daemon::budget::RESPAWN_OVERRIDE_MS.store(0, std::sync::atomic::Ordering::Relaxed);
     let c = d.client().await;
@@ -503,7 +505,7 @@ async fn global_limit_throttles_ytdlp_with_hysteresis() {
     };
     // A small change (< 25 %) never respawns.
     set(900_000).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(2600)).await;
+    tokio::time::sleep(Duration::from_millis(4500)).await;
     assert_eq!(rates(root.path()).len(), 1);
     // A big change respawns once, with the new rate.
     set(300_000).await.unwrap();

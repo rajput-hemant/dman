@@ -85,6 +85,51 @@ pub(super) fn resolve_dir(requested: Option<&str>, default: &Path) -> Result<Pat
     }
 }
 
+/// Checks the `load-cookies` engine option of `o`, if any, and replaces it by
+/// the canonical path.
+///
+/// Any API client may set engine options, so this option must not turn aria2
+/// into a reader of arbitrary local files (a key or a browser profile sent as
+/// "cookies" to a server of the client's choice). The cookie file has to be an
+/// existing regular file inside dman's configuration directory
+/// (`config_dir`, e.g. `~/.config/dman/cookies.txt`), where only the user
+/// puts files; symlinks are resolved before the check. Without a
+/// configuration directory the option is refused.
+pub(crate) fn check_cookie_file(
+    o: &mut JobOptions,
+    config_dir: Option<&Path>,
+) -> Result<(), RpcError> {
+    const KEY: &str = "load-cookies";
+    let Some(value) = o.engine_options.get(KEY) else {
+        return Ok(());
+    };
+    let refuse = |why: String| {
+        Err(RpcError::invalid(format!(
+            "{KEY}: {why}; put the cookie file into dman's configuration directory"
+        )))
+    };
+    let Some(root) = config_dir.and_then(|d| std::fs::canonicalize(d).ok()) else {
+        return refuse("no configuration directory to read cookie files from".into());
+    };
+    let path = dman_config::expand_tilde(value.trim());
+    if !path.is_absolute() {
+        return refuse(format!("`{value}` must be an absolute path"));
+    }
+    let real = match std::fs::canonicalize(&path) {
+        Ok(p) => p,
+        Err(e) => return refuse(format!("cannot use `{value}`: {e}")),
+    };
+    if !real.starts_with(&root) {
+        return refuse(format!("`{value}` is outside {}", root.display()));
+    }
+    if !std::fs::metadata(&real).is_ok_and(|m| m.is_file()) {
+        return refuse(format!("`{value}` is not a regular file"));
+    }
+    o.engine_options
+        .insert(KEY.to_owned(), real.display().to_string());
+    Ok(())
+}
+
 /// Overlays the fields set in `new` onto `base`.
 pub(super) fn merge_options(base: &JobOptions, new: &JobOptions) -> JobOptions {
     let mut m = base.clone();
@@ -182,6 +227,49 @@ mod tests {
         let m = merge_options(&base, &new);
         assert_eq!(m.max_download_limit, Some(9));
         assert_eq!(m.out.as_deref(), Some("a"));
+    }
+
+    #[test]
+    fn cookie_files_only_from_the_config_dir() {
+        let t = tempfile::tempdir().unwrap();
+        let cfg = t.path().join("cfg");
+        std::fs::create_dir_all(&cfg).unwrap();
+        std::fs::write(cfg.join("cookies.txt"), "x").unwrap();
+        let outside = t.path().join("secret.key");
+        std::fs::write(&outside, "k").unwrap();
+        std::os::unix::fs::symlink(&outside, cfg.join("link.txt")).unwrap();
+        let with = |v: &str| JobOptions {
+            engine_options: [("load-cookies".to_owned(), v.to_owned())].into(),
+            ..Default::default()
+        };
+        // No option: nothing to check.
+        assert!(check_cookie_file(&mut JobOptions::default(), None).is_ok());
+        let mut ok = with(&cfg.join("cookies.txt").display().to_string());
+        check_cookie_file(&mut ok, Some(&cfg)).unwrap();
+        assert_eq!(
+            ok.engine_options["load-cookies"],
+            std::fs::canonicalize(cfg.join("cookies.txt"))
+                .unwrap()
+                .display()
+                .to_string()
+        );
+        for bad in [
+            outside.display().to_string(),
+            cfg.join("link.txt").display().to_string(),
+            cfg.join("../secret.key").display().to_string(),
+            cfg.join("missing.txt").display().to_string(),
+            cfg.display().to_string(),
+            "cookies.txt".into(),
+            "/etc/passwd".into(),
+        ] {
+            assert!(
+                check_cookie_file(&mut with(&bad), Some(&cfg)).is_err(),
+                "{bad}"
+            );
+        }
+        // Without a configuration directory nothing is accepted.
+        let mut o = with(&cfg.join("cookies.txt").display().to_string());
+        assert!(check_cookie_file(&mut o, None).is_err());
     }
 
     #[test]

@@ -108,6 +108,7 @@ impl Manager {
                 })?;
                 let prev = (e.rec.desired, e.rec.state, e.rec.error.take());
                 super::finish::clear_failed(&mut e.rec);
+                super::restart::allow_again(&mut e.rec);
                 e.rec.desired = Desired::Queued;
                 e.rec.state = JobState::Waiting;
                 if let Err(err) = self.readd(&client, id).await {
@@ -186,6 +187,7 @@ impl Manager {
             )));
         }
         let mut delta = p.options.clone();
+        super::util::check_cookie_file(&mut delta, self.config_dir.as_deref())?;
         if let Some(d) = &delta.dir {
             let resolved = resolve_dir(Some(d), &self.default_dir)?;
             delta.dir = Some(resolved.display().to_string());

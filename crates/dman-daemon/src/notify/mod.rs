@@ -173,7 +173,8 @@ impl Notifier {
             let env = payload.env();
             let sem = self.hooks.clone();
             let events = self.events.clone();
-            let label = format!("hook #{} ({})", i + 1, hook.command[0]);
+            let program = hook.command.first().map_or("", String::as_str);
+            let label = format!("hook #{} ({program})", i + 1);
             let name = payload.name.clone();
             tokio::spawn(async move {
                 let Ok(_permit) = sem.acquire_owned().await else {

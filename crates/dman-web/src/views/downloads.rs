@@ -579,7 +579,13 @@ pub struct RemoveTarget<'a> {
 /// The one confirmation for removing: either "remove from list" (files stay) or,
 /// when `delete` is set, "remove and permanently delete the files". The delete form
 /// carries an explicit `delete_files=true`; nothing else ever deletes.
-pub fn remove_form(base: &str, csrf: &str, t: &RemoveTarget<'_>, delete: bool) -> Markup {
+pub fn remove_form(
+    base: &str,
+    csrf: &str,
+    t: &RemoveTarget<'_>,
+    delete: bool,
+    error: Option<&str>,
+) -> Markup {
     let n = t.jobs.len();
     let what = if n == 1 {
         format!("\u{201c}{}\u{201d}", display_name(t.jobs[0]))
@@ -621,6 +627,7 @@ pub fn remove_form(base: &str, csrf: &str, t: &RemoveTarget<'_>, delete: bool) -
                     @if n > 8 { li.muted { "and " (n - 8) " more" } }
                 }
             }
+            @if let Some(e) = error { p.ferr role="alert" { (e) } }
             div.btnrow.end {
                 a.btn.ghost href=(t.cancel_href) data-close { "Cancel" }
                 @if delete { button.btn.danger type="submit" { "Delete files" } }

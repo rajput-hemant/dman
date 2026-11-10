@@ -54,6 +54,8 @@ struct Fake {
     probe: Mutex<Value>,
     /// `video.preferences.get` answer (`Null` = not configured).
     prefs: Mutex<Value>,
+    /// `jobs.remove` fails with a refusal.
+    refuse_remove: Mutex<bool>,
 }
 
 impl Fake {
@@ -69,6 +71,7 @@ impl Fake {
             video,
             probe: Mutex::new(Value::Null),
             prefs: Mutex::new(Value::Null),
+            refuse_remove: Mutex::new(false),
         })
     }
 
@@ -105,6 +108,7 @@ impl Backend for Fake {
         let video = self.video;
         let probe = self.probe.lock().unwrap().clone();
         let prefs = self.prefs.lock().unwrap().clone();
+        let refuse_remove = *self.refuse_remove.lock().unwrap();
         let method = method.to_string();
         Box::pin(async move {
             match method.as_str() {
@@ -115,7 +119,53 @@ impl Backend for Fake {
                         .find(|j| j.id.0 == id)
                         .map_or_else(|| Err(RpcError::not_found("job")), ok)
                 }
-                "jobs.detail" if params["id"] != 1 => Err(RpcError::not_found("job")),
+                "jobs.detail" if params["id"] != 1 && params["id"] != 4 => {
+                    Err(RpcError::not_found("job"))
+                }
+                // Job 4: a finished torrent with a deselected file.
+                "jobs.detail" if params["id"] == 4 => ok(JobDetail {
+                    job: Job {
+                        id: JobId(4),
+                        kind: SourceKind::Torrent,
+                        state: JobState::Complete,
+                        completed_bytes: 1000,
+                        ..jobs[0].clone()
+                    },
+                    files: vec![
+                        FileInfo {
+                            index: 1,
+                            path: "keep.bin".into(),
+                            length: 10,
+                            completed: 10,
+                            selected: true,
+                        },
+                        FileInfo {
+                            index: 2,
+                            path: EVIL.into(),
+                            length: 10,
+                            completed: 3,
+                            selected: false,
+                        },
+                    ],
+                    peers: vec![],
+                    trackers: vec![],
+                    pieces: None,
+                    info_hash: None,
+                    comment: None,
+                    options: Default::default(),
+                    speed_history: vec![],
+                    renames: vec![],
+                }),
+                "jobs.cleanup_unselected" => ok(json!({
+                    "files": [{"path": EVIL, "bytes": 3}],
+                    "bytes": 3,
+                    "deleted": if params["dry_run"] == true { 0 } else { 1 },
+                    "dry_run": params["dry_run"],
+                })),
+                "config.reload" => ok(json!({
+                    "applied": ["limits", "schedule"],
+                    "restart_required": ["web.port"],
+                })),
                 "jobs.detail" => ok(JobDetail {
                     job: Job {
                         kind: SourceKind::Magnet,
@@ -189,6 +239,10 @@ impl Backend for Fake {
                     probe["error"].as_str().unwrap(),
                 )),
                 "video.probe" => Ok(probe),
+                "jobs.remove" if refuse_remove => Err(RpcError::new(
+                    dman_proto::ErrorCode::Refused,
+                    "the folder is read-only",
+                )),
                 "jobs.pause" | "jobs.resume" | "jobs.remove" | "jobs.purge" | "jobs.restore" => {
                     ok(BatchResult {
                         ok: vec![JobId(1)],
@@ -2113,4 +2167,158 @@ async fn host_header_is_checked_without_login() {
     let r = send(&app, with_host(get("/"), "dman.example.org")).await;
     assert_eq!(r.status, StatusCode::SEE_OTHER);
     assert_eq!(r.headers[header::LOCATION], "/login");
+}
+
+// ------------------------------------------------------------ follow-up features
+
+#[tokio::test]
+async fn detail_offers_the_cleanup_of_unselected_files_with_one_confirmation() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let r = send(&app, get("/jobs/4")).await;
+    assert_eq!(r.status, StatusCode::OK);
+    // Listed (escaped) from a dry run; nothing deleted yet.
+    assert!(r.body.contains("Leftover files") && r.body.contains("&lt;script&gt;"));
+    assert!(!r.body.contains(EVIL));
+    assert!(
+        r.body.contains("action=\"/jobs/4/cleanup\"") && r.body.contains("Delete 1 leftover file")
+    );
+    assert_eq!(
+        fake.calls("jobs.cleanup_unselected"),
+        vec![json!({"id": 4, "dry_run": true})]
+    );
+    // A running torrent or one without deselected files shows no card.
+    let r = send(&app, get("/jobs/1")).await;
+    assert!(!r.body.contains("Leftover files"));
+    // The button deletes; it needs the CSRF token like every state change.
+    let t = csrf_of(&r.body);
+    let r = send(&app, post_form("/jobs/4/cleanup", "forged", "")).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    let r = send(&app, post_form("/jobs/4/cleanup", &t, "")).await;
+    assert_eq!(r.status, StatusCode::SEE_OTHER);
+    assert_eq!(r.headers[header::LOCATION], "/jobs/4?done=cleaned");
+    assert_eq!(
+        fake.calls("jobs.cleanup_unselected").last(),
+        Some(&json!({"id": 4, "dry_run": false}))
+    );
+    assert!(
+        send(&app, get("/jobs/4?done=cleaned"))
+            .await
+            .body
+            .contains("Deleted the leftover files")
+    );
+}
+
+#[tokio::test]
+async fn settings_reload_shows_applied_and_restart_required() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let page = send(&app, get("/settings")).await;
+    assert!(page.body.contains("action=\"/settings/reload\""));
+    let t = csrf_of(&page.body);
+    let r = send(
+        &app,
+        hx(post_form("/settings/reload", &t, ""), "reload-result"),
+    )
+    .await;
+    assert_eq!(r.status, StatusCode::OK);
+    assert!(
+        r.body.contains("Applied now: limits, schedule"),
+        "{}",
+        r.body
+    );
+    assert!(r.body.contains("web.port") && r.body.contains("restart"));
+    // Without JavaScript the whole page comes back with the result.
+    let r = send(&app, post_form("/settings/reload", &t, "")).await;
+    assert!(r.body.contains("<h1>Settings</h1>") && r.body.contains("Applied now"));
+    assert_eq!(fake.calls("config.reload").len(), 2);
+    let r = send(&app, post_form("/settings/reload", "forged", "")).await;
+    assert_eq!(r.status, StatusCode::FORBIDDEN);
+    assert_eq!(fake.calls("config.reload").len(), 2);
+}
+
+#[tokio::test]
+async fn refused_removal_is_explained_inside_the_dialog() {
+    let fake = Fake::new(false);
+    *fake.refuse_remove.lock().unwrap() = true;
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    let r = send(
+        &app,
+        hx(post_form("/jobs/2/remove", &t, "delete_files=true"), "x"),
+    )
+    .await;
+    assert!(
+        r.body.contains("class=\"confirm\"") && r.body.contains("role=\"alert\""),
+        "{}",
+        r.body
+    );
+    assert!(r.body.contains("folder is read-only"));
+    assert!(
+        !r.headers.contains_key("hx-retarget"),
+        "stays in the dialog"
+    );
+}
+
+#[tokio::test]
+async fn add_refuses_links_of_unknown_schemes() {
+    let fake = Fake::new(false);
+    let app = app_with(&fake, None, "/");
+    let t = csrf(&app).await;
+    for bad in [
+        "file:///etc/passwd",
+        "javascript://x%0Aalert(1)",
+        "gopher://h/x",
+    ] {
+        let form = format!("uris={bad}");
+        let r = send(&app, post_form("/add", &t, &form)).await;
+        assert_eq!(r.status, StatusCode::BAD_REQUEST, "{bad}");
+    }
+    assert!(fake.calls("jobs.add").is_empty());
+}
+
+#[tokio::test]
+async fn resolve_is_not_reachable_from_another_site() {
+    let app = app_with(&Fake::new(false), None, "/");
+    let mut r = get("/search/resolve?detail_url=http%3A%2F%2Fx%2F");
+    r.headers_mut()
+        .insert("sec-fetch-site", "cross-site".parse().unwrap());
+    assert_eq!(send(&app, r).await.status, StatusCode::FORBIDDEN);
+    let mut r = get("/search/resolve?detail_url=http%3A%2F%2Fx%2F");
+    r.headers_mut()
+        .insert(header::REFERER, "http://evil.example/".parse().unwrap());
+    assert_eq!(send(&app, r).await.status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn live_streams_are_capped() {
+    let app = app_with(&Fake::new(false), None, "/");
+    let mut open = Vec::new();
+    for _ in 0..64 {
+        let r = app.clone().oneshot(get("/events")).await.unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        open.push(r);
+    }
+    let r = send(&app, get("/events")).await;
+    assert_eq!(r.status, StatusCode::SERVICE_UNAVAILABLE);
+    // Closing one frees a slot.
+    open.pop();
+    let r = app.clone().oneshot(get("/events")).await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn multipart_outside_the_add_routes_is_not_buffered_up_to_the_upload_limit() {
+    let app = app_with(&Fake::new(false), None, "/");
+    let t = csrf(&app).await;
+    let big = "x".repeat(2 * 1024 * 1024);
+    let body = format!(
+        "--b\r\nContent-Disposition: form-data; name=\"junk\"\r\n\r\n{big}\r\n--b\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{t}\r\n--b--\r\n"
+    );
+    let req = Request::post("/queue/pause-all")
+        .header(header::HOST, "localhost")
+        .header(header::CONTENT_TYPE, "multipart/form-data; boundary=b")
+        .body(Body::from(body))
+        .unwrap();
+    assert_eq!(send(&app, req).await.status, StatusCode::PAYLOAD_TOO_LARGE);
 }

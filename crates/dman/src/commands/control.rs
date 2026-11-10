@@ -1,11 +1,11 @@
 //! pause, resume, remove, purge and reorder.
 
-use std::io::{BufRead, IsTerminal, Write};
+use std::io::{BufRead, Write};
 
 use dman_proto::method::{BatchResult, Reorder};
 use dman_proto::{ErrorCode, JobId, JobState};
 
-use super::print_json;
+use super::{can_prompt, print_json, say};
 use crate::cli::{PurgeArgs, RemoveArgs, ReorderArgs, RestoreArgs, TargetArgs};
 use crate::connect::Ctx;
 use crate::error::{CliError, batch_exit};
@@ -17,8 +17,9 @@ fn report(ctx: &Ctx, verb: &str, res: &BatchResult) -> Result<i32, CliError> {
         if !res.ok.is_empty() {
             println!("{verb} {}", join_ids(&res.ok));
         }
+        // Failures are diagnostics: stderr keeps stdout clean for pipes.
         for f in &res.failed {
-            println!("failed {}: {}", f.id, f.error.message);
+            eprintln!("dman: failed {}: {}", f.id, f.error.message);
         }
     }
     let first: Option<ErrorCode> = res.failed.first().map(|f| f.error.code);
@@ -64,6 +65,7 @@ pub async fn cleanup(ctx: &Ctx, id: JobId, yes: bool) -> Result<i32, CliError> {
             println!("{:>10}  {}", crate::format::size(f.bytes), f.path);
         }
     }
+    // Needs a terminal or --yes, like every destructive command.
     confirm(
         &format!(
             "Delete {} unselected partial file(s) ({})?",
@@ -89,7 +91,7 @@ pub async fn pause(ctx: &Ctx, a: &TargetArgs) -> Result<i32, CliError> {
     let client = ctx.connect().await?;
     if a.all {
         client.pause_all().await?;
-        say(ctx, "paused all");
+        say(ctx, "paused all", "paused_all")?;
         return Ok(0);
     }
     report(ctx, "paused", &client.pause(&a.ids).await?)
@@ -99,18 +101,10 @@ pub async fn resume(ctx: &Ctx, a: &TargetArgs) -> Result<i32, CliError> {
     let client = ctx.connect().await?;
     if a.all {
         client.resume_all().await?;
-        say(ctx, "resumed all");
+        say(ctx, "resumed all", "resumed_all")?;
         return Ok(0);
     }
     report(ctx, "resumed", &client.resume(&a.ids).await?)
-}
-
-fn say(ctx: &Ctx, text: &str) {
-    if ctx.json {
-        println!("{}", serde_json::json!({ "status": text }));
-    } else {
-        println!("{text}");
-    }
 }
 
 /// Ask a question on stderr and read one line from stdin.
@@ -131,7 +125,7 @@ fn confirm(question: &str, yes: bool) -> Result<(), CliError> {
     if yes {
         return Ok(());
     }
-    if !std::io::stdin().is_terminal() {
+    if !can_prompt() {
         return Err(CliError::refused(
             "refusing destructive action without --yes",
         ));
@@ -183,7 +177,14 @@ pub async fn purge(ctx: &Ctx, a: &PurgeArgs) -> Result<i32, CliError> {
         a.ids.clone()
     };
     if ids.is_empty() {
-        say(ctx, "nothing to purge");
+        if ctx.json {
+            let none = BatchResult {
+                ok: Vec::new(),
+                failed: Vec::new(),
+            };
+            return report(ctx, "purged", &none);
+        }
+        say(ctx, "nothing to purge", "nothing_to_purge")?;
         return Ok(0);
     }
     report(ctx, "purged", &client.purge(&ids).await?)
@@ -208,7 +209,11 @@ pub async fn reorder(ctx: &Ctx, a: &ReorderArgs) -> Result<i32, CliError> {
         .await?
         .reorder(a.id, reorder_target(a))
         .await?;
-    say(ctx, &format!("reordered {}", a.id));
+    if ctx.json {
+        print_json(&serde_json::json!({ "reordered": a.id }))?;
+    } else {
+        println!("reordered {}", a.id);
+    }
     Ok(0)
 }
 

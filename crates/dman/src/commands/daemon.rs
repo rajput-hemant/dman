@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use dman_client::Client;
 use dman_config::Config;
 
-use super::print_json;
+use super::{print_json, say};
 use crate::cli::DaemonCmd;
 use crate::connect::Ctx;
 use crate::error::CliError;
@@ -26,14 +26,6 @@ pub async fn run(ctx: &Ctx, cmd: &DaemonCmd) -> Result<i32, CliError> {
         DaemonCmd::Status => status(ctx).await,
         DaemonCmd::EngineRestart => engine_restart(ctx).await,
         DaemonCmd::GenConfig => gen_config(ctx),
-    }
-}
-
-fn say(ctx: &Ctx, human: &str, status: &str) {
-    if ctx.json {
-        println!("{}", serde_json::json!({ "status": status }));
-    } else {
-        println!("{human}");
     }
 }
 
@@ -94,7 +86,7 @@ async fn start(ctx: &Ctx) -> Result<i32, CliError> {
     ctx.require_local("`daemon start`")?;
     match ctx.connect().await {
         Ok(_) => {
-            say(ctx, "already running", "already_running");
+            say(ctx, "already running", "already_running")?;
             return Ok(0);
         }
         Err(e) if Ctx::is_not_running(&e) => {}
@@ -105,7 +97,7 @@ async fn start(ctx: &Ctx) -> Result<i32, CliError> {
         ctx,
         &format!("started daemon {}", client.daemon_version()),
         "started",
-    );
+    )?;
     Ok(0)
 }
 
@@ -166,7 +158,7 @@ async fn stop(ctx: &Ctx) -> Result<i32, CliError> {
     let client = match ctx.connect().await {
         Ok(c) => c,
         Err(e) if Ctx::is_not_running(&e) => {
-            say(ctx, "daemon not running", "not_running");
+            say(ctx, "daemon not running", "not_running")?;
             return Ok(0);
         }
         Err(e) => return Err(e),
@@ -195,7 +187,7 @@ async fn stop(ctx: &Ctx) -> Result<i32, CliError> {
             tokio::time::sleep(POLL).await;
         }
     }
-    say(ctx, "stopped", "stopped");
+    say(ctx, "stopped", "stopped")?;
     Ok(0)
 }
 

@@ -3,7 +3,7 @@
 use dman_config::{ConfigDoc, Secrets, Web};
 use dman_proto::method::{WebStartParams, WebStatus};
 
-use super::print_json;
+use super::{print_json, say};
 use crate::cli::ServeArgs;
 use crate::connect::Ctx;
 use crate::error::CliError;
@@ -75,15 +75,6 @@ async fn stop(ctx: &Ctx, args: &ServeArgs) -> Result<i32, CliError> {
     client.web_stop(args.persist).await?;
     say(ctx, "web UI stopped", "stopped")?;
     Ok(0)
-}
-
-fn say(ctx: &Ctx, human: &str, status: &str) -> Result<(), CliError> {
-    if ctx.json {
-        print_json(&serde_json::json!({ "status": status }))?;
-    } else {
-        println!("{human}");
-    }
-    Ok(())
 }
 
 /// No daemon is running: run one in this process with the web UI on.

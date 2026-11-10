@@ -123,6 +123,30 @@ mod tests {
     }
 
     #[test]
+    fn help_documents_every_exit_code() {
+        use dman_proto::ErrorCode::*;
+        let help = crate::cli::LONG_ABOUT;
+        for code in [
+            General,
+            InvalidInput,
+            Unreachable,
+            Unauthorized,
+            NotFound,
+            Refused,
+            EngineUnavailable,
+            PartialFailure,
+        ] {
+            let line = format!("  {}  ", code.exit_code());
+            assert!(
+                help.contains(&line),
+                "exit code {} missing from --help",
+                code.exit_code()
+            );
+        }
+        assert!(help.contains(&format!("  {}  ", EXIT_INTERRUPTED)));
+    }
+
+    #[test]
     fn client_errors_map_to_exit_codes() {
         assert_eq!(CliError::from(ClientError::Disconnected).exit, 3);
         assert_eq!(CliError::from(ClientError::Unauthorized).exit, 4);

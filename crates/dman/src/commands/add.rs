@@ -275,7 +275,7 @@ fn report(labels: &[String], outcomes: &[AddOutcome], json: bool) -> Result<i32,
                 failed += 1;
                 first_failure.get_or_insert(error.code);
                 if !json {
-                    println!("failed {label}: {}", error.message);
+                    eprintln!("dman: failed {label}: {}", error.message);
                 }
             }
             AddOutcome::Added { .. } => {}

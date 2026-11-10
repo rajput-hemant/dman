@@ -21,6 +21,23 @@ pub fn print_json<T: serde::Serialize>(value: &T) -> Result<(), CliError> {
     Ok(())
 }
 
+/// One status line: `{"status": "<status>"}` with `--json`, else the human text.
+pub fn say(ctx: &Ctx, human: &str, status: &str) -> Result<(), CliError> {
+    if ctx.json {
+        print_json(&serde_json::json!({ "status": status }))
+    } else {
+        println!("{human}");
+        Ok(())
+    }
+}
+
+/// Prompts are shown only when both ends are a terminal (stdin to answer, stderr
+/// where the question appears). Anything else must pass `--yes` or fails.
+pub fn can_prompt() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal() && std::io::stderr().is_terminal()
+}
+
 /// Run the selected command and return the process exit code.
 pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
     let Some(command) = cli.command.as_ref() else {

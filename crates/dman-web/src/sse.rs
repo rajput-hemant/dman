@@ -21,11 +21,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::{RawQuery, State};
+use axum::http::StatusCode;
 use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
+use axum::response::{IntoResponse, Response};
 use dman_proto::method::{self, Event, IdParams, Level, ListParams, Outcome};
 use dman_proto::search::{self, ProviderStatus, SearchResultDto, SearchSnapshot};
 use dman_proto::{GlobalStats, Job, JobDetail, JobId, JobState};
 use futures_util::Stream;
+use tokio::sync::OwnedSemaphorePermit;
 use tokio::sync::broadcast::{Receiver, error::RecvError};
 use tokio::time::Instant;
 
@@ -65,6 +68,8 @@ struct Feed {
     queue: VecDeque<SseEvent>,
     started: bool,
     closed: bool,
+    /// Frees this stream's slot in [`crate::MAX_EVENT_STREAMS`] when dropped.
+    _slot: OwnedSemaphorePermit,
 }
 
 fn named(name: &str, html: maud::Markup) -> SseEvent {
@@ -326,9 +331,21 @@ impl Feed {
     }
 }
 
-pub async fn events(
-    State(st): State<Arc<AppState>>,
-    RawQuery(raw): RawQuery,
+pub async fn events(State(st): State<Arc<AppState>>, RawQuery(raw): RawQuery) -> Response {
+    let Ok(slot) = st.event_slots.clone().try_acquire_owned() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "too many open live-update connections; close other dman tabs",
+        )
+            .into_response();
+    };
+    event_stream(st, raw, slot).into_response()
+}
+
+fn event_stream(
+    st: Arc<AppState>,
+    raw: Option<String>,
+    slot: OwnedSemaphorePermit,
 ) -> Sse<impl Stream<Item = Result<SseEvent, Infallible>>> {
     let (mut rows, mut search, mut job, mut sort) = (false, None, None, String::new());
     let mut rendered_finished = false;
@@ -367,6 +384,7 @@ pub async fn events(
         queue: VecDeque::new(),
         started: false,
         closed: false,
+        _slot: slot,
     };
     let stream = futures_util::stream::unfold(feed, |mut f| async move {
         loop {

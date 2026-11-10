@@ -90,6 +90,10 @@ impl Default for WebConfig {
 /// Maximum size of one uploaded `.torrent`/`.metalink` request.
 pub const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024;
 
+/// Most live-update streams open at once (every page holds one). Each stream renders
+/// its own HTML, so a runaway client must not be able to multiply that work.
+const MAX_EVENT_STREAMS: usize = 64;
+
 pub(crate) struct AppState {
     pub backend: Arc<dyn Backend>,
     /// `""` for the root, otherwise `/prefix` without trailing slash.
@@ -109,6 +113,8 @@ pub(crate) struct AppState {
     pub previews: Mutex<HashMap<String, pages::StoredPreview>>,
     /// Probed videos waiting for a quality choice, by random id.
     pub qualities: Mutex<HashMap<String, pages::StoredQuality>>,
+    /// Open `/events` streams may not exceed [`MAX_EVENT_STREAMS`].
+    pub event_slots: Arc<tokio::sync::Semaphore>,
 }
 
 impl AppState {
@@ -164,6 +170,7 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         video_cache: Mutex::new(None),
         previews: Mutex::new(HashMap::new()),
         qualities: Mutex::new(HashMap::new()),
+        event_slots: Arc::new(tokio::sync::Semaphore::new(MAX_EVENT_STREAMS)),
     });
     let r = |p: &str| format!("{base}{p}");
     let upload_limit = || DefaultBodyLimit::max(MAX_UPLOAD_BYTES + 256 * 1024);
@@ -187,6 +194,7 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         .route(&r("/jobs/{id}/purge"), post(pages::purge))
         .route(&r("/jobs/{id}/reorder"), post(pages::reorder))
         .route(&r("/jobs/{id}/rename"), post(pages::rename))
+        .route(&r("/jobs/{id}/cleanup"), post(pages::cleanup))
         .route(&r("/jobs/{id}/limits"), post(pages::job_limits))
         .route(&r("/queue/pause-all"), post(pages::pause_all))
         .route(&r("/queue/resume-all"), post(pages::resume_all))
@@ -214,6 +222,7 @@ pub fn router(backend: Arc<dyn Backend>, cfg: WebConfig) -> Router {
         .route(&r("/settings"), get(pages::settings))
         .route(&r("/settings/limits"), post(pages::settings_limits))
         .route(&r("/settings/video"), post(pages::settings_video))
+        .route(&r("/settings/reload"), post(pages::settings_reload))
         .route(&r("/settings/provider"), post(pages::provider_set))
         .route(&r("/settings/provider/test"), post(pages::provider_test))
         .route(&r("/events"), get(sse::events))

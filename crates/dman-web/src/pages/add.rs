@@ -146,9 +146,14 @@ pub async fn add_form(
     .await
 }
 
+/// Links the add form accepts: magnets and the schemes the engines download. Anything
+/// else (`file:`, `javascript:`, ...) is refused before it reaches the daemon.
 fn looks_like_link(s: &str) -> bool {
     let l = s.to_ascii_lowercase();
-    l.starts_with("magnet:?") || l.contains("://")
+    l.starts_with("magnet:?")
+        || ["http://", "https://", "ftp://", "sftp://"]
+            .iter()
+            .any(|p| l.starts_with(p))
 }
 
 /// A parsed add request: sources with a label each (for error messages).

@@ -189,10 +189,11 @@ fn search_commands_need_a_daemon_and_arguments() {
         .code(2);
     dman(&dir).args(["providers", "list"]).assert().code(3);
     dman(&dir).args(["providers", "enable"]).assert().code(2);
+    // An unreadable file is a usage error before any connection is made.
     dman(&dir)
         .args(["providers", "import", "/nonexistent.toml"])
         .assert()
-        .code(3);
+        .code(2);
     dman(&dir).args(["trackers", "status"]).assert().code(3);
 }
 
@@ -398,4 +399,118 @@ fn broken_pipe_is_a_normal_exit() {
     let out = child.wait_with_output().unwrap();
     assert!(out.status.success(), "{:?}", out.status);
     assert!(!String::from_utf8_lossy(&out.stderr).contains("panicked"));
+}
+
+#[test]
+fn help_lists_the_exit_codes() {
+    let dir = config_dir();
+    dman(&dir)
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Exit codes:"))
+        .stdout(predicate::str::contains("8    partial failure"))
+        .stdout(predicate::str::contains("130  interrupted"));
+}
+
+#[test]
+fn usage_errors_are_json_with_json_and_exit_2() {
+    let dir = config_dir();
+    let out = dman(&dir)
+        .args(["--json", "add", "--bogus"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    let err: serde_json::Value =
+        serde_json::from_slice(&out.stderr).expect("stderr is one JSON document");
+    assert!(
+        err["error"]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("--bogus")),
+        "{err}"
+    );
+    // Help is not an error: still plain text on stdout.
+    dman(&dir)
+        .args(["--json", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Usage:"));
+}
+
+#[test]
+fn exit_codes_of_representative_paths() {
+    let dir = config_dir();
+    // usage 2, unreachable 3, refused 6, missing secret/unauthorised is covered in connect.rs.
+    dman(&dir).args(["add"]).assert().code(2);
+    dman(&dir).args(["pause", "--all", "1"]).assert().code(2);
+    dman(&dir).args(["pause", "1"]).assert().code(3);
+    dman(&dir).args(["stats"]).assert().code(3);
+    dman(&dir).args(["purge"]).assert().code(6);
+    dman(&dir)
+        .args(["--profile", "nope", "stats"])
+        .assert()
+        .code(2);
+    for (args, code) in [(&["--json", "list"][..], 3), (&["--json", "purge"], 6)] {
+        let out = dman(&dir).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(code), "{args:?}");
+        assert!(out.stdout.is_empty(), "{args:?}: errors never go to stdout");
+        let v: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap();
+        assert!(v["error"]["message"].is_string());
+    }
+}
+
+#[test]
+fn prompts_are_never_shown_without_a_terminal() {
+    let dir = config_dir();
+    for args in [
+        &["remove", "1"][..],
+        &["remove", "--delete-files", "1"],
+        &["purge"],
+        &["purge", "3"],
+    ] {
+        dman(&dir)
+            .args(args)
+            .write_stdin("y\n")
+            .assert()
+            .code(6)
+            .stderr(predicate::str::contains("[y/N]").not())
+            .stderr(predicate::str::contains("without --yes"));
+    }
+}
+
+#[test]
+fn ctrl_c_ends_a_blocked_command_with_130() {
+    use std::io::Write as _;
+    let dir = config_dir();
+    // Reading the provider file from stdin blocks the main thread.
+    let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("dman"))
+        .env("DMAN_CONFIG_DIR", dir.path())
+        .args(["providers", "import", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    stdin.write_all(b"# still typing\n").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    let pid = child.id().to_string();
+    assert!(
+        std::process::Command::new("kill")
+            .args(["-INT", &pid])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let start = std::time::Instant::now();
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break s;
+        }
+        assert!(start.elapsed().as_secs() < 5, "still blocked after Ctrl-C");
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    drop(stdin);
+    assert_eq!(status.code(), Some(130));
 }

@@ -381,8 +381,8 @@ async fn install_release(
 }
 
 fn confirm(question: &str) -> bool {
-    use std::io::{BufRead, IsTerminal, Write};
-    if !std::io::stdin().is_terminal() {
+    use std::io::{BufRead, Write};
+    if !super::can_prompt() {
         return false;
     }
     eprint!("{question} [y/N] ");
@@ -402,7 +402,8 @@ fn run_command(program: &Path, args: &[&str]) -> Result<bool, CliError> {
 
 /// `dman update [--check] [--yes]`.
 pub async fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<i32, CliError> {
-    let current = Version::parse(env!("CARGO_PKG_VERSION")).expect("package version is semver");
+    let current = Version::parse(env!("CARGO_PKG_VERSION"))
+        .map_err(|e| CliError::general(format!("own version is not semver: {e}")))?;
     let (method, exe) = detect_current();
     let client = http_client(UPDATE_TIMEOUT)?;
     let release = fetch_release(&client, &api_base()).await?;
@@ -433,22 +434,44 @@ pub async fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<i32, CliError> {
         return Ok(0);
     }
 
-    println!(
+    // With --json the only stdout output is the final result object.
+    let say = |text: String| {
+        if !ctx.json {
+            println!("{text}");
+        }
+    };
+    let done = |updated: bool| -> Result<i32, CliError> {
+        if ctx.json {
+            print_json(&serde_json::json!({
+                "current": current.to_string(),
+                "latest": latest.to_string(),
+                "update_available": true,
+                "updated": updated,
+                "install_method": method,
+                "command": command,
+            }))?;
+        }
+        Ok(0)
+    };
+    say(format!(
         "dman {current} -> {latest} (installed via {})",
         method.label()
-    );
+    ));
     match method {
         InstallMethod::Homebrew => {
             if args.yes || confirm("run `brew upgrade dman` now?") {
                 let ok = run_command(Path::new("brew"), &["upgrade", "dman"])?;
-                return Ok(if ok { 0 } else { 1 });
+                if !ok {
+                    return Err(CliError::general("`brew upgrade dman` failed"));
+                }
+                return done(true);
             }
-            println!("run: {command}");
-            Ok(0)
+            say(format!("run: {command}"));
+            done(false)
         }
         InstallMethod::Cargo => {
-            println!("run: {command}");
-            Ok(0)
+            say(format!("run: {command}"));
+            done(false)
         }
         InstallMethod::System | InstallMethod::Unknown => Err(CliError::refused(format!(
             "dman was installed via {}, so it will not replace itself; run: {command}",
@@ -459,15 +482,15 @@ pub async fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<i32, CliError> {
                 return Err(CliError::refused("no release build for this platform"));
             };
             install_release(&client, &release, target, &exe).await?;
-            println!("updated to {latest}");
+            say(format!("updated to {latest}"));
             if args.yes || confirm("restart the daemon now (`dman daemon restart`)?") {
                 if !run_command(&exe, &["daemon", "restart"])? {
-                    println!("daemon restart failed; run `dman daemon restart` yourself");
+                    say("daemon restart failed; run `dman daemon restart` yourself".into());
                 }
             } else {
-                println!("restart the daemon to use the new version: dman daemon restart");
+                say("restart the daemon to use the new version: dman daemon restart".into());
             }
-            Ok(0)
+            done(true)
         }
     }
 }

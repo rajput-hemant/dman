@@ -227,7 +227,9 @@ async fn guarded(st: &Arc<AppState>, mut req: Request, next: Next, path: &str) -
             );
         }
     }
-    if changing && !origin_ok(req.headers()) {
+    // `/search/resolve` is a GET that makes the daemon fetch a page: another site
+    // must not be able to trigger it through the user's browser.
+    if (changing || path == "/search/resolve") && !origin_ok(req.headers()) {
         return plain(StatusCode::FORBIDDEN, "cross-origin request refused");
     }
 
@@ -273,7 +275,9 @@ async fn guarded(st: &Arc<AppState>, mut req: Request, next: Next, path: &str) -
         let provided = match from_header {
             Some(t) => Some(t),
             None if urlencoded || boundary.is_some() => {
-                let limit = if urlencoded {
+                // Only the add routes take uploads; a multipart post anywhere else
+                // is buffered no further than a plain form.
+                let limit = if urlencoded || !path.starts_with("/add") {
                     1024 * 1024
                 } else {
                     crate::MAX_UPLOAD_BYTES + 256 * 1024

@@ -134,7 +134,7 @@ pub async fn run(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
         for a in &added {
             match a {
                 Added::Ok { ids, title } => println!("added {} ({title})", ids.join(" ")),
-                Added::Failed { index, error } => println!("failed #{index}: {error}"),
+                Added::Failed { index, error } => eprintln!("dman: failed #{index}: {error}"),
             }
         }
     }

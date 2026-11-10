@@ -8,7 +8,24 @@ use crate::connect::Ctx;
 use crate::error::CliError;
 use crate::format;
 
+/// The text of a provider file (`-` = stdin).
+fn read_source(file: &str) -> Result<String, CliError> {
+    if file == "-" {
+        let mut t = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut t)?;
+        Ok(t)
+    } else {
+        std::fs::read_to_string(file)
+            .map_err(|e| CliError::invalid(format!("cannot read {file}: {e}")))
+    }
+}
+
 pub async fn run(ctx: &Ctx, cmd: &ProvidersCmd) -> Result<i32, CliError> {
+    // A file that cannot be read is a usage error whether or not the daemon runs.
+    let imported = match cmd {
+        ProvidersCmd::Import { file } => Some(read_source(file)?),
+        _ => None,
+    };
     let client = ctx.connect().await?;
     match cmd {
         ProvidersCmd::List => {
@@ -50,15 +67,8 @@ pub async fn run(ctx: &Ctx, cmd: &ProvidersCmd) -> Result<i32, CliError> {
             }
             Ok(i32::from(!r.ok))
         }
-        ProvidersCmd::Import { file } => {
-            let text = if file == "-" {
-                let mut t = String::new();
-                std::io::Read::read_to_string(&mut std::io::stdin(), &mut t)?;
-                t
-            } else {
-                std::fs::read_to_string(file)
-                    .map_err(|e| CliError::invalid(format!("cannot read {file}: {e}")))?
-            };
+        ProvidersCmd::Import { .. } => {
+            let text = imported.unwrap_or_default();
             let r = client.providers_import(&text).await?;
             if ctx.json {
                 print_json(&r)?;

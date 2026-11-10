@@ -3,14 +3,18 @@
 //! the core flows work without JavaScript.
 
 mod add;
+mod detail;
 mod jobs;
 mod quality;
+mod remove;
 mod search;
 mod settings;
 
 pub use add::*;
+pub use detail::*;
 pub use jobs::*;
 pub use quality::*;
+pub use remove::*;
 pub use search::*;
 pub use settings::*;
 
@@ -26,7 +30,7 @@ use maud::Markup;
 
 use crate::auth::Ctx;
 use crate::views::{self, Layout, Nav};
-use crate::{AppState, MAX_UPLOAD_BYTES};
+use crate::{AppState, MAX_UPLOAD_BYTES, fmt};
 
 pub(crate) type St = State<Arc<AppState>>;
 
@@ -159,6 +163,23 @@ impl<S: Send + Sync> FromRequest<S> for Pairs {
         }
         Ok(out)
     }
+}
+
+/// A changed speed field of a form that also carries the original as `o_<field>`:
+/// `None` = unchanged (or absent), `Some(0)` = emptied (no limit).
+pub fn changed_rate(p: &Pairs, field: &str) -> Result<Option<u64>, String> {
+    let Some(v) = p.get(field).map(str::trim) else {
+        return Ok(None);
+    };
+    if v == p.str(&format!("o_{field}")) {
+        return Ok(None);
+    }
+    if v.is_empty() {
+        return Ok(Some(0));
+    }
+    fmt::parse_rate(v).map(Some).ok_or_else(|| {
+        format!("\u{201c}{v}\u{201d} is not a speed. Use a number with K, M or G, e.g. 500K.")
+    })
 }
 
 pub fn query_pairs(raw: &Option<String>) -> Pairs {
@@ -298,6 +319,8 @@ pub fn flash(p: &Pairs) -> Vec<Markup> {
         "resumed" => "Resumed.",
         "moved" => "Queue updated.",
         "cleared" => "Cleared from the list. Files were not touched.",
+        "cleaned" => "Deleted the leftover files of the skipped downloads.",
+        "reloaded" => "Configuration reloaded.",
         _ => return Vec::new(),
     };
     vec![views::toast("ok", text)]

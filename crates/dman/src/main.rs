@@ -47,6 +47,18 @@ async fn run(cli: Cli, is_daemon_run: bool) -> Result<i32, CliError> {
         // the TUI reads Ctrl-C as a key and restores the terminal itself.
         return commands::dispatch(cli).await;
     }
+    // A prompt blocks the thread that would notice Ctrl-C below, and once a signal
+    // handler is installed the terminal's default "kill the process" no longer
+    // applies. This watcher runs on a worker thread and ends the process if the
+    // orderly path did not finish within a moment.
+    let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .map_err(|e| CliError::general(format!("cannot watch for Ctrl-C: {e}")))?;
+    tokio::spawn(async move {
+        if sigint.recv().await.is_some() {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            std::process::exit(error::EXIT_INTERRUPTED);
+        }
+    });
     tokio::select! {
         res = commands::dispatch(cli) => res,
         _ = tokio::signal::ctrl_c() => Err(CliError::interrupted()),
@@ -69,12 +81,34 @@ fn exit_quietly_on_broken_pipe() {
     }));
 }
 
+/// Ends the process for a command line clap rejected (or for `--help`/`--version`).
+/// With `--json` a usage error is a JSON object on stderr like every other error.
+fn usage_error(e: &clap::Error) -> ! {
+    let json = std::env::args()
+        .take_while(|a| a != "--")
+        .any(|a| a == "--json");
+    if e.use_stderr() && json {
+        let rendered = e.render().to_string();
+        let message = rendered
+            .lines()
+            .next()
+            .map_or("usage error", |l| l.trim_start_matches("error: "))
+            .to_owned();
+        report(&CliError::invalid(message), true);
+        std::process::exit(e.exit_code());
+    }
+    e.exit()
+}
+
 fn main() -> ExitCode {
     // Shell completion requests (`COMPLETE=<shell> dman -- ...`) are answered here and exit.
     completion::handle_env_request();
-    let cli = match Cli::from_arg_matches(&cli::command().get_matches()) {
+    let cli = match cli::command()
+        .try_get_matches()
+        .and_then(|m| Cli::from_arg_matches(&m))
+    {
         Ok(cli) => cli,
-        Err(e) => e.exit(),
+        Err(e) => usage_error(&e),
     };
     let json = cli.json;
     let is_daemon_run = matches!(

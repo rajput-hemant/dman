@@ -27,11 +27,17 @@ pub async fn list(ctx: &Ctx, args: &ListArgs) -> Result<i32, CliError> {
     }
 }
 
-fn render(ctx: &Ctx, jobs: &[Job], clear: bool) -> Result<(), CliError> {
+fn render(ctx: &Ctx, jobs: &[Job], watching: bool) -> Result<(), CliError> {
     if ctx.json {
+        // Watching streams one compact document per update (JSON lines).
+        if watching {
+            println!("{}", serde_json::to_string(&jobs)?);
+            return Ok(());
+        }
         return print_json(&jobs);
     }
-    if clear {
+    // Redraw in place only on a terminal; a pipe gets the plain tables one after another.
+    if watching && std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         print!("{CLEAR_SCREEN}");
     }
     if jobs.is_empty() {

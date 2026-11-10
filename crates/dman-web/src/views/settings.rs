@@ -1,6 +1,6 @@
 //! Settings: speed limits, queue, schedule, search providers, web access, engines.
 
-use dman_proto::method::{EngineStatus, ScheduleStatus};
+use dman_proto::method::{EngineStatus, ReloadResult, ScheduleStatus};
 use dman_proto::search::ProviderInfo;
 use dman_proto::{Engine, Limits, VideoPreferences};
 use maud::{Markup, html};
@@ -46,6 +46,8 @@ pub struct SettingsData<'a> {
     /// Quality picker preferences; `None` hides the Video section.
     pub video: Option<&'a VideoPreferences>,
     pub web: WebInfo,
+    /// Outcome of a just-pressed "Reload configuration" (error text on failure).
+    pub reload: Option<&'a Result<ReloadResult, String>>,
 }
 
 pub fn provider_row(base: &str, csrf: &str, idx: usize, p: &ProviderInfo) -> Markup {
@@ -79,6 +81,42 @@ pub fn provider_row(base: &str, csrf: &str, idx: usize, p: &ProviderInfo) -> Mar
                         span.knob {} span.swst { (if p.enabled { "On" } else { "Off" }) }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Outcome of `config.reload`: what applies now and what needs a restart.
+pub fn reload_result(r: &Result<ReloadResult, String>) -> Markup {
+    html! {
+        div #reload-result role="status" aria-live="polite" {
+            @match r {
+                Err(m) => { p.ferr role="alert" { "Could not reload: " (m) } }
+                Ok(r) => {
+                    @if r.applied.is_empty() && r.restart_required.is_empty() {
+                        p.okmsg { "Reloaded. Nothing had changed." }
+                    }
+                    @if !r.applied.is_empty() {
+                        p.okmsg { "Applied now: " (r.applied.join(", ")) "." }
+                    }
+                    @if !r.restart_required.is_empty() {
+                        p.warnmsg { "Needs a restart of dman to take effect: " (r.restart_required.join(", ")) "." }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn config_section(base: &str, csrf: &str, last: Option<&Result<ReloadResult, String>>) -> Markup {
+    let url = format!("{base}/settings/reload");
+    html! {
+        section #config.card.set {
+            (head("Configuration file", html! { "Edited the config file by hand? Reload it to apply the changes that do not need a restart." }))
+            form.stack method="post" action=(url) hx-post=(url) hx-target="#reload-result" hx-swap="outerHTML" {
+                input type="hidden" name="_csrf" value=(csrf);
+                @match last { Some(r) => { (reload_result(r)) } None => { div #reload-result role="status" aria-live="polite" {} } }
+                div.cardfoot { button.btn type="submit" { (icon(base, "retry")) span { "Reload configuration" } } }
             }
         }
     }
@@ -224,6 +262,7 @@ pub fn settings_page(base: &str, csrf: &str, s: &SettingsData<'_>) -> Markup {
         ("providers", "Search providers"),
         ("appearance", "Appearance"),
         ("web", "Web access"),
+        ("config", "Configuration"),
         ("engines", "Engines"),
     ]);
     html! {
@@ -321,6 +360,7 @@ pub fn settings_page(base: &str, csrf: &str, s: &SettingsData<'_>) -> Markup {
                         }
                     }
                 }
+                (config_section(base, csrf, s.reload))
                 section #engines.card.set {
                     (head("Engines", html! { "Programs dman drives on the host." }))
                     (engines(s.engines))

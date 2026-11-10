@@ -16,18 +16,37 @@ Examples:
   dman serve                              open the browser UI on http://127.0.0.1:6811
   dman completions install                enable tab completion for your shell";
 
+/// What `dman --help` says beyond the one-line summary, including the exit codes.
+pub const LONG_ABOUT: &str = "\
+dman: a terminal-first download manager.
+
+A background daemon owns aria2 (and yt-dlp for video) and all state. This CLI, the
+interactive UI (run `dman` without arguments) and the browser UI (`dman serve`)
+are clients of it.
+
+Tab completion (job IDs with their names, providers, profiles, options) is
+installed with `dman completions install`; `dman completions <shell>` prints the
+script instead.
+
+Output is a table for people. With `--json` every command prints one JSON document
+on stdout, and errors become {\"error\": {\"code\": ..., \"message\": ...}} on stderr.
+Questions are asked only in a terminal; scripts pass `--yes` to destructive commands.
+
+Exit codes:
+  0    success
+  1    general error
+  2    usage error or invalid input
+  3    the daemon cannot be reached (is it running?)
+  4    unauthorized (wrong or missing secret)
+  5    not found (unknown job ID, provider, ...)
+  6    refused (needs --yes, disk full, not allowed here)
+  7    engine unavailable (aria2 or yt-dlp missing or not running)
+  8    partial failure (some items of a batch failed)
+  130  interrupted (Ctrl-C)";
+
 /// dman: a terminal-first download manager.
-///
-/// A background daemon owns aria2 (and yt-dlp for video) and all state; this CLI, the
-/// interactive UI (run `dman` without arguments) and the browser UI (`dman serve`) are
-/// clients of it.
-///
-/// Tab completion (job IDs with their names, providers, profiles, options) is installed
-/// with `dman completions install`; `dman completions <shell>` prints the script instead.
-/// Exit codes: 0 ok, 1 general error, 2 usage error, 130 interrupted; see `--json` for
-/// machine-readable errors.
 #[derive(Parser, Debug)]
-#[command(name = "dman", version, propagate_version = true, after_help = EXAMPLES)]
+#[command(name = "dman", version, propagate_version = true, long_about = LONG_ABOUT, after_help = EXAMPLES)]
 pub struct Cli {
     /// Daemon profile to use.
     #[arg(long, global = true, env = "DMAN_PROFILE", value_name = "NAME", add = comp::profiles())]

@@ -4,18 +4,19 @@ use axum::Extension;
 use axum::extract::{RawQuery, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::Response;
-use dman_proto::method::{self, EngineStatus, LimitsUpdate, ScheduleStatus};
+use dman_proto::method::{self, EngineStatus, LimitsUpdate, ReloadResult, ScheduleStatus};
 use dman_proto::search::{
     self, ProviderInfo, ProviderNameParams, ProviderSetParams, ProviderTestReport,
 };
 use dman_proto::{Limits, VideoPreferences, VideoPreferencesUpdate};
 
 use super::{
-    Pairs, St, fail, fail_rpc, flash, full_page, html, is_htmx, query_pairs, redirect, toast,
+    Pairs, St, changed_rate, fail, fail_rpc, flash, full_page, html, is_htmx, query_pairs,
+    redirect, toast,
 };
+use crate::AppState;
 use crate::auth::Ctx;
 use crate::views::{self, LimitValues, Nav, SettingsData, WebInfo};
-use crate::{AppState, fmt};
 
 fn web_info(st: &AppState, h: &HeaderMap, csrf: &str) -> WebInfo {
     let host = h
@@ -46,6 +47,7 @@ async fn render(
     values: Option<LimitValues>,
     error: Option<(&str, String)>,
     toasts: Vec<maud::Markup>,
+    reload: Option<&Result<ReloadResult, String>>,
 ) -> Response {
     let limits: Option<Limits> = st.call(method::LIMITS_GET, ()).await.ok();
     let providers: Vec<ProviderInfo> = st
@@ -72,6 +74,7 @@ async fn render(
         engines: &engines,
         video: video.as_ref(),
         web: web_info(st, h, &ctx.csrf),
+        reload,
     };
     let content = views::settings_page(&st.base, &ctx.csrf, &data);
     full_page(st, ctx, Nav::Settings, "Settings", "", toasts, content).await
@@ -83,23 +86,7 @@ pub async fn settings(
     h: HeaderMap,
     RawQuery(raw): RawQuery,
 ) -> Response {
-    render(&st, &ctx, &h, None, None, flash(&query_pairs(&raw))).await
-}
-
-/// A changed rate field: `None` = unchanged, empty = no limit.
-fn changed_rate(p: &Pairs, field: &str) -> Result<Option<u64>, String> {
-    let Some(v) = p.get(field).map(str::trim) else {
-        return Ok(None);
-    };
-    if v == p.str(&format!("o_{field}")) {
-        return Ok(None);
-    }
-    if v.is_empty() {
-        return Ok(Some(0));
-    }
-    fmt::parse_rate(v).map(Some).ok_or_else(|| {
-        format!("\u{201c}{v}\u{201d} is not a speed. Use a number with K, M or G, e.g. 2M.")
-    })
+    render(&st, &ctx, &h, None, None, flash(&query_pairs(&raw)), None).await
 }
 
 pub async fn settings_limits(
@@ -152,7 +139,7 @@ pub async fn settings_limits(
                     *slot = v.trim().to_string();
                 }
             }
-            let mut r = render(&st, &c, &h, Some(values), Some(err), Vec::new()).await;
+            let mut r = render(&st, &c, &h, Some(values), Some(err), Vec::new(), None).await;
             *r.status_mut() = StatusCode::BAD_REQUEST;
             r
         }
@@ -236,7 +223,16 @@ pub async fn provider_test(
     if is_htmx(&h) {
         return toast(level, &text);
     }
-    render(&st, &c, &h, None, None, vec![views::toast(level, &text)]).await
+    render(
+        &st,
+        &c,
+        &h,
+        None,
+        None,
+        vec![views::toast(level, &text)],
+        None,
+    )
+    .await
 }
 
 /// `POST /settings/video`: the quality picker settings (`video.preferences.set`).
@@ -262,4 +258,25 @@ pub async fn settings_video(
         Ok(_) => redirect(&format!("{}/settings?done=video", st.base)),
         Err(e) => fail_rpc(&st, &c, &h, &e).await,
     }
+}
+
+/// `POST /settings/reload`: re-reads the config file (`config.reload`) and says what
+/// was applied and what needs a restart.
+pub async fn settings_reload(
+    State(st): St,
+    Extension(c): Extension<Ctx>,
+    h: HeaderMap,
+) -> Response {
+    let outcome: Result<ReloadResult, String> = st
+        .call(method::CONFIG_RELOAD, ())
+        .await
+        .map_err(|e| e.message);
+    if is_htmx(&h) {
+        return html(views::reload_result(&outcome));
+    }
+    let mut r = render(&st, &c, &h, None, None, Vec::new(), Some(&outcome)).await;
+    if outcome.is_err() {
+        *r.status_mut() = StatusCode::BAD_GATEWAY;
+    }
+    r
 }

@@ -1,29 +1,26 @@
-//! Downloads list, job actions (single and bulk), detail, remove, rename, options.
+//! Downloads list and job actions (single and bulk).
 
 use axum::Extension;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use dman_proto::method::{
-    self, IdParams, IdsParams, ListParams, RemoveParams, RenameParams, Reorder, ReorderParams,
-    SetOptionsParams,
-};
-use dman_proto::{Job, JobDetail, JobId, JobOptions, RpcError};
+use dman_proto::method::{self, IdParams, IdsParams, ListParams, Reorder, ReorderParams};
+use dman_proto::{Job, JobId, RpcError};
 use maud::html;
 
 use super::{
     Pairs, St, fail, fail_rpc, flash, full_page, html, hx_target, is_htmx, query_pairs, redirect,
     toast, toast_markup, with_header,
 };
+use crate::AppState;
 use crate::auth::Ctx;
-use crate::views::{self, Nav, Note, OptValues, RemoveTarget, TableQuery};
-use crate::{AppState, fmt};
+use crate::views::{self, Nav, TableQuery};
 
-async fn list(st: &AppState) -> Result<Vec<Job>, RpcError> {
+pub(super) async fn list(st: &AppState) -> Result<Vec<Job>, RpcError> {
     st.call(method::JOBS_LIST, ListParams::default()).await
 }
 
-fn ids_of(p: &Pairs) -> Vec<JobId> {
+pub(super) fn ids_of(p: &Pairs) -> Vec<JobId> {
     p.all("ids")
         .flat_map(|v| v.split(','))
         .filter_map(|v| v.trim().parse().ok())
@@ -32,7 +29,7 @@ fn ids_of(p: &Pairs) -> Vec<JobId> {
 }
 
 /// Job ids of a `undo=1,2` query value (the undo toast after a redirect).
-fn undo_ids(p: &Pairs) -> Vec<JobId> {
+pub(super) fn undo_ids(p: &Pairs) -> Vec<JobId> {
     p.str("undo")
         .split(',')
         .filter_map(|v| v.trim().parse().ok())
@@ -41,14 +38,14 @@ fn undo_ids(p: &Pairs) -> Vec<JobId> {
         .collect()
 }
 
-fn id_list(ids: &[JobId]) -> String {
+pub(super) fn id_list(ids: &[JobId]) -> String {
     ids.iter()
         .map(|i| i.0.to_string())
         .collect::<Vec<_>>()
         .join(",")
 }
 
-fn quoted(name: &str) -> String {
+pub(super) fn quoted(name: &str) -> String {
     format!("\u{201c}{name}\u{201d}")
 }
 
@@ -122,7 +119,12 @@ pub async fn table(
 }
 
 /// The re-rendered table (current filter from the request) plus out-of-band toasts.
-async fn table_with(st: &AppState, ctx: &Ctx, p: &Pairs, toasts: Vec<maud::Markup>) -> Response {
+pub(super) async fn table_with(
+    st: &AppState,
+    ctx: &Ctx,
+    p: &Pairs,
+    toasts: Vec<maud::Markup>,
+) -> Response {
     let q = TableQuery::from_pairs(p.iter());
     match list(st).await {
         Ok(jobs) => html(html! {
@@ -134,7 +136,7 @@ async fn table_with(st: &AppState, ctx: &Ctx, p: &Pairs, toasts: Vec<maud::Marku
 }
 
 /// First failure message of a batch result.
-fn batch_failure(v: &serde_json::Value) -> Option<String> {
+pub(super) fn batch_failure(v: &serde_json::Value) -> Option<String> {
     let f = v.get("failed")?.as_array()?.first()?;
     Some(
         f.pointer("/error/message")
@@ -386,438 +388,4 @@ pub async fn clear_removed(
         if n == 1 { "" } else { "s" }
     );
     table_with(&st, &c, &p, vec![views::toast("ok", &text)]).await
-}
-
-// ------------------------------------------------------------------- remove
-
-fn remove_target<'a>(
-    back: &'a str,
-    jobs: &'a [Job],
-    ids: &[JobId],
-    base: &str,
-) -> RemoveTarget<'a> {
-    let picked: Vec<&Job> = jobs.iter().filter(|j| ids.contains(&j.id)).collect();
-    let (action, cancel_href) = match picked.as_slice() {
-        [one] if ids.len() == 1 => (
-            format!("{base}/jobs/{}/remove", one.id.0),
-            if back == "detail" {
-                format!("{base}/jobs/{}", one.id.0)
-            } else {
-                format!("{base}/")
-            },
-        ),
-        _ => (format!("{base}/jobs/bulk/remove"), format!("{base}/")),
-    };
-    RemoveTarget {
-        action,
-        jobs: picked,
-        back,
-        cancel_href,
-    }
-}
-
-/// The confirmation, as a modal fragment (htmx) or a full page.
-async fn confirm_page(
-    st: &AppState,
-    ctx: &Ctx,
-    h: &HeaderMap,
-    ids: Vec<JobId>,
-    back: &str,
-    delete: bool,
-) -> Response {
-    if ids.is_empty() {
-        return fail(
-            st,
-            ctx,
-            h,
-            StatusCode::BAD_REQUEST,
-            "Tick one or more downloads first.",
-        )
-        .await;
-    }
-    let jobs = match list(st).await {
-        Ok(j) => j,
-        Err(e) => return fail_rpc(st, ctx, h, &e).await,
-    };
-    let t = remove_target(back, &jobs, &ids, &st.base);
-    if t.jobs.is_empty() {
-        return fail(
-            st,
-            ctx,
-            h,
-            StatusCode::NOT_FOUND,
-            "That download no longer exists.",
-        )
-        .await;
-    }
-    let form = views::remove_form(&st.base, &ctx.csrf, &t, delete);
-    if is_htmx(h) {
-        return html(form);
-    }
-    full_page(
-        st,
-        ctx,
-        Nav::Downloads,
-        if delete { "Delete files" } else { "Remove" },
-        "",
-        Vec::new(),
-        html! { div.card.narrow { (form) } },
-    )
-    .await
-}
-
-pub async fn remove_form(
-    State(st): St,
-    Extension(c): Extension<Ctx>,
-    h: HeaderMap,
-    Path(id): Path<u64>,
-    RawQuery(raw): RawQuery,
-) -> Response {
-    let p = query_pairs(&raw);
-    confirm_page(
-        &st,
-        &c,
-        &h,
-        vec![JobId(id)],
-        p.str("back"),
-        p.flag("delete"),
-    )
-    .await
-}
-
-pub async fn bulk_remove_form(
-    State(st): St,
-    Extension(c): Extension<Ctx>,
-    h: HeaderMap,
-    RawQuery(raw): RawQuery,
-) -> Response {
-    let p = query_pairs(&raw);
-    confirm_page(&st, &c, &h, ids_of(&p), "", p.flag("delete")).await
-}
-
-pub async fn remove(
-    State(st): St,
-    Extension(c): Extension<Ctx>,
-    h: HeaderMap,
-    Path(id): Path<u64>,
-    p: Pairs,
-) -> Response {
-    do_remove(&st, &c, &h, vec![JobId(id)], &p).await
-}
-
-pub async fn bulk_remove(
-    State(st): St,
-    Extension(c): Extension<Ctx>,
-    h: HeaderMap,
-    p: Pairs,
-) -> Response {
-    do_remove(&st, &c, &h, ids_of(&p), &p).await
-}
-
-/// Removal after the one confirmation. Deleting files needs `delete_files=true`,
-/// which only the "Delete files" confirmation sends.
-async fn do_remove(st: &AppState, c: &Ctx, h: &HeaderMap, ids: Vec<JobId>, p: &Pairs) -> Response {
-    if ids.is_empty() {
-        return fail(
-            st,
-            c,
-            h,
-            StatusCode::BAD_REQUEST,
-            "Tick one or more downloads first.",
-        )
-        .await;
-    }
-    // Files are deleted only on the explicit flag of the "Delete files" confirmation;
-    // any other remove keeps them.
-    let delete_files = p.get("delete_files") == Some("true");
-    let back = p.str("back");
-    let n = ids.len();
-    let name = if n == 1 {
-        st.call::<Job>(method::JOBS_GET, IdParams { id: ids[0] })
-            .await
-            .map(|j| quoted(views::display_name(&j)))
-            .unwrap_or_else(|_| "the download".into())
-    } else {
-        format!("{n} downloads")
-    };
-    let undo = if delete_files {
-        String::new()
-    } else {
-        id_list(&ids)
-    };
-    let ids_for_undo = ids.clone();
-    let params = RemoveParams {
-        ids,
-        delete_files,
-        force: false,
-    };
-    let v: serde_json::Value = match st.call(method::JOBS_REMOVE, params).await {
-        Ok(v) => v,
-        Err(e) => return fail_rpc(st, c, h, &e).await,
-    };
-    if let Some(m) = batch_failure(&v) {
-        // The daemon explains what did and did not happen (e.g. removed, but the
-        // files were unknown and so kept); the dialog closes either way.
-        let msg = format!("{name}: {m}");
-        if is_htmx(h) {
-            return with_header(
-                toast("error", &msg),
-                "hx-trigger",
-                "dman-close, dman-clear-sel",
-            );
-        }
-        return fail(st, c, h, StatusCode::CONFLICT, &msg).await;
-    }
-    let code = if delete_files {
-        "removed-files"
-    } else {
-        "removed"
-    };
-    // Only "Remove from list" can be undone; deleted files are gone for good.
-    let to = if undo.is_empty() {
-        format!("{}/?done={code}", st.base)
-    } else {
-        format!("{}/?done={code}&undo={undo}", st.base)
-    };
-    if !is_htmx(h) {
-        return redirect(&to);
-    }
-    if back == "detail" {
-        return with_header(html(html! {}), "hx-redirect", &to);
-    }
-    let t = if delete_files {
-        views::toast("ok", &format!("Removed {name} and deleted its files."))
-    } else {
-        views::toast_undo(
-            &st.base,
-            &c.csrf,
-            &format!("Removed {name} (files kept)."),
-            &ids_for_undo,
-        )
-    };
-    with_header(toast_markup(t), "hx-trigger", "dman-close, dman-clear-sel")
-}
-
-/// `POST /jobs/restore`: undo of "Remove from list" (`ids=1,2`).
-pub async fn restore(
-    State(st): St,
-    Extension(c): Extension<Ctx>,
-    h: HeaderMap,
-    p: Pairs,
-) -> Response {
-    let ids = ids_of(&p);
-    if ids.is_empty() {
-        return fail(&st, &c, &h, StatusCode::BAD_REQUEST, "Nothing to restore.").await;
-    }
-    let name = if let [one] = ids.as_slice() {
-        st.call::<Job>(method::JOBS_GET, IdParams { id: *one })
-            .await
-            .map(|j| quoted(views::display_name(&j)))
-            .unwrap_or_else(|_| "the download".into())
-    } else {
-        format!("{} downloads", ids.len())
-    };
-    let v: serde_json::Value = match st.call(method::JOBS_RESTORE, IdsParams { ids }).await {
-        Ok(v) => v,
-        Err(e) => return fail_rpc(&st, &c, &h, &e).await,
-    };
-    if let Some(m) = batch_failure(&v) {
-        return fail(
-            &st,
-            &c,
-            &h,
-            StatusCode::CONFLICT,
-            &format!("Could not restore {name}: {m}"),
-        )
-        .await;
-    }
-    if !is_htmx(&h) {
-        return redirect(&format!("{}/?done=restored", st.base));
-    }
-    // The Undo toast is replaced by this one; the list refreshes itself.
-    with_header(
-        html(views::toast("ok", &format!("Restored {name}."))),
-        "hx-trigger",
-        "dman-restored",
-    )
-}
-
-// ------------------------------------------------------------------- detail
-
-pub async fn detail(
-    State(st): St,
-    Extension(ctx): Extension<Ctx>,
-    Path(id): Path<u64>,
-    RawQuery(raw): RawQuery,
-) -> Response {
-    match st
-        .call::<JobDetail>(method::JOBS_DETAIL, IdParams { id: JobId(id) })
-        .await
-    {
-        Ok(d) => {
-            let name = views::display_name(&d.job).to_string();
-            full_page(
-                &st,
-                &ctx,
-                Nav::Downloads,
-                &name,
-                &format!("job={id}"),
-                flash(&query_pairs(&raw)),
-                views::detail_page(&st.base, &ctx.csrf, &d),
-            )
-            .await
-        }
-        Err(e) => fail_rpc(&st, &ctx, &HeaderMap::new(), &e).await,
-    }
-}
-
-pub async fn rename(
-    State(st): St,
-    Extension(c): Extension<Ctx>,
-    h: HeaderMap,
-    Path(id): Path<u64>,
-    p: Pairs,
-) -> Response {
-    let name = p.str("name");
-    let result = if name.is_empty() {
-        Err("Enter a new name.".to_string())
-    } else if name.contains('/') || name == ".." || name == "." {
-        Err("Use a plain name without slashes.".to_string())
-    } else {
-        let params = RenameParams {
-            id: JobId(id),
-            name: name.to_string(),
-            file_index: p.text("file_index").and_then(|v| v.parse().ok()),
-        };
-        st.call_unit(method::JOBS_RENAME, params)
-            .await
-            .map_err(|e| e.message)
-    };
-    let back = format!("{}/jobs/{id}?done=renamed", st.base);
-    match result {
-        Ok(()) if is_htmx(&h) => with_header(html(html! {}), "hx-redirect", &back),
-        Ok(()) => redirect(&back),
-        Err(msg) if is_htmx(&h) => {
-            match st
-                .call::<JobDetail>(method::JOBS_DETAIL, IdParams { id: JobId(id) })
-                .await
-            {
-                Ok(d) => html(views::rename_form(&st.base, &c.csrf, &d, name, Some(&msg))),
-                Err(e) => toast("error", &e.message),
-            }
-        }
-        Err(msg) => {
-            fail(
-                &st,
-                &c,
-                &h,
-                StatusCode::BAD_REQUEST,
-                &format!("Could not rename: {msg}"),
-            )
-            .await
-        }
-    }
-}
-
-/// Parses a changed rate field: empty = no limit.
-fn changed_rate(p: &Pairs, field: &str) -> Result<Option<u64>, String> {
-    let v = p.str(field);
-    if p.get(field).is_none() || v == p.str(&format!("o_{field}")) {
-        return Ok(None);
-    }
-    if v.is_empty() {
-        return Ok(Some(0));
-    }
-    fmt::parse_rate(v).map(Some).ok_or_else(|| {
-        format!("\u{201c}{v}\u{201d} is not a speed. Use a number with K, M or G, e.g. 500K.")
-    })
-}
-
-fn parse_options(p: &Pairs) -> Result<JobOptions, (&'static str, String)> {
-    let mut o = JobOptions {
-        max_download_limit: changed_rate(p, "download").map_err(|m| ("download", m))?,
-        max_upload_limit: changed_rate(p, "upload").map_err(|m| ("upload", m))?,
-        ..JobOptions::default()
-    };
-    let ratio = p.str("seed_ratio");
-    if p.get("seed_ratio").is_some() && !ratio.is_empty() && ratio != p.str("o_seed_ratio") {
-        match ratio.parse::<f64>() {
-            Ok(r) if r.is_finite() && r >= 0.0 => o.seed_ratio = Some(r),
-            _ => return Err(("seed_ratio", "Enter a ratio such as 1.0 or 2.5.".into())),
-        }
-    }
-    let time = p.str("seed_time");
-    if p.get("seed_time").is_some() && !time.is_empty() && time != p.str("o_seed_time") {
-        match time.parse::<u64>() {
-            Ok(t) => o.seed_time = Some(t),
-            _ => return Err(("seed_time", "Enter whole minutes, e.g. 60.".into())),
-        }
-    }
-    Ok(o)
-}
-
-pub async fn job_limits(
-    State(st): St,
-    Extension(c): Extension<Ctx>,
-    h: HeaderMap,
-    Path(id): Path<u64>,
-    p: Pairs,
-) -> Response {
-    let cur = OptValues {
-        download: p.str("download").to_string(),
-        upload: p.str("upload").to_string(),
-        seed_ratio: p.str("seed_ratio").to_string(),
-        seed_time: p.str("seed_time").to_string(),
-    };
-    let orig = OptValues {
-        download: p.str("o_download").to_string(),
-        upload: p.str("o_upload").to_string(),
-        seed_ratio: p.str("o_seed_ratio").to_string(),
-        seed_time: p.str("o_seed_time").to_string(),
-    };
-    let result = match parse_options(&p) {
-        Err((f, m)) => Err((f, m)),
-        Ok(o) if o == JobOptions::default() => Ok(()),
-        Ok(options) => st
-            .call_unit(
-                method::JOBS_SET_OPTIONS,
-                SetOptionsParams {
-                    id: JobId(id),
-                    options,
-                },
-            )
-            .await
-            .map_err(|e| ("", e.message)),
-    };
-    if !is_htmx(&h) {
-        return match result {
-            Ok(()) => redirect(&format!("{}/jobs/{id}?done=saved", st.base)),
-            Err((_, m)) => fail(&st, &c, &h, StatusCode::BAD_REQUEST, &m).await,
-        };
-    }
-    let job = match st
-        .call::<Job>(method::JOBS_GET, IdParams { id: JobId(id) })
-        .await
-    {
-        Ok(j) => j,
-        Err(e) => return toast("error", &e.message),
-    };
-    match &result {
-        Ok(()) => html(views::options_form(
-            &st.base,
-            &c.csrf,
-            &job,
-            &cur,
-            &cur,
-            Note::Saved,
-        )),
-        Err((f, m)) => html(views::options_form(
-            &st.base,
-            &c.csrf,
-            &job,
-            &orig,
-            &cur,
-            Note::Error(f, m),
-        )),
-    }
 }

@@ -73,13 +73,23 @@ impl VideoService {
     /// Re-reads `[video]` from the config file (so a fixed `ytdlp_path` is
     /// picked up) and detects the tools again (`engine.restart`).
     pub async fn redetect(&self) -> Tools {
-        if let Some(paths) = &self.paths
-            && paths.config_file().exists()
-            && let Ok(cfg) = dman_config::Config::load(paths)
-            && cfg.video.validate().is_ok()
-            && let Ok(mut c) = self.config.lock()
-        {
-            *c = cfg.video;
+        if let Some(paths) = self.paths.clone() {
+            let loaded = tokio::task::spawn_blocking(move || {
+                if !paths.config_file().exists() {
+                    return None;
+                }
+                dman_config::Config::load(&paths)
+                    .ok()
+                    .filter(|cfg| cfg.video.validate().is_ok())
+            })
+            .await
+            .ok()
+            .flatten();
+            if let Some(cfg) = loaded
+                && let Ok(mut c) = self.config.lock()
+            {
+                *c = cfg.video;
+            }
         }
         let (y, f) = match self.config.lock() {
             Ok(c) => (expand(&c.ytdlp_path), expand(&c.ffmpeg_path)),
@@ -174,7 +184,7 @@ pub(crate) async fn set_preferences(
         return Err(general("the daemon has no config file to save to"));
     };
     let mut new = svc.config_now();
-    let mut keys: Vec<(&str, Result<bool, String>)> = Vec::new();
+    let mut keys: Vec<(&'static str, Result<bool, String>)> = Vec::new();
     let mut clear_container = false;
     if let Some(a) = u.ask_quality {
         new.ask_quality = a;
@@ -202,19 +212,25 @@ pub(crate) async fn set_preferences(
     }
     new.validate().map_err(RpcError::invalid)?;
     if !keys.is_empty() || clear_container {
-        let mut doc = dman_config::ConfigDoc::open(paths).map_err(general)?;
-        for (k, v) in keys {
-            match v {
-                Ok(b) => doc.set(&["video", k], b),
-                Err(t) => doc.set(&["video", k], t),
-            }
-            .map_err(general)?;
-        }
-        if clear_container {
-            doc.remove(&["video", "default_container"])
+        let paths = paths.clone();
+        let keys: Vec<(&'static str, Result<bool, String>)> = keys;
+        tokio::task::spawn_blocking(move || -> Result<(), RpcError> {
+            let mut doc = dman_config::ConfigDoc::open(&paths).map_err(general)?;
+            for (k, v) in keys {
+                match v {
+                    Ok(b) => doc.set(&["video", k], b),
+                    Err(t) => doc.set(&["video", k], t),
+                }
                 .map_err(general)?;
-        }
-        doc.save().map_err(general)?;
+            }
+            if clear_container {
+                doc.remove(&["video", "default_container"])
+                    .map_err(general)?;
+            }
+            doc.save().map_err(general)
+        })
+        .await
+        .map_err(general)??;
     }
     state
         .manager

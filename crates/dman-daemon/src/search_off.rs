@@ -65,7 +65,7 @@ impl SearchService {
 
     pub fn apply_reload(&self, _: PreparedSearch) {}
 
-    pub fn close(&self) {}
+    pub async fn close(&self) {}
 
     pub async fn call(self: &Arc<Self>, _method: &str, _params: Value) -> Result<Value, RpcError> {
         Err(RpcError::refused(MESSAGE))

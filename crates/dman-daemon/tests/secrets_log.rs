@@ -26,13 +26,8 @@ fn aria2_enabled() -> bool {
     std::env::var("DMAN_TEST_ARIA2").as_deref() == Ok("1")
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+mod support;
+use support::free_port;
 
 /// Collects everything the subscriber writes.
 #[derive(Clone, Default)]

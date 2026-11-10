@@ -193,6 +193,7 @@ async fn serve(
                         up: 3,
                     }],
                     renames: vec![],
+                    cleanup_pending: None,
                 };
                 reply(Response::ok(id, serde_json::to_value(d).unwrap()));
             }

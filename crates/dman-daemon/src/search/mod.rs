@@ -67,6 +67,9 @@ pub struct SearchService {
     /// The running tracker-list refresher.
     tracker_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
     state: Mutex<State>,
+    /// Every running search task (also those evicted from the kept list), so
+    /// shutdown can cancel and await them.
+    running: Mutex<Vec<(Arc<Notify>, tokio::task::JoinHandle<()>)>>,
     /// Serialises read-modify-write cycles of `config.toml`.
     config_lock: tokio::sync::Mutex<()>,
     trackers: Arc<Trackers>,
@@ -165,6 +168,7 @@ impl SearchService {
             history_size: AtomicUsize::new(config.search.history_size),
             tracker_task: Mutex::new(None),
             state: Mutex::new(State::default()),
+            running: Mutex::new(Vec::new()),
             config_lock: tokio::sync::Mutex::new(()),
             trackers: Arc::new(Trackers::new(config.search.tracker_list.clone())),
         }))
@@ -239,9 +243,9 @@ impl SearchService {
         self.spawn_tracker_refresher();
     }
 
-    /// Cancels running searches and releases the store (daemon shutdown).
-    pub fn close(&self) {
-        self.store.lock().unwrap_or_else(|e| e.into_inner()).take();
+    /// Cancels running searches, waits for them (their history entry is
+    /// still saved) and releases the store (daemon shutdown).
+    pub async fn close(&self) {
         if let Some(t) = self
             .tracker_task
             .lock()
@@ -250,11 +254,14 @@ impl SearchService {
         {
             t.abort();
         }
-        for s in &self.state().searches {
-            if !s.finished {
-                s.cancel.notify_one();
-            }
+        let running = std::mem::take(&mut *self.running.lock().unwrap_or_else(|e| e.into_inner()));
+        for (cancel, _) in &running {
+            cancel.notify_one();
         }
+        for (_, task) in running {
+            let _ = tokio::time::timeout(Duration::from_secs(5), task).await;
+        }
+        self.store.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -381,10 +388,16 @@ impl SearchService {
             }
             id
         };
-        tokio::spawn(
-            self.clone()
-                .run(id, requested, names.clone(), stream, cancel),
-        );
+        let task =
+            tokio::spawn(
+                self.clone()
+                    .run(id, requested, names.clone(), stream, cancel.clone()),
+            );
+        {
+            let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
+            running.retain(|(_, t)| !t.is_finished());
+            running.push((cancel, task));
+        }
         Ok(SearchStarted {
             search_id: id,
             providers: names,

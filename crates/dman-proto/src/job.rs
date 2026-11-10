@@ -420,6 +420,17 @@ pub struct JobDetail {
     /// Renames of the completed output on disk, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub renames: Vec<RenameEntry>,
+    /// Leftover partial files of deselected torrent files waiting for the
+    /// user's decision (`jobs.cleanup_unselected`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cleanup_pending: Option<CleanupInfo>,
+}
+
+/// Summary of the leftovers a client has to be asked about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanupInfo {
+    pub count: u32,
+    pub bytes: u64,
 }
 
 /// One recorded rename of a completed job's output (`jobs.detail`).
@@ -631,8 +642,10 @@ mod tests {
                 to: "b".into(),
                 at: 5,
             }],
+            cleanup_pending: Some(CleanupInfo { count: 2, bytes: 9 }),
         };
         let v = serde_json::to_value(&d).unwrap();
+        assert_eq!(v["cleanup_pending"]["count"], 2);
         assert_eq!(v["trackers"][0]["status"], "unknown");
         assert_eq!(v["pieces"]["bitfield_hex"], "f0");
         assert!(v.get("comment").is_none());
@@ -641,6 +654,7 @@ mod tests {
         let minimal = serde_json::json!({"job": serde_json::to_value(job()).unwrap()});
         let m: JobDetail = serde_json::from_value(minimal).unwrap();
         assert!(m.files.is_empty() && m.pieces.is_none() && m.speed_history.is_empty());
+        assert!(m.cleanup_pending.is_none());
     }
 
     #[test]

@@ -3,10 +3,11 @@
 
 use dman_aria2::{DownloadStatus, Gid, Peer, Status};
 use dman_proto::{
-    FileInfo, JobDetail, JobId, PeerInfo, PieceMap, RenameEntry, RpcError, SourceKind, TrackerInfo,
-    TrackerStatus,
+    CleanupInfo, FileInfo, JobDetail, JobId, PeerInfo, PieceMap, RenameEntry, RpcError, SourceKind,
+    TrackerInfo, TrackerStatus,
 };
 use dman_store::JobRecord;
+use serde_json::json;
 
 use super::Manager;
 use super::util::recorded_files;
@@ -43,6 +44,7 @@ impl Manager {
             comment: None,
             options: rec.options.clone(),
             speed_history: self.history.job(id),
+            cleanup_pending: cleanup_info(&rec),
             renames: self
                 .db(move |s| s.renames(id))
                 .await
@@ -59,15 +61,42 @@ impl Manager {
             return Ok(d);
         };
         let gid = Gid::new(gid);
-        match client.tell_status(&gid, STATUS_KEYS).await {
-            Ok(st) => apply_status(&mut d, &st),
+        let want_peers = torrent && active;
+        let mut calls = vec![
+            (
+                "aria2.tellStatus".to_owned(),
+                vec![json!(gid), json!(STATUS_KEYS)],
+            ),
+            ("aria2.getFiles".to_owned(), vec![json!(gid)]),
+        ];
+        if want_peers {
+            calls.push(("aria2.getPeers".to_owned(), vec![json!(gid)]));
+        }
+        let results = match client.multicall(calls).await {
+            Ok(r) => r,
             Err(err) => {
                 tracing::debug!(%id, "no live detail from aria2: {err}");
                 return Ok(d);
             }
+        };
+        let mut it = results.into_iter();
+        match it
+            .next()
+            .and_then(Result::ok)
+            .map(serde_json::from_value::<Status>)
+        {
+            Some(Ok(st)) => apply_status(&mut d, &st),
+            _ => {
+                tracing::debug!(%id, "no live detail from aria2");
+                return Ok(d);
+            }
         }
-        match client.get_files(&gid).await {
-            Ok(files) => {
+        match it.next().map(|r| {
+            r.map_err(|e| e.to_string()).and_then(|v| {
+                serde_json::from_value::<Vec<dman_aria2::File>>(v).map_err(|e| e.to_string())
+            })
+        }) {
+            Some(Ok(files)) => {
                 let mut live = files_from_aria2(&files);
                 if !live.is_empty() {
                     // aria2 keeps reporting the original paths of finished
@@ -83,19 +112,34 @@ impl Manager {
                     d.files = live;
                 }
             }
-            Err(err) => tracing::debug!(%id, "getFiles failed: {err}"),
+            Some(Err(err)) => tracing::debug!(%id, "getFiles failed: {err}"),
+            None => {}
         }
-        if torrent && active {
-            match client.get_peers(&gid).await {
-                Ok(peers) => {
+        if want_peers {
+            match it.next().map(|r| {
+                r.map_err(|e| e.to_string())
+                    .and_then(|v| serde_json::from_value::<Vec<Peer>>(v).map_err(|e| e.to_string()))
+            }) {
+                Some(Ok(peers)) => {
                     let n = d.pieces.as_ref().map_or(0, |p| u64::from(p.num_pieces));
                     d.peers = peers_from_aria2(&peers, n);
                 }
-                Err(err) => tracing::debug!(%id, "getPeers failed: {err}"),
+                Some(Err(err)) => tracing::debug!(%id, "getPeers failed: {err}"),
+                None => {}
             }
         }
         Ok(d)
     }
+}
+
+/// The pending cleanup flagged in the record, if any.
+fn cleanup_info(rec: &JobRecord) -> Option<CleanupInfo> {
+    let p = rec.extra.get(super::cleanup::PENDING)?;
+    let num = |k: &str| p.get(k).and_then(serde_json::Value::as_u64).unwrap_or(0);
+    Some(CleanupInfo {
+        count: u32::try_from(num("count")).unwrap_or(u32::MAX),
+        bytes: num("bytes"),
+    })
 }
 
 fn apply_status(d: &mut JobDetail, st: &Status) {

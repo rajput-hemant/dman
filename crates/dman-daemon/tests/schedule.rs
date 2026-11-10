@@ -45,13 +45,8 @@ impl Clock for ManualClock {
     }
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+mod support;
+use support::free_port;
 
 fn windows(toml: &str) -> Vec<ScheduleWindow> {
     #[derive(serde::Deserialize)]

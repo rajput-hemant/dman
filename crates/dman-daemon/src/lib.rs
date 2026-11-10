@@ -321,7 +321,7 @@ pub async fn run_with_clock(
     manager.shutdown().await;
     let _ = manager_task.await;
     notifier_task.abort();
-    search_close.close();
+    search_close.close().await;
     engine.shutdown().await;
     let _ = engine_task.await;
     if !server_done

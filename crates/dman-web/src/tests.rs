@@ -155,6 +155,7 @@ impl Backend for Fake {
                     options: Default::default(),
                     speed_history: vec![],
                     renames: vec![],
+                    cleanup_pending: Some(dman_proto::CleanupInfo { count: 1, bytes: 3 }),
                 }),
                 "jobs.cleanup_unselected" => ok(json!({
                     "files": [{"path": EVIL, "bytes": 3}],
@@ -190,6 +191,7 @@ impl Backend for Fake {
                     options: Default::default(),
                     speed_history: vec![],
                     renames: vec![],
+                    cleanup_pending: None,
                 }),
                 "stats.get" => ok(GlobalStats {
                     download_speed: 2048,

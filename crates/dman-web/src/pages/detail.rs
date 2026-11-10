@@ -5,9 +5,9 @@ use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use dman_proto::method::{
-    self, CleanupParams, CleanupResult, IdParams, RenameParams, SetOptionsParams,
+    self, CleanupFile, CleanupParams, CleanupResult, IdParams, RenameParams, SetOptionsParams,
 };
-use dman_proto::{Job, JobDetail, JobId, JobOptions, JobState};
+use dman_proto::{Job, JobDetail, JobId, JobOptions};
 use maud::html;
 
 use super::{
@@ -29,7 +29,10 @@ pub async fn detail(
         .await
     {
         Ok(d) => {
-            let cleanup = leftovers(&st, &d).await;
+            let cleanup = match d.cleanup_pending {
+                Some(info) => Some((info, leftover_names(&st, &d).await)),
+                None => None,
+            };
             let name = views::display_name(&d.job).to_string();
             full_page(
                 &st,
@@ -38,7 +41,12 @@ pub async fn detail(
                 &name,
                 &format!("job={id}"),
                 flash(&query_pairs(&raw)),
-                views::detail_page(&st.base, &ctx.csrf, &d, cleanup.as_ref()),
+                views::detail_page(
+                    &st.base,
+                    &ctx.csrf,
+                    &d,
+                    cleanup.as_ref().map(|(i, f)| (*i, f.as_slice())),
+                ),
             )
             .await
         }
@@ -46,22 +54,17 @@ pub async fn detail(
     }
 }
 
-/// Partial files of deselected files of a finished torrent (a dry run; nothing is
-/// deleted). `None` when there are none or the daemon cannot say.
-async fn leftovers(st: &AppState, d: &JobDetail) -> Option<CleanupResult> {
-    let finished = matches!(d.job.state, JobState::Complete | JobState::Seeding);
-    if !finished || !views::is_torrent(&d.job) || d.files.iter().all(|f| f.selected) {
-        return None;
-    }
+/// Names of the leftover files the daemon flagged for the job (a dry run;
+/// nothing is deleted). Empty when the daemon cannot say.
+async fn leftover_names(st: &AppState, d: &JobDetail) -> Vec<CleanupFile> {
     let params = CleanupParams {
         id: d.job.id,
         dry_run: true,
     };
-    let found: CleanupResult = st
-        .call(method::JOBS_CLEANUP_UNSELECTED, params)
+    st.call::<CleanupResult>(method::JOBS_CLEANUP_UNSELECTED, params)
         .await
-        .ok()?;
-    (!found.files.is_empty()).then_some(found)
+        .map(|r| r.files)
+        .unwrap_or_default()
 }
 
 /// `POST /jobs/{id}/cleanup`: deletes the leftovers listed on the detail page. The

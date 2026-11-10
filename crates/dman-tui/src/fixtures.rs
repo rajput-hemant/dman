@@ -196,5 +196,6 @@ pub fn sample_detail(job: &Job) -> dman_proto::JobDetail {
         },
         speed_history,
         renames: Vec::new(),
+        cleanup_pending: None,
     }
 }

@@ -31,6 +31,8 @@ pub struct Timetable {
     computed_at: Option<Timestamp>,
     /// Global limits last confirmed applied to aria2.
     applied: Option<(u64, u64)>,
+    /// The last failure to push the global limits (logged once per distinct error).
+    push_error: Option<String>,
     tz_name: String,
 }
 
@@ -54,6 +56,7 @@ impl Timetable {
             next: None,
             computed_at: None,
             applied: None,
+            push_error: None,
             tz_name,
         }
     }
@@ -313,8 +316,19 @@ impl Manager {
             .change_global_option(&global_limits(want.0, want.1, None))
             .await
         {
-            Ok(()) => self.timetable.applied = Some(want),
-            Err(e) => tracing::warn!("cannot apply global limits: {e}"),
+            Ok(()) => {
+                self.timetable.applied = Some(want);
+                self.timetable.push_error = None;
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if self.timetable.push_error.as_deref() == Some(msg.as_str()) {
+                    tracing::debug!("cannot apply global limits: {msg}");
+                } else {
+                    tracing::warn!("cannot apply global limits: {msg}");
+                    self.timetable.push_error = Some(msg);
+                }
+            }
         }
     }
 

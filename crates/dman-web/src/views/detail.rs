@@ -1,7 +1,8 @@
 //! Detail page: live header (name, status, progress, stat tiles), then tabs for
 //! files, peers, trackers, options (with rename) and info.
 
-use dman_proto::method::CleanupResult;
+use dman_proto::CleanupInfo;
+use dman_proto::method::CleanupFile;
 use dman_proto::{Engine, Job, JobDetail, JobOptions, JobState};
 use maud::{Markup, html};
 
@@ -329,10 +330,16 @@ pub fn rename_form(
 
 /// Leftovers of deselected torrent files, with the one confirmation that deletes them.
 /// Only files of files the user deselected are ever listed; the daemon enforces it.
-pub fn cleanup_card(base: &str, csrf: &str, id: u64, c: &CleanupResult) -> Markup {
+pub fn cleanup_card(
+    base: &str,
+    csrf: &str,
+    id: u64,
+    c: CleanupInfo,
+    files: &[CleanupFile],
+) -> Markup {
     const SHOWN: usize = 50;
     let url = format!("{base}/jobs/{id}/cleanup");
-    let n = c.files.len();
+    let n = c.count as usize;
     html! {
         section #cleanup.card.cleanup aria-labelledby="cleanup-h" {
             h2 #cleanup-h.ph { "Leftover files of skipped downloads" }
@@ -340,8 +347,8 @@ pub fn cleanup_card(base: &str, csrf: &str, id: u64, c: &CleanupResult) -> Marku
                 (n) " partial file" @if n != 1 { "s" } " (" (fmt::bytes(c.bytes)) ") from files you chose not to download "
                 @if n == 1 { "is" } @else { "are" } " still in the folder. Files you selected are never touched."
             }
-            ul.names { @for f in c.files.iter().take(SHOWN) { li { (f.path) " " span.muted { (fmt::bytes(f.bytes)) } } } }
-            @if n > SHOWN { p.help { "and " (n - SHOWN) " more" } }
+            ul.names { @for f in files.iter().take(SHOWN) { li { (f.path) " " span.muted { (fmt::bytes(f.bytes)) } } } }
+            @if n > files.len().min(SHOWN) { p.help { "and " (n - files.len().min(SHOWN)) " more" } }
             form method="post" action=(url) {
                 input type="hidden" name="_csrf" value=(csrf);
                 div.btnrow {
@@ -357,7 +364,7 @@ pub fn detail_page(
     base: &str,
     csrf: &str,
     d: &JobDetail,
-    cleanup: Option<&CleanupResult>,
+    cleanup: Option<(CleanupInfo, &[CleanupFile])>,
 ) -> Markup {
     let j = &d.job;
     let torrent = is_torrent(j);
@@ -376,7 +383,7 @@ pub fn detail_page(
     html! {
         a.back href=(format!("{base}/")) { (icon(base, "arrow-left")) span { "All downloads" } }
         (detail_head(base, Some(csrf), j))
-        @if let Some(c) = cleanup { (cleanup_card(base, csrf, j.id.0, c)) }
+        @if let Some((c, files)) = cleanup { (cleanup_card(base, csrf, j.id.0, c, files)) }
         nav.tabs role="tablist" aria-label="Sections" {
             @for (id, label) in &tabs {
                 a #(format!("t-{id}")) href=(format!("#{id}")) role="tab" data-tab=(id)

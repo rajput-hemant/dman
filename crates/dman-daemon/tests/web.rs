@@ -15,13 +15,8 @@ use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use url::Url;
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
+mod support;
+use support::free_port;
 
 fn config(root: &Path) -> Config {
     let mut c = Config::default();

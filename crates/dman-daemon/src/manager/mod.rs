@@ -6,6 +6,7 @@
 //! time, so no state is shared and no lock is ever held across an await.
 
 mod add;
+pub(crate) mod artefacts;
 mod cleanup;
 mod control;
 mod detail;
@@ -28,7 +29,7 @@ pub(crate) mod video;
 pub(crate) mod video;
 
 use util::store_err;
-pub(crate) use util::{file_paths, now, pause_gid};
+pub(crate) use util::{file_paths, now, pause_gid, wait_stopped};
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -210,6 +211,8 @@ pub(crate) struct Entry {
     pub(crate) need_metadata: bool,
     /// Attempts to find that metadata so far.
     pub(crate) metadata_tries: u8,
+    /// Ticks until the engine's leftovers of this completed job are cleaned.
+    pub(crate) artefacts_due: Option<u8>,
     /// The running yt-dlp process of a video job.
     pub(crate) video: Option<video::VideoRun>,
     /// Playlist position `(n, m)` of a running video job.
@@ -222,6 +225,8 @@ impl Entry {
             && !rec.state.is_stopped()
             && rec.extra.get("details_final").and_then(Value::as_bool) != Some(true);
         let need_metadata = metadata::wanted_at_load(&rec);
+        let artefacts_due = (rec.engine == Engine::Aria2 && rec.state == JobState::Complete)
+            .then_some(artefacts::SETTLE_TICKS);
         Self {
             rec,
             live: LiveFigures::default(),
@@ -236,6 +241,7 @@ impl Entry {
             restart_from_zero: false,
             need_metadata,
             metadata_tries: 0,
+            artefacts_due,
             video: None,
             video_item: None,
         }

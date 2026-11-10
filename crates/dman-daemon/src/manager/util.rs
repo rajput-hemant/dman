@@ -190,7 +190,7 @@ pub(crate) fn file_paths(files: &[dman_aria2::File]) -> Vec<String> {
 
 /// Waits until aria2 has really stopped `gid` (removal is asynchronous for
 /// active downloads), up to a few seconds.
-pub(super) async fn wait_stopped(client: &Aria2Client, gid: &Gid) {
+pub(crate) async fn wait_stopped(client: &Aria2Client, gid: &Gid) {
     for _ in 0..50 {
         match client.tell_status(gid, &["status"]).await {
             Ok(st) => {

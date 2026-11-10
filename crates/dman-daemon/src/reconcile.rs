@@ -14,10 +14,17 @@ use dman_proto::{Engine, JobId, JobState, SourceKind};
 use dman_store::{Desired, JobRecord};
 use serde_json::{Value, json};
 
-use crate::manager::{Entry, Manager, file_paths, now, pause_gid};
+use crate::manager::{Entry, Manager, file_paths, now, pause_gid, wait_stopped};
 use crate::tick::{self, Counters};
 
-const KEYS: &[&str] = &["gid", "status", "following", "belongsTo", "seeder"];
+const KEYS: &[&str] = &[
+    "gid",
+    "status",
+    "following",
+    "belongsTo",
+    "seeder",
+    "infoHash",
+];
 
 impl Manager {
     async fn all_statuses(&self, client: &Aria2Client) -> dman_aria2::Result<Vec<Status>> {
@@ -47,6 +54,8 @@ impl Manager {
             .values()
             .filter_map(|e| e.rec.gid.clone().map(|g| (g, e.rec.id)))
             .collect();
+
+        self.drop_session_copies(client, &statuses, &by_gid).await;
 
         let mut order: Vec<(u64, JobId)> = self
             .jobs
@@ -121,6 +130,53 @@ impl Manager {
             }
         }
         self.flush(true).await;
+    }
+
+    /// aria2 restores unfinished magnet downloads from its session file as new
+    /// downloads (a magnet link under a new gid). When dman has the job under
+    /// another gid that aria2 no longer knows, dman re-adds it from the stored
+    /// `.torrent` itself, so the session's copy would run the same torrent in
+    /// the same directory a second time (and get adopted as a separate job).
+    /// Such copies are stopped and dropped first.
+    async fn drop_session_copies(
+        &self,
+        client: &Aria2Client,
+        statuses: &[Status],
+        by_gid: &HashMap<String, &Status>,
+    ) {
+        let lost: Vec<String> = self
+            .jobs
+            .values()
+            .filter(|e| {
+                e.rec.engine == Engine::Aria2
+                    && !e.rec.state.is_stopped()
+                    && e.rec.desired != Desired::Stopped
+                    && e.rec.gid.as_deref().is_none_or(|g| !by_gid.contains_key(g))
+            })
+            .filter_map(|e| e.rec.info_hash.as_ref())
+            .map(|h| h.to_ascii_lowercase())
+            .collect();
+        if lost.is_empty() {
+            return;
+        }
+        for st in statuses {
+            let Some(gid) = st.gid.as_ref() else { continue };
+            let running = matches!(
+                st.status,
+                Some(DownloadStatus::Active | DownloadStatus::Waiting | DownloadStatus::Paused)
+            );
+            let same = st
+                .info_hash
+                .as_ref()
+                .is_some_and(|h| lost.contains(&h.to_ascii_lowercase()));
+            if !running || !same || self.gids.contains_key(gid.as_str()) {
+                continue;
+            }
+            tracing::info!(gid = gid.as_str(), "dropping aria2's session copy of a job");
+            let _ = client.force_remove(gid).await;
+            wait_stopped(client, gid).await;
+            let _ = client.remove_download_result(gid).await;
+        }
     }
 
     /// Re-adds `id`; on failure marks it as failed (resume retries it).

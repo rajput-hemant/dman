@@ -10,8 +10,9 @@
 //! magnet link, so a seeding or unfinished magnet job comes back even when no
 //! peer is left to serve the metadata again.
 //!
-//! The saved file is only read, never removed: it is aria2's output in the
-//! user's download directory.
+//! This module only reads the saved file. Once the job is complete or removed
+//! it is deleted by [`super::artefacts`], which makes sure this module
+//! stored the bytes first.
 
 use std::path::{Path, PathBuf};
 

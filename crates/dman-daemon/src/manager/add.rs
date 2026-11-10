@@ -221,6 +221,16 @@ impl Manager {
         if uris.len() > 1 {
             rec.extra.insert("uris".into(), json!(uris));
         }
+        // Note whether aria2's metadata copy (`<info hash>.torrent`) is already
+        // there, so only one that appears later is ever removed.
+        let hash = match (&blob, kind) {
+            (Some(b), SourceKind::Torrent) => {
+                dman_torrent::parse_torrent(b).ok().map(|m| m.info_hash)
+            }
+            (None, SourceKind::Magnet) => super::artefacts::magnet_hash(&rec.source),
+            _ => None,
+        };
+        super::artefacts::note_torrent_file(&mut rec, hash);
         {
             let rec = rec.clone();
             let blob = blob.clone();

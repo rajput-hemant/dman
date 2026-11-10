@@ -110,6 +110,11 @@ commit this file together with the code it describes.
 - [x] Full code review + fixes: library crates (575eb0f), web + CLI incl. cleanup/reload UI and exit-code audit (d7d5751), daemon incl. magnet .torrent persistence, no-Range restart, load-cookies + search.resolve hardening, flaky waits (caab3e0), TUI incl. responsive layout at any size, grouped command palette, file splits, braille piece map (38f8a81)
 - [x] Minor review notes left (fixed in 4d7aefc): jobs.detail makes 3 sequential aria2 calls; failing global-limit push warns every tick; searches evicted from the kept list can't be cancelled at shutdown; video.preferences.set/redetect do blocking file I/O on the async task; Job/JobDetail lack `cleanup_pending` (web uses a dry run); ephemeral test ports can race
 
+### User requests (2026-11-10, after the review)
+- [x] Leftover engine files: finished torrent/magnet jobs leave only their files. Job-owned `.aria2` control files and the `<infohash>.torrent` metadata copy are removed after completion (after seeding ends, if seeding is on). A `.torrent` that existed before the job, has another hash or doesn't parse is never touched; failed, paused and unfinished jobs keep their `.aria2` so they can resume. aria2 no longer writes upload copies (`rpc-save-upload-metadata=false`, the job blob is the copy). Older jobs from before this change only get their `.aria2` cleaned.
+- [x] Search providers: EZTV, Torlock, TorrentDownloads, Internet Archive, Academic Torrents and LinuxTracker are verified; LimeTorrents, SolidTorrents and 1337x are unverified (1337x hosts all serve a Cloudflare challenge, so the docs route it through Prowlarr/Jackett + FlareSolverr). Per-provider mirrors with fallback, per-provider/global proxy (`"none"` forces direct), `[search] dns` with DNS-over-HTTPS. See docs/search.md.
+- [ ] CLI improvements: list in `.plan/cli-improvements.md`, waiting for the owner's picks
+
 ### UX pass (requested by the user, 2026-11-09)
 - [x] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
 - [x] CLI: dynamic completions (job IDs, providers, profiles), `dman completions install`, help examples, SIGPIPE-safe output

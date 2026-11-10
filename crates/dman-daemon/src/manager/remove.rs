@@ -178,6 +178,9 @@ impl Manager {
         let was_running = e.running_in_engine() || e.aria2 == Some(DownloadStatus::Paused);
         let dir = PathBuf::from(&e.rec.dir);
         let mut files = recorded_files(&e.rec);
+        // Leftovers of the engine are only cleaned once it no longer runs the job.
+        let was_done = matches!(e.rec.state, JobState::Complete | JobState::Seeding);
+        let engine_stopped = client.is_some() || e.rec.state.is_stopped();
 
         if let (Some(client), Some(gid)) = (&client, &gid)
             && in_engine
@@ -231,6 +234,13 @@ impl Manager {
             e.need_details = false;
         }
         self.mark(id, true);
+
+        if engine_stopped {
+            // The `.torrent` copy is never needed again (dman keeps the bytes);
+            // control files only when the job is done or its files go: a removed
+            // unfinished job can be restored and resumes from its control file.
+            self.clean_artefacts_for(id, delete_files || was_done).await;
+        }
 
         if !delete_files {
             return Ok(());

@@ -41,6 +41,7 @@ impl Manager {
         }
         self.capture_metadata().await;
         self.enforce_seeding().await;
+        self.clean_artefacts().await;
         self.flag_cleanups().await;
         self.pump_videos();
         let client = self.client.clone();
@@ -417,6 +418,9 @@ pub(super) fn update_entry(e: &mut Entry, st: &Status, gid: &str, now: i64) -> (
             ) {
                 // Fetch the final file list/name once more.
                 e.need_details = true;
+            }
+            if state == JobState::Complete && rec.engine == Engine::Aria2 {
+                e.artefacts_due = Some(super::artefacts::SETTLE_TICKS);
             }
         }
     }

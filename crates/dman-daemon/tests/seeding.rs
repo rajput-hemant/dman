@@ -309,6 +309,23 @@ async fn seeds_to_a_leecher_stops_at_ratio_and_survives_a_restart() {
     // And nothing resumes seeding afterwards.
     tokio::time::sleep(Duration::from_secs(2)).await;
     assert_eq!(job_now(&c, id).await.state, JobState::Complete);
+    // Seeding after a restart leaves no control file or metadata copy behind.
+    let mut left = Vec::new();
+    let mut todo = vec![root.path().join("dl")];
+    while let Some(dir) = todo.pop() {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                todo.push(p);
+            } else if p
+                .extension()
+                .is_some_and(|x| x == "aria2" || x == "torrent")
+            {
+                left.push(p);
+            }
+        }
+    }
+    assert!(left.is_empty(), "engine files left behind: {left:?}");
 
     d.stop(&c).await;
     drop(seeder);

@@ -145,6 +145,7 @@ impl Manager {
             e.rec.desired = Desired::Stopped;
             e.live = LiveFigures::default();
             e.aria2 = None;
+            e.artefacts_due = Some(super::artefacts::SETTLE_TICKS);
             e.dirty = true;
             if let Some(o) = finish::detect(&mut e.rec, prev, JobState::Complete) {
                 e.finished.push(o);

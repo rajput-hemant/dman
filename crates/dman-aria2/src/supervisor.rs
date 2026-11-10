@@ -99,7 +99,10 @@ fn render(s: &Aria2Settings, secret: &str) -> String {
     line("rpc-listen-port", &s.rpc_port.to_string());
     line("rpc-secret", secret);
     line("rpc-allow-origin-all", "false");
-    line("rpc-save-upload-metadata", "true");
+    // dman keeps the bytes of every uploaded .torrent/.metalink itself and
+    // re-adds from them; aria2's extra copy named after the info hash would
+    // only litter the download directory.
+    line("rpc-save-upload-metadata", "false");
     line("save-session", &s.session_file.display().to_string());
     line("save-session-interval", "30");
     line("force-save", "false");
@@ -718,7 +721,7 @@ mod tests {
             "rpc-listen-port=6800",
             "rpc-secret=sekrit",
             "rpc-allow-origin-all=false",
-            "rpc-save-upload-metadata=true",
+            "rpc-save-upload-metadata=false",
             "save-session-interval=30",
             "force-save=false",
             "continue=true",

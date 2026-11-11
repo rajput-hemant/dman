@@ -34,7 +34,7 @@ use crate::ops;
 
 /// Record key: `{"hash": <info hash>, "before": <a `.torrent` of that name
 /// existed before the job was added>}`.
-const KEY: &str = "torrent_file";
+pub(super) const KEY: &str = "torrent_file";
 
 /// Ticks to wait after a job completed before cleaning: aria2 may still be
 /// writing its control file when it reports the download as complete.

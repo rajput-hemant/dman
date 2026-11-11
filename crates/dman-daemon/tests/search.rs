@@ -1009,6 +1009,7 @@ async fn tracker_list_is_attached_to_new_magnets_with_real_aria2() {
                 ..Default::default()
             },
             paused: true,
+            force: false,
         })
         .await
         .unwrap();

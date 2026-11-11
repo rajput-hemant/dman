@@ -410,6 +410,7 @@ async fn add(c: &Client, uri: String, paused: bool) -> JobId {
                 ..Default::default()
             },
             paused,
+            force: false,
         })
         .await
         .unwrap();

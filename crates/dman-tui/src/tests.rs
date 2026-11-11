@@ -1650,6 +1650,19 @@ pub(super) mod add_view {
     }
 
     #[test]
+    fn a_torrent_url_can_be_fetched_like_a_magnet() {
+        let url = "https://example.org/ubuntu.torrent";
+        let mut s = open();
+        typed(&mut s, url);
+        ctrl(&mut s, 's');
+        assert_eq!(preview_of(&s).fetchable_uri(), Some(url));
+        assert_eq!(
+            key(&mut s, 'f'),
+            vec![Cmd::Api(ApiCall::PreviewMagnet { uri: url.into() })]
+        );
+    }
+
+    #[test]
     fn the_spinner_keeps_redrawing_only_while_fetching() {
         let mut s = open();
         typed(&mut s, MAGNET);
@@ -4850,6 +4863,7 @@ pub(super) mod video_view {
                 sources: vec![],
                 options: dman_proto::JobOptions::default(),
                 paused: false,
+                force: false,
             })
         }
     }

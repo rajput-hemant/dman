@@ -152,6 +152,10 @@ pub async fn dispatch(
     params: Value,
 ) -> Result<Value, WireError> {
     match method {
+        method::JOBS_ADD => {
+            let p = parse::<dman_proto::AddParams>(params)?;
+            Ok(add(state, p).await?)
+        }
         method::JOBS_PREVIEW_MAGNET => {
             let p = parse::<method::PreviewMagnetParams>(params)?;
             Ok(json!(state.preview.run(p).await?))
@@ -189,6 +193,59 @@ pub async fn dispatch(
         m if crate::search::handles(m) => Ok(state.search.call(m, params).await?),
         m => Ok(state.manager.call(to_request(m, params)?).await?),
     }
+}
+
+/// `jobs.add`. An http(s) URL of a `.torrent` file is fetched first (through
+/// aria2, outside the job manager so nothing else waits for it) and added as
+/// that torrent: like an uploaded file it gets an info hash, the tracker list,
+/// the seeding policy and duplicate detection, and survives the URL going away.
+async fn add(state: &Arc<ServerState>, mut p: dman_proto::AddParams) -> Result<Value, RpcError> {
+    use base64::Engine as _;
+    use dman_proto::{AddOutcome, AddSource};
+    let total = p.sources.len();
+    let mut failed: Vec<(usize, RpcError)> = Vec::new();
+    let mut sources = Vec::with_capacity(total);
+    for (i, src) in std::mem::take(&mut p.sources).into_iter().enumerate() {
+        match src {
+            AddSource::Uris { uris } if uris.len() == 1 && dman_proto::is_torrent_url(&uris[0]) => {
+                let secs = crate::preview::TORRENT_FETCH_SECS;
+                match state
+                    .preview
+                    .fetch_torrent(&uris[0], &p.options, secs)
+                    .await
+                {
+                    Ok((name, bytes)) => sources.push(AddSource::Torrent {
+                        name,
+                        data_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
+                    }),
+                    Err(e) => failed.push((i, e)),
+                }
+            }
+            other => sources.push(other),
+        }
+    }
+    if failed.is_empty() {
+        p.sources = sources;
+        return state.manager.call(Request::Add(p)).await;
+    }
+    let mut added: std::vec::IntoIter<AddOutcome> = if sources.is_empty() {
+        Vec::new().into_iter()
+    } else {
+        p.sources = sources;
+        let v = state.manager.call(Request::Add(p)).await?;
+        serde_json::from_value::<Vec<AddOutcome>>(v)
+            .map_err(|e| RpcError::new(ErrorCode::General, e.to_string()))?
+            .into_iter()
+    };
+    let mut failed = failed.into_iter().peekable();
+    let mut out = Vec::with_capacity(total);
+    for i in 0..total {
+        match failed.next_if(|(j, _)| *j == i) {
+            Some((_, error)) => out.push(AddOutcome::Failed { error }),
+            None => out.extend(added.next()),
+        }
+    }
+    Ok(json!(out))
 }
 
 /// Methods whose work is cancelled when the connection ends.

@@ -323,6 +323,7 @@ pub(super) async fn add_sources(
                 sources,
                 options,
                 paused,
+                force: false,
             },
         )
         .await?;
@@ -508,7 +509,8 @@ pub async fn add(State(st): St, Extension(c): Extension<Ctx>, h: HeaderMap, p: P
     render_add(&st, &c, &values, &errors, None, note, status).await
 }
 
-/// `POST /add/preview`: fetch the file list of the single magnet in the form.
+/// `POST /add/preview`: fetch the file list of the single magnet (or http(s)
+/// `.torrent` URL) in the form.
 pub async fn preview(
     State(st): St,
     Extension(c): Extension<Ctx>,
@@ -519,7 +521,7 @@ pub async fn preview(
     let magnets: Vec<&str> = values
         .uris
         .split_whitespace()
-        .filter(|l| l.to_ascii_lowercase().starts_with("magnet:?"))
+        .filter(|l| l.to_ascii_lowercase().starts_with("magnet:?") || dman_proto::is_torrent_url(l))
         .collect();
     let panel = match magnets.as_slice() {
         [one] => {
@@ -561,7 +563,7 @@ pub async fn preview(
             }
         }
         [] => views::preview_error(
-            "Paste a magnet link first. Files can be chosen for magnet links only; .torrent files and URLs download everything.",
+            "Paste a magnet link or the http(s) URL of a .torrent file first. Files can be chosen for those only; other URLs download everything.",
         ),
         _ => views::preview_error(
             "Choosing files works for one magnet link at a time. Remove the other links, or add them separately.",

@@ -256,6 +256,7 @@ async fn add_one(c: &Client, src: AddSource, options: JobOptions) -> JobId {
             sources: vec![src],
             options,
             paused: false,
+            force: false,
         })
         .await
         .expect("add");
@@ -688,6 +689,7 @@ async fn missing_ytdlp_is_explained_and_refused() {
             )],
             options: JobOptions::default(),
             paused: false,
+            force: false,
         })
         .await
         .unwrap_err();
@@ -763,6 +765,7 @@ async fn video_jobs_share_the_queue_and_lifecycle() {
             )],
             options: JobOptions::default(),
             paused: false,
+            force: false,
         })
         .await
         .unwrap();
@@ -982,6 +985,7 @@ async fn video_jobs_share_the_queue_and_lifecycle() {
             sources: vec![video("https://e.example/v/quick", VideoOptions::default())],
             options: JobOptions::default(),
             paused: true,
+            force: false,
         })
         .await
         .unwrap();

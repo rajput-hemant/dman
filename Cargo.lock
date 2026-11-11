@@ -822,6 +822,7 @@ dependencies = [
  "dman-ytdlp",
  "jiff",
  "nix",
+ "notify-rust",
  "predicates",
  "reqwest",
  "rustls",

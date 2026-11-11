@@ -1,10 +1,12 @@
 //! Command implementations. Each returns the process exit code on success.
 
 pub mod add;
+pub mod clipboard;
 pub mod config;
 pub mod control;
 pub mod daemon;
 pub mod hints;
+pub mod integrate;
 pub mod list;
 pub mod misc;
 pub mod progress;
@@ -12,6 +14,7 @@ pub mod providers;
 pub mod quality;
 pub mod search;
 pub mod serve;
+pub mod set;
 pub mod update;
 pub mod wait;
 
@@ -79,6 +82,9 @@ async fn dispatch_command(cli: Cli) -> Result<i32, CliError> {
         Command::Serve(args) => serve::run(&Ctx::load(&cli)?, args).await,
         Command::Daemon { cmd } => daemon::run(&Ctx::load(&cli)?, cmd).await,
         Command::Add(args) => add::run(&Ctx::load(&cli)?, args).await,
+        Command::Set(args) => set::run(&Ctx::load(&cli)?, args).await,
+        Command::Handle(args) => integrate::handle(&cli, args).await,
+        Command::Integrate { cmd } => integrate::run(*cmd, cli.json),
         Command::List(args) => {
             let ctx = Ctx::load(&cli)?;
             let code = list::list(&ctx, args).await?;

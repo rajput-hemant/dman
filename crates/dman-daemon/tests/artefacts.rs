@@ -366,6 +366,7 @@ async fn finish_case(case: Case, seeding: bool) -> Vec<String> {
                 ..Default::default()
             },
             paused: false,
+            force: false,
         })
         .await
         .unwrap();
@@ -461,6 +462,7 @@ async fn user_torrent_files_in_the_directory_stay() {
             }],
             options: JobOptions::default(),
             paused: false,
+            force: false,
         })
         .await
         .unwrap();
@@ -510,6 +512,7 @@ async fn resume_after_restart(case: Case) {
                 ..Default::default()
             },
             paused: false,
+            force: false,
         })
         .await
         .unwrap();

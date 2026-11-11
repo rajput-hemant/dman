@@ -158,9 +158,12 @@ pub struct RenameParams {
 }
 
 /// `jobs.preview_magnet`: fetch a magnet's metadata (file list) without
-/// starting a download.
+/// starting a download. Also takes an http(s) URL of a `.torrent` file
+/// ([`crate::is_torrent_url`]): the engine fetches the file and its contents
+/// come back the same way.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PreviewMagnetParams {
+    /// A magnet link, or an http(s) URL ending in `.torrent`.
     pub uri: String,
     /// Reserved; the metadata is always fetched into a dman-private directory.
     #[serde(default, skip_serializing_if = "Option::is_none")]

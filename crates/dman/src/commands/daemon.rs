@@ -66,6 +66,15 @@ pub async fn bare(ctx: &Ctx) -> Result<i32, CliError> {
     Ok(0)
 }
 
+/// Connect to the profile's daemon, starting a local one when none runs.
+pub async fn connect_or_start(ctx: &Ctx) -> Result<Client, CliError> {
+    match ctx.connect().await {
+        Ok(c) => Ok(c),
+        Err(e) if Ctx::is_not_running(&e) && ctx.is_local() => spawn_and_wait(ctx).await,
+        Err(e) => Err(e),
+    }
+}
+
 async fn run_foreground(ctx: &Ctx, detach: bool) -> Result<i32, CliError> {
     ctx.require_local("`daemon run`")?;
     if detach && let Err(e) = nix::unistd::setsid() {

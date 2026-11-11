@@ -142,6 +142,7 @@ pub fn build_params(
         sources,
         options: parsed.options.clone(),
         paused: parsed.paused,
+        force: false,
     })
 }
 
@@ -502,15 +503,17 @@ impl Preview {
         matches!(self.probe, ProbeFetch::Running { .. })
     }
 
-    /// The magnet whose file list can be fetched: the request must consist of
-    /// exactly one magnet (a file selection applies to a single torrent).
+    /// The magnet (or http(s) `.torrent` URL, which the daemon fetches) whose
+    /// file list can be fetched: the request must consist of exactly one such
+    /// link (a file selection applies to a single torrent).
     pub fn fetchable_uri(&self) -> Option<&str> {
         match self.params.sources.as_slice() {
             [AddSource::Uris { uris }] if uris.len() == 1 => {
                 let u = uris[0].as_str();
-                u.get(..7)
+                (u.get(..7)
                     .is_some_and(|p| p.eq_ignore_ascii_case("magnet:"))
-                    .then_some(u)
+                    || dman_proto::is_torrent_url(u))
+                .then_some(u)
             }
             _ => None,
         }

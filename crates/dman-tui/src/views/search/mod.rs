@@ -1322,6 +1322,7 @@ fn finish_add(state: &mut State) -> Vec<Cmd> {
                 .collect(),
             options: JobOptions::default(),
             paused: false,
+            force: false,
         };
         state.call(ApiCall::Add(Box::new(params)))
     } else {

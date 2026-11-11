@@ -641,3 +641,135 @@ fn help_documents_wait_and_the_timeout_code() {
         .success()
         .stdout(predicate::str::contains("  124  "));
 }
+
+#[test]
+fn set_needs_ids_and_a_change_and_then_a_daemon() {
+    let dir = config_dir();
+    dman(&dir).args(["set", "3"]).assert().code(2);
+    dman(&dir)
+        .args(["set", "--max-download-limit", "1M"])
+        .assert()
+        .code(2);
+    dman(&dir)
+        .args(["set", "3", "--select", "0"])
+        .assert()
+        .code(2);
+    dman(&dir)
+        .args([
+            "set",
+            "3",
+            "4",
+            "--max-download-limit",
+            "1MiB",
+            "--select",
+            "1,3-5",
+        ])
+        .assert()
+        .code(3);
+    dman(&dir)
+        .args(["set", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Examples:"))
+        .stdout(predicate::str::contains("dman set 12 --select 1,3-5"));
+}
+
+/// A PATH with no programs at all, so no clipboard or desktop tool is found
+/// (and a developer's real desktop settings are never changed by a test).
+fn no_tools() -> TempDir {
+    tempfile::tempdir().unwrap()
+}
+
+#[test]
+fn add_clipboard_without_a_clipboard_tool_explains_what_to_install() {
+    let dir = config_dir();
+    let empty = no_tools();
+    let expected = if cfg!(target_os = "macos") {
+        "pbpaste"
+    } else {
+        "xclip"
+    };
+    dman(&dir)
+        .env("PATH", empty.path())
+        .args(["add", "--clipboard"])
+        .assert()
+        .code(6)
+        .stderr(predicate::str::contains(expected));
+    // Without arguments and without a terminal nothing is offered.
+    dman(&dir)
+        .env("PATH", empty.path())
+        .arg("add")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("--clipboard"));
+}
+
+#[test]
+fn handle_reads_file_urls_before_connecting() {
+    let dir = config_dir();
+    dman(&dir)
+        .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent")
+        .args(["handle", "file:///nonexistent/dir/x.torrent"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("/nonexistent/dir/x.torrent"));
+    dman(&dir).arg("handle").assert().code(2);
+}
+
+#[test]
+#[cfg(all(unix, not(target_os = "macos")))]
+fn integrate_installs_status_and_uninstalls_only_its_file() {
+    let dir = config_dir();
+    let home = tempfile::tempdir().unwrap();
+    let empty = no_tools();
+    let run = |args: &[&str]| {
+        let mut c = dman(&dir);
+        c.env("PATH", empty.path())
+            .env("HOME", home.path())
+            .env("XDG_DATA_HOME", home.path().join("data"))
+            .args(args);
+        c
+    };
+    let file = home.path().join("data/applications/dman-handler.desktop");
+    run(&["integrate", "status"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("not installed"));
+    run(&["integrate", "install"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("xdg-mime is not available"));
+    let entry = std::fs::read_to_string(&file).unwrap();
+    assert!(entry.contains("x-scheme-handler/magnet"), "{entry}");
+    assert!(entry.contains(" handle %u"), "{entry}");
+    let out = run(&["--json", "integrate", "status"]).output().unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(v["installed"], true, "{v}");
+    run(&["integrate", "uninstall"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("removed"));
+    assert!(!file.exists());
+    // A file of that name that dman did not write is left alone.
+    std::fs::write(&file, "[Desktop Entry]\nName=Mine\n").unwrap();
+    run(&["integrate", "uninstall"]).assert().code(6);
+    run(&["integrate", "install"]).assert().code(6);
+    assert!(file.exists());
+}
+
+#[test]
+fn new_commands_have_examples() {
+    let dir = config_dir();
+    for (args, needle) in [
+        (&["handle", "--help"][..], "dman handle"),
+        (&["integrate", "--help"], "dman integrate install"),
+        (&["add", "--help"], "dman add --clipboard"),
+    ] {
+        dman(&dir)
+            .args(args)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Examples:"))
+            .stdout(predicate::str::contains(needle));
+    }
+}

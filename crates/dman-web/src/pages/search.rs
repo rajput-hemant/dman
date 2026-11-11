@@ -145,6 +145,7 @@ pub async fn search_add(
         sources: vec![AddSource::Uris { uris: vec![uri] }],
         options: JobOptions::default(),
         paused: false,
+        force: false,
     };
     let v: serde_json::Value = match st.call(method::JOBS_ADD, params).await {
         Ok(v) => v,

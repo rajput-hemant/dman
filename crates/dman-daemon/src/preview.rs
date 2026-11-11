@@ -8,6 +8,10 @@
 //! together with its bytes. The aria2 result and the saved file are removed
 //! afterwards, also when the caller disconnects or the timeout hits.
 //!
+//! An http(s) URL of a `.torrent` file is fetched the same way (with
+//! `follow-torrent=false`, so aria2 does not start the torrent), for the
+//! preview and for `jobs.add`, which then adds the file as a torrent.
+//!
 //! The job manager must not adopt these downloads as jobs: their gids are
 //! registered in a [`PreviewRegistry`] shared with it.
 
@@ -20,7 +24,7 @@ use std::time::Duration;
 use base64::Engine as _;
 use dman_aria2::{Aria2Client, DownloadStatus, EngineState, Gid, Options};
 use dman_proto::method::{MagnetPreview, PreviewMagnetParams};
-use dman_proto::{ErrorCode, FileInfo, RpcError};
+use dman_proto::{ErrorCode, FileInfo, JobOptions, RpcError};
 use tokio::sync::{Semaphore, watch};
 
 /// Default and maximum wait for the metadata.
@@ -29,6 +33,10 @@ pub const MAX_TIMEOUT_SECS: u32 = 600;
 /// Previews that may run at the same time.
 const MAX_PARALLEL: usize = 4;
 const POLL: Duration = Duration::from_millis(200);
+/// Default wait for a `.torrent` file fetched over http(s).
+pub const TORRENT_FETCH_SECS: u32 = 30;
+/// Larger downloads are not `.torrent` files (real ones stay far below).
+const MAX_TORRENT_BYTES: u64 = 32 << 20;
 
 /// Which aria2 downloads belong to previews (and must be left alone by the job manager).
 #[derive(Debug)]
@@ -144,6 +152,17 @@ impl Preview {
     /// Fetches the metadata. Dropping the returned future cancels the
     /// preview and cleans up in the background.
     pub async fn run(&self, p: PreviewMagnetParams) -> Result<MagnetPreview, RpcError> {
+        if dman_proto::is_torrent_url(&p.uri) {
+            let secs = match p.timeout_secs {
+                None => TORRENT_FETCH_SECS,
+                Some(0) => return Err(RpcError::invalid("timeout_secs must be at least 1")),
+                Some(n) => n.min(MAX_TIMEOUT_SECS),
+            };
+            let (_, bytes) = self
+                .fetch_torrent(&p.uri, &JobOptions::default(), secs)
+                .await?;
+            return preview_of(&bytes);
+        }
         check_magnet(&p.uri)?;
         let secs = match p.timeout_secs {
             None => DEFAULT_TIMEOUT_SECS,
@@ -190,45 +209,161 @@ impl Preview {
                 ),
             });
         }
-        let result = self.wait(&client, &gid, &dir, secs).await;
+        let result = self
+            .wait(
+                &client,
+                &gid,
+                secs,
+                "the magnet's metadata",
+                " (no peers found?)",
+            )
+            .await;
+        let result = match result {
+            Ok(()) => {
+                let dir = dir.clone();
+                tokio::task::spawn_blocking(move || read_preview(&dir))
+                    .await
+                    .map_err(|e| err(ErrorCode::General, e.to_string()))
+                    .and_then(|r| r)
+            }
+            Err(e) => Err(e),
+        };
         cleanup.finish().await;
         result
     }
 
+    /// Fetches the `.torrent` file at an http(s) URL through aria2 (so its
+    /// proxy and network settings apply, plus the headers, user agent,
+    /// referer and proxy of `opts`) into the private directory, without
+    /// starting the torrent. Returns a file name ending in `.torrent` and the
+    /// bytes, which are checked to be a valid torrent.
+    pub async fn fetch_torrent(
+        &self,
+        url: &str,
+        opts: &JobOptions,
+        secs: u32,
+    ) -> Result<(String, Vec<u8>), RpcError> {
+        let url = url.trim();
+        if url.contains(['\n', '\r', '\0']) {
+            return Err(RpcError::invalid("the URL contains a line break"));
+        }
+        let client = self.client()?;
+        let _slot = self
+            .slots
+            .try_acquire()
+            .map_err(|_| RpcError::refused("too many previews in progress"))?;
+        let (gid, dir) = self.registry.fresh();
+        tokio::fs::create_dir_all(&dir).await.map_err(|e| {
+            err(
+                ErrorCode::General,
+                format!("cannot create {}: {e}", dir.display()),
+            )
+        })?;
+        self.registry.set().insert(gid.clone());
+        let cleanup = Cleanup::new(
+            client.clone(),
+            gid.clone(),
+            dir.clone(),
+            self.registry.clone(),
+        );
+        // Only the request options of the job matter for fetching the file.
+        let request = JobOptions {
+            headers: opts.headers.clone(),
+            user_agent: opts.user_agent.clone(),
+            referer: opts.referer.clone(),
+            proxy: opts.proxy.clone(),
+            ..JobOptions::default()
+        };
+        let mut aopts = match dman_aria2::job_options_to_aria2(&request) {
+            Ok(o) => o,
+            Err(e) => {
+                cleanup.finish().await;
+                return Err(RpcError::invalid(e.to_string()));
+            }
+        };
+        aopts.set("dir", dir.display().to_string());
+        aopts.set("gid", gid.clone());
+        aopts.set("follow-torrent", "false");
+        aopts.set("follow-metalink", "false");
+        aopts.set("split", "1");
+        if let Err(e) = client.add_uri(&[url.to_owned()], &aopts, None).await {
+            cleanup.finish().await;
+            return Err(match e {
+                dman_aria2::Error::Rpc { message, .. } => {
+                    RpcError::invalid(format!("aria2 rejected the URL: {message}"))
+                }
+                other => err(
+                    ErrorCode::EngineUnavailable,
+                    format!("aria2 unavailable: {other}"),
+                ),
+            });
+        }
+        let result = self
+            .wait(&client, &gid, secs, "the .torrent file", "")
+            .await;
+        let result = match result {
+            Ok(()) => {
+                let dir = dir.clone();
+                tokio::task::spawn_blocking(move || read_fetched(&dir))
+                    .await
+                    .map_err(|e| err(ErrorCode::General, e.to_string()))
+                    .and_then(|r| r)
+            }
+            Err(e) => Err(e),
+        };
+        cleanup.finish().await;
+        result
+    }
+
+    /// Waits until the aria2 download `gid` completes. `what` names what is
+    /// fetched in errors; `hint` is appended to a timeout.
     async fn wait(
         &self,
         client: &Aria2Client,
         gid: &str,
-        dir: &Path,
         secs: u32,
-    ) -> Result<MagnetPreview, RpcError> {
+        what: &str,
+        hint: &str,
+    ) -> Result<(), RpcError> {
         let g = Gid::new(gid);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(u64::from(secs));
         loop {
             match client
-                .tell_status(&g, &["status", "errorCode", "errorMessage"])
+                .tell_status(&g, &["status", "errorCode", "errorMessage", "totalLength"])
                 .await
             {
                 Ok(st) => match st.status {
-                    Some(DownloadStatus::Complete) => break,
+                    Some(DownloadStatus::Complete) => return Ok(()),
                     Some(DownloadStatus::Error) => {
                         return Err(err(
                             ErrorCode::General,
                             format!(
-                                "could not fetch the magnet's metadata: {}",
+                                "could not fetch {what}: {}",
                                 st.error_message.unwrap_or_else(|| "unknown error".into())
                             ),
                         ));
                     }
                     Some(DownloadStatus::Removed) => {
-                        return Err(err(ErrorCode::General, "the metadata download was removed"));
+                        return Err(err(
+                            ErrorCode::General,
+                            format!("the download of {what} was removed"),
+                        ));
+                    }
+                    _ if st.total_length.is_some_and(|n| n > MAX_TORRENT_BYTES) => {
+                        return Err(err(
+                            ErrorCode::Refused,
+                            format!(
+                                "{what} is larger than {} MiB; not a torrent?",
+                                MAX_TORRENT_BYTES >> 20
+                            ),
+                        ));
                     }
                     _ => {}
                 },
                 Err(dman_aria2::Error::Rpc { message, .. }) => {
                     return Err(err(
                         ErrorCode::General,
-                        format!("could not fetch the magnet's metadata: {message}"),
+                        format!("could not fetch {what}: {message}"),
                     ));
                 }
                 Err(e) => {
@@ -241,17 +376,11 @@ impl Preview {
             if tokio::time::Instant::now() >= deadline {
                 return Err(err(
                     ErrorCode::General,
-                    format!(
-                        "timed out after {secs} s waiting for the magnet's metadata (no peers found?)"
-                    ),
+                    format!("timed out after {secs} s waiting for {what}{hint}"),
                 ));
             }
             tokio::time::sleep(POLL).await;
         }
-        let dir = dir.to_owned();
-        tokio::task::spawn_blocking(move || read_preview(&dir))
-            .await
-            .map_err(|e| err(ErrorCode::General, e.to_string()))?
     }
 }
 
@@ -265,8 +394,52 @@ fn read_preview(dir: &Path) -> Result<MagnetPreview, RpcError> {
         .find(|p| p.extension().is_some_and(|x| x == "torrent"))
         .ok_or_else(|| general("aria2 did not save the torrent metadata".into()))?;
     let bytes = std::fs::read(&path).map_err(|e| general(format!("cannot read metadata: {e}")))?;
-    let meta = dman_torrent::parse_torrent(&bytes)
+    dman_torrent::parse_torrent(&bytes)
         .map_err(|e| general(format!("the saved metadata is not a valid torrent: {e}")))?;
+    preview_of(&bytes)
+}
+
+/// The file aria2 fetched into `dir` (the only regular file that is not a
+/// control file), checked to be a torrent; its name always ends in `.torrent`.
+fn read_fetched(dir: &Path) -> Result<(String, Vec<u8>), RpcError> {
+    let general = |m: String| err(ErrorCode::General, m);
+    let path = std::fs::read_dir(dir)
+        .map_err(|e| general(format!("cannot read {}: {e}", dir.display())))?
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| e.path())
+        .find(|p| p.extension().is_none_or(|x| x != "aria2"))
+        .ok_or_else(|| general("aria2 did not save the .torrent file".into()))?;
+    let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+    if len > MAX_TORRENT_BYTES {
+        return Err(err(
+            ErrorCode::Refused,
+            "the .torrent file is too large; not a torrent?",
+        ));
+    }
+    let bytes = std::fs::read(&path).map_err(|e| general(format!("cannot read it: {e}")))?;
+    dman_torrent::parse_torrent(&bytes).map_err(|e| {
+        RpcError::invalid(format!(
+            "the URL did not return a valid .torrent file ({e})"
+        ))
+    })?;
+    let stem = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let stem = stem.strip_suffix(".torrent").unwrap_or(&stem);
+    let name = if stem.is_empty() {
+        "download.torrent".to_owned()
+    } else {
+        format!("{stem}.torrent")
+    };
+    Ok((name, bytes))
+}
+
+/// The preview of a `.torrent` file.
+fn preview_of(bytes: &[u8]) -> Result<MagnetPreview, RpcError> {
+    let meta = dman_torrent::parse_torrent(bytes)
+        .map_err(|e| err(ErrorCode::General, format!("not a valid torrent: {e}")))?;
     Ok(MagnetPreview {
         info_hash: meta.info_hash,
         name: meta.name,
@@ -283,7 +456,7 @@ fn read_preview(dir: &Path) -> Result<MagnetPreview, RpcError> {
                 selected: true,
             })
             .collect(),
-        torrent_base64: base64::engine::general_purpose::STANDARD.encode(&bytes),
+        torrent_base64: base64::engine::general_purpose::STANDARD.encode(bytes),
     })
 }
 

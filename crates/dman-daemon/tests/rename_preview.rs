@@ -272,6 +272,7 @@ async fn add_one(c: &Client, src: AddSource, options: JobOptions, paused: bool) 
             sources: vec![src],
             options,
             paused,
+            force: false,
         })
         .await
         .unwrap();

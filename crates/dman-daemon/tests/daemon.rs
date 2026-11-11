@@ -276,6 +276,7 @@ async fn serves_without_engine_and_enforces_auth_and_lock() {
             }],
             options: JobOptions::default(),
             paused: false,
+            force: false,
         })
         .await
         .unwrap_err();
@@ -453,6 +454,7 @@ async fn lifecycle_with_real_aria2() {
                 ..Default::default()
             },
             paused: false,
+            force: false,
         })
         .await
         .unwrap();
@@ -611,6 +613,7 @@ async fn lifecycle_with_real_aria2() {
             }],
             options: JobOptions::default(),
             paused: true,
+            force: false,
         })
         .await
         .unwrap();
@@ -744,6 +747,7 @@ async fn hook_fires_once_on_completion_with_real_aria2() {
             }],
             options: JobOptions::default(),
             paused: false,
+            force: false,
         })
         .await
         .unwrap();
@@ -855,6 +859,7 @@ async fn restore_resumes_an_unfinished_job_with_real_aria2() {
                 ..Default::default()
             },
             paused: false,
+            force: false,
         })
         .await
         .unwrap();
@@ -980,6 +985,7 @@ async fn resume_without_range_support_restarts_from_zero_with_real_aria2() {
                 ..Default::default()
             },
             paused: false,
+            force: false,
         })
         .await
         .unwrap();

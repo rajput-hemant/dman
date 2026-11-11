@@ -303,6 +303,7 @@ async fn reconnecting_client_survives_daemon_restart_over_tls() {
                 }],
                 options: Default::default(),
                 paused: true,
+                force: false,
             })
             .await
             .unwrap();

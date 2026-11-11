@@ -42,6 +42,7 @@ Exit codes:
   6    refused (needs --yes, disk full, not allowed here)
   7    engine unavailable (aria2 or yt-dlp missing or not running)
   8    partial failure (some items of a batch failed)
+  9    already in the downloads (add: same URL or torrent; use --force)
   124  timed out (`dman wait --timeout`, `dman add --wait --timeout`)
   130  interrupted (Ctrl-C)";
 
@@ -87,8 +88,56 @@ Examples:
   dman add --mirror https://a.example/f.zip https://b.example/f.zip
   dman add https://youtu.be/ID                     choose the quality (asks in a terminal)
   dman add https://youtu.be/ID --quality 1080p --container mkv --subs en
-  dman add https://example.org/big.iso --wait    show progress, exit when it is done")]
+  dman add --clipboard                             add the link in the clipboard
+  dman add https://example.org/ubuntu.torrent      fetched by the daemon, added as a torrent
+  dman add magnet:?xt=urn:btih:... --force         add even if it is already in the list
+  dman add https://example.org/big.iso --wait      show progress, exit when it is done
+
+Adding a URL or torrent that is already in the list (same URL or info hash) is
+refused with exit code 9 and the existing job's ID; a known torrent gets the new
+link's trackers instead.")]
     Add(Box<AddArgs>),
+    /// Change options of existing downloads (limits, folder, files, seeding, headers).
+    #[command(after_help = "\
+Examples:
+  dman set 12 --max-download-limit 1MiB       limit one download (0 = unlimited)
+  dman set 12 13 --max-upload-limit 200K
+  dman set 12 --select 1,3-5                  choose the files of a torrent
+  dman set 12 --seed-ratio 2 --seed-time 120
+  dman set 12 --dir ~/iso                     only while waiting or paused
+  dman set 12 --header 'Cookie: a=b' --connections 4
+  dman set 12 --position 0                    move to the front of the queue
+  dman set 12 --seed-ratio 1 --json           print the updated job
+
+Options that need a stopped transfer (folder, files, headers, connections) are
+refused while the download runs: pause it first (`dman pause 12`).")]
+    Set(Box<SetArgs>),
+    /// Add a magnet, URL or .torrent handed over by the browser or file manager.
+    #[command(after_help = "\
+Examples:
+  dman handle 'magnet:?xt=urn:btih:...'
+  dman handle ~/Downloads/ubuntu.torrent
+  dman handle file:///home/me/Downloads/ubuntu.torrent
+
+This is what `dman integrate install` registers for magnet links and .torrent
+files. It starts the daemon when needed and, as there is usually no terminal,
+reports the result as a desktop notification as well.")]
+    Handle(HandleArgs),
+    /// Make dman the handler of magnet links and .torrent files (install, uninstall, status).
+    #[command(after_help = "\
+Examples:
+  dman integrate install       register dman for magnet links and .torrent files
+  dman integrate status        show which program opens magnet links now
+  dman integrate uninstall     remove what `install` wrote (nothing else)
+
+Linux: writes ~/.local/share/applications/dman-handler.desktop and makes it the
+default with xdg-mime. Windows: writes HKCU registry entries with reg.exe. macOS
+needs an app bundle for a URL scheme; `install` explains the alternatives.
+Browser bookmarklet and userscript: see docs/browser.md.")]
+    Integrate {
+        #[command(subcommand)]
+        cmd: IntegrateCmd,
+    },
     /// List downloads.
     #[command(after_help = "\
 Examples:
@@ -189,9 +238,9 @@ Examples:
         #[command(flatten)]
         plan_args: PlanArgs,
     },
-    /// Show the files of a magnet link without downloading it.
+    /// Show the files of a magnet link (or http(s) .torrent URL) without downloading it.
     Preview {
-        /// Magnet link.
+        /// Magnet link, or the http(s) URL of a .torrent file.
         magnet: String,
         /// Give up after this many seconds (default 120).
         #[arg(long, value_name = "SECS")]
@@ -482,7 +531,9 @@ pub struct AddArgs {
     pub max_upload_limit: Option<u64>,
     /// Files to download (1-based), e.g. 1,3-5.
     #[arg(long, value_name = "LIST", value_parser = crate::commands::add::parse_select_files)]
-    pub select_files: Option<Vec<u32>>,
+    // Spelled out so clap parses one LIST into the whole list instead of
+    // treating the option as one that takes several values.
+    pub select_files: Option<std::vec::Vec<u32>>,
     /// Stop seeding at this share ratio.
     #[arg(long, value_name = "RATIO")]
     pub seed_ratio: Option<f64>,
@@ -519,6 +570,13 @@ pub struct AddArgs {
     /// Never ask: videos use the saved quality defaults (also implied by pipes and --json).
     #[arg(long, short = 'y')]
     pub yes: bool,
+    /// Add the URL or magnet link in the clipboard (read with wl-paste, xclip, xsel,
+    /// pbpaste or PowerShell). Without sources, a terminal offers it on its own.
+    #[arg(long)]
+    pub clipboard: bool,
+    /// Add even if the same URL or torrent is already in the downloads.
+    #[arg(long)]
+    pub force: bool,
     /// Wait until the added downloads finish, showing progress on stderr (exit 0
     /// if all completed, 124 on --timeout).
     #[arg(long, conflicts_with = "paused")]
@@ -528,6 +586,83 @@ pub struct AddArgs {
     pub timeout: Option<std::time::Duration>,
     #[command(flatten)]
     pub video: VideoArgs,
+}
+
+/// `dman set`: the options to change; unset ones stay as they are.
+#[derive(Args, Debug, Default)]
+#[command(group(clap::ArgGroup::new("change").required(true).multiple(true)))]
+pub struct SetArgs {
+    /// Job IDs.
+    #[arg(required = true, add = comp::job_ids_unfinished())]
+    pub ids: Vec<JobId>,
+    /// Download speed limit, e.g. 2MiB (0 = unlimited).
+    #[arg(long, value_name = "SIZE", value_parser = parse_size, group = "change")]
+    pub max_download_limit: Option<u64>,
+    /// Upload speed limit, e.g. 500K (0 = unlimited).
+    #[arg(long, value_name = "SIZE", value_parser = parse_size, group = "change")]
+    pub max_upload_limit: Option<u64>,
+    /// Download directory (on the daemon host); only while waiting or paused.
+    #[arg(long, value_name = "DIR", add = comp::any_dir(), group = "change")]
+    pub dir: Option<String>,
+    /// Files of a torrent to download (1-based), e.g. 1,3-5.
+    #[arg(
+        long,
+        visible_alias = "select-files",
+        value_name = "LIST",
+        value_parser = crate::commands::add::parse_select_files,
+        group = "change"
+    )]
+    pub select: Option<std::vec::Vec<u32>>,
+    /// Stop seeding at this share ratio.
+    #[arg(long, value_name = "RATIO", group = "change")]
+    pub seed_ratio: Option<f64>,
+    /// Stop seeding after this many minutes.
+    #[arg(long, value_name = "MINUTES", group = "change")]
+    pub seed_time: Option<u64>,
+    /// HTTP header (repeatable; replaces the job's headers), e.g. "Cookie: a=b".
+    #[arg(long, value_name = "HEADER", group = "change")]
+    pub header: Vec<String>,
+    /// User-Agent header.
+    #[arg(long, value_name = "UA", group = "change")]
+    pub user_agent: Option<String>,
+    /// Referer header.
+    #[arg(long, value_name = "URL", group = "change")]
+    pub referer: Option<String>,
+    /// Maximum connections per server.
+    #[arg(long, value_name = "N", group = "change")]
+    pub connections: Option<u32>,
+    /// Split each download into N segments.
+    #[arg(long, value_name = "N", group = "change")]
+    pub split: Option<u32>,
+    /// Raw engine option (repeatable).
+    #[arg(
+        short = 'o',
+        long = "option",
+        value_name = "KEY=VALUE",
+        group = "change"
+    )]
+    pub options: Vec<String>,
+    /// Queue position (0 = next to start); several IDs keep their order from there.
+    #[arg(long, value_name = "N", group = "change")]
+    pub position: Option<u32>,
+}
+
+/// `dman handle`.
+#[derive(Args, Debug)]
+pub struct HandleArgs {
+    /// Magnet link, URL, .torrent/.metalink path or file:// URL.
+    #[arg(required = true, add = comp::add_sources())]
+    pub sources: Vec<String>,
+}
+
+#[derive(Subcommand, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntegrateCmd {
+    /// Register dman for magnet links and .torrent files and make it the default.
+    Install,
+    /// Remove the registration `install` wrote (only files and keys dman created).
+    Uninstall,
+    /// Show the current handler of magnet links and .torrent files.
+    Status,
 }
 
 /// The `dman add` video flags that change a plan (`dman probe --plan`).
@@ -977,6 +1112,38 @@ mod tests {
         assert_eq!(prefs(&["video", "prefs", "--ask", "true"]).ask, Some(true));
         assert!(parse(&["video", "prefs", "--ask", "maybe"]).is_err());
         assert!(parse(&["video"]).is_err());
+    }
+
+    #[test]
+    fn file_selections_parse_as_one_list() {
+        match parse(&["add", "magnet:?x", "--select-files", "1,3-4", "--force"])
+            .unwrap()
+            .command
+        {
+            Some(Command::Add(a)) => {
+                assert_eq!(a.select_files, Some(vec![1, 3, 4]));
+                assert!(a.force && !a.clipboard);
+            }
+            other => panic!("not add: {other:?}"),
+        }
+        match parse(&["set", "2", "3", "--select", "2-3", "--position", "0"])
+            .unwrap()
+            .command
+        {
+            Some(Command::Set(a)) => {
+                assert_eq!(a.ids, [JobId(2), JobId(3)]);
+                assert_eq!(a.select, Some(vec![2, 3]));
+                assert_eq!(a.position, Some(0));
+            }
+            other => panic!("not set: {other:?}"),
+        }
+        assert!(parse(&["set", "2"]).is_err(), "a change is required");
+        assert!(matches!(
+            parse(&["integrate", "status"]).unwrap().command,
+            Some(Command::Integrate {
+                cmd: IntegrateCmd::Status
+            })
+        ));
     }
 
     #[test]

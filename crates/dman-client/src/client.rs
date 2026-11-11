@@ -326,9 +326,12 @@ fn is_loopback_host(url: &Url) -> bool {
 /// `async fn call<P, R>(&self, &str, P) -> Result<R, ClientError>`.
 macro_rules! typed_api {
     () => {
-        /// `jobs.add`: one outcome per source, in order.
+        /// `jobs.add`: one outcome per source, in order. The daemon fetches
+        /// http(s) `.torrent` URLs before adding them, so this may take a while.
         pub async fn add(&self, params: AddParams) -> Result<Vec<AddOutcome>, ClientError> {
-            self.call(method::JOBS_ADD, params).await
+            let wait = 15 + 30 * params.sources.len().min(10) as u64;
+            self.call_with_timeout(method::JOBS_ADD, params, Duration::from_secs(wait))
+                .await
         }
 
         /// `jobs.list`: jobs in the given states (all when empty).

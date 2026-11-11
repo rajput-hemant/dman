@@ -965,6 +965,7 @@ fn open_preview(a: &mut AddState, plan: &[Planned], files: &Loaded) {
             sources: Vec::new(),
             options: parsed.options.clone(),
             paused: parsed.paused,
+            force: false,
         }
     });
     a.overlay = Some(Overlay::Preview(Box::new(Preview::new(

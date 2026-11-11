@@ -46,6 +46,7 @@ dman add "magnet:?xt=urn:btih:..."     # add from the command line
 dman list                              # show downloads (add --json for scripts)
 dman search ubuntu --add 1             # search providers and add the first result
 dman serve                             # web UI at http://127.0.0.1:6811/
+dman integrate install                 # open magnet links from the browser with dman (docs/browser.md)
 ```
 
 In the TUI press `a` to add, `f` to search, `Enter` for details, `:` for the command

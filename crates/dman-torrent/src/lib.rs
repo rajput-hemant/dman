@@ -226,9 +226,45 @@ pub fn parse_torrent(data: &[u8]) -> Result<TorrentMeta, String> {
     })
 }
 
+/// The tracker URLs of a `.torrent` (`announce`, then every tier of
+/// `announce-list`), in order and without duplicates. Empty when the data is
+/// not a torrent.
+pub fn trackers(data: &[u8]) -> Vec<String> {
+    let Ok((root, _)) = decode(data) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |t: Option<String>| {
+        if let Some(t) = t.map(|t| t.trim().to_owned())
+            && !t.is_empty()
+            && !out.contains(&t)
+        {
+            out.push(t);
+        }
+    };
+    push(root.get("announce").and_then(Bencode::text));
+    if let Some(Bencode::List(tiers)) = root.get("announce-list") {
+        for tier in tiers {
+            match tier {
+                Bencode::List(urls) => urls.iter().for_each(|u| push(u.text())),
+                other => push(other.text()),
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trackers_in_order_without_duplicates() {
+        let t = b"d8:announce5:udp:a13:announce-listll5:udp:a5:udp:bel5:udp:cee4:infod4:name1:x6:lengthi1eee";
+        assert_eq!(trackers(t), ["udp:a", "udp:b", "udp:c"]);
+        assert!(trackers(b"not bencode").is_empty());
+        assert!(trackers(b"d4:infod4:name1:x6:lengthi1eee").is_empty());
+    }
 
     #[test]
     fn decodes_values() {

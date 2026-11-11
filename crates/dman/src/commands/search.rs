@@ -287,6 +287,7 @@ async fn add_results(
                 sources,
                 options: JobOptions::default(),
                 paused: false,
+                force: false,
             })
             .await?;
         for (slot, outcome) in slots.into_iter().zip(outcomes) {

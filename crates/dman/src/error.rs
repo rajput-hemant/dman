@@ -10,6 +10,9 @@ pub const EXIT_INTERRUPTED: i32 = 130;
 /// Exit status when `dman wait --timeout` (or `add --wait --timeout`) expires; the
 /// same value as coreutils `timeout`.
 pub const EXIT_TIMEOUT: i32 = 124;
+/// Exit status of `add` when every source was already in the downloads, so
+/// scripts can tell "nothing to do" from a failure.
+pub const EXIT_DUPLICATE: i32 = 9;
 
 /// An error that ends the process with a message and an exit code.
 #[derive(Debug, Clone)]
@@ -244,6 +247,7 @@ mod tests {
         }
         assert!(help.contains(&format!("  {}  ", EXIT_INTERRUPTED)));
         assert!(help.contains(&format!("  {}  ", EXIT_TIMEOUT)));
+        assert!(help.contains(&format!("  {}    ", EXIT_DUPLICATE)));
     }
 
     #[test]

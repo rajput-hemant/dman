@@ -24,7 +24,7 @@ search = ["dman-daemon/search"]
 # The yt-dlp video engine.
 video = ["dman-daemon/video"]
 # Desktop notifications (daemon and TUI).
-notify = ["dman-daemon/notify", "dman-tui/notify"]
+notify = ["dman-daemon/notify", "dman-tui/notify", "dep:notify-rust"]
 
 [dependencies]
 dman-proto.workspace = true
@@ -52,6 +52,8 @@ sha2 = "0.11"
 semver = "1"
 tempfile = "3"
 nix = { version = "0.31", default-features = false, features = ["process"] }
+# Already used by the daemon and TUI; `dman handle` reports through it too.
+notify-rust = { workspace = true, optional = true }
 
 [dev-dependencies]
 assert_cmd = "2.2"

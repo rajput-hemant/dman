@@ -170,6 +170,7 @@ async fn secrets_never_appear_in_the_log() {
             }],
             options: JobOptions::default(),
             paused: false,
+            force: false,
         })
         .await;
     if aria2_enabled() {

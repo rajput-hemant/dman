@@ -124,6 +124,17 @@ pub fn job_ids_removed() -> ArgValueCandidates {
 pub fn job_ids_finished() -> ArgValueCandidates {
     ArgValueCandidates::new(|| job_candidates(&[JobState::Complete, JobState::Seeding]))
 }
+/// Jobs whose options `set` can still change (not finished).
+pub fn job_ids_unfinished() -> ArgValueCandidates {
+    ArgValueCandidates::new(|| {
+        job_candidates(&[
+            JobState::Waiting,
+            JobState::Active,
+            JobState::Paused,
+            JobState::Seeding,
+        ])
+    })
+}
 
 /// Provider names of every provider.
 pub fn providers_any() -> ArgValueCandidates {

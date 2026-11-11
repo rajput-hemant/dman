@@ -83,6 +83,12 @@ impl Manager {
         };
         let mut out = Vec::with_capacity(p.sources.len());
         for src in p.sources {
+            if !p.force
+                && let Err(error) = self.check_duplicate(&src).await
+            {
+                out.push(AddOutcome::Failed { error });
+                continue;
+            }
             if matches!(src, AddSource::Video { .. }) {
                 let r = self.add_video(src, &options, &dir_s, p.paused).await;
                 out.push(match r {

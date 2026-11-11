@@ -17,7 +17,7 @@ use crate::commands::progress::Renderer;
 use crate::commands::quality;
 use crate::commands::wait::{conclude, track};
 use crate::connect::Ctx;
-use crate::error::{CliError, EXIT_TIMEOUT, batch_exit};
+use crate::error::{CliError, EXIT_DUPLICATE, EXIT_TIMEOUT, batch_exit};
 
 /// What a source string refers to.
 #[derive(Debug, PartialEq, Eq)]
@@ -188,12 +188,16 @@ fn video_options(v: &VideoArgs) -> VideoOptions {
 }
 
 /// Sources, their display labels, and the inputs detected as video.
-type Built = (Vec<AddSource>, Vec<String>, Vec<String>);
+pub type Built = (Vec<AddSource>, Vec<String>, Vec<String>);
 
 /// Turn raw inputs into sources plus a display label for each. Video URLs
 /// (forced or detected) become `AddSource::Video`; the second list holds the
 /// inputs that were detected as video without `--video`.
-fn build_sources(inputs: &[String], mirror: bool, video: &VideoArgs) -> Result<Built, CliError> {
+pub fn build_sources(
+    inputs: &[String],
+    mirror: bool,
+    video: &VideoArgs,
+) -> Result<Built, CliError> {
     let mode = if mirror && !video.video {
         VideoMode::Never
     } else {
@@ -273,43 +277,134 @@ fn build_options(args: &AddArgs) -> Result<JobOptions, CliError> {
     Ok(o)
 }
 
-fn report(
+/// What happened to the sources of one `add`.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Tally {
+    /// Sources that failed, duplicates included.
+    pub failed: usize,
+    /// Duplicates that were refused (a subset of `failed`).
+    pub duplicates: usize,
+    /// Duplicate torrents that received new trackers (not failures).
+    pub merged: usize,
+    /// The first failure: its code, and whether it was a duplicate.
+    pub first: Option<(dman_proto::ErrorCode, bool)>,
+}
+
+impl Tally {
+    pub fn of(outcomes: &[AddOutcome]) -> Self {
+        let mut t = Self::default();
+        for o in outcomes {
+            let AddOutcome::Failed { error } = o else {
+                continue;
+            };
+            match dman_proto::DuplicateInfo::from_error(error) {
+                Some(d) if d.trackers_added > 0 => t.merged += 1,
+                dup => {
+                    t.failed += 1;
+                    t.duplicates += usize::from(dup.is_some());
+                    t.first.get_or_insert((error.code, dup.is_some()));
+                }
+            }
+        }
+        t
+    }
+
+    /// Process exit code: 0 when nothing failed, the duplicate code when every
+    /// source failed and the first failure was a duplicate, otherwise as for
+    /// any batch.
+    pub fn exit(&self, total: usize) -> i32 {
+        match self.first {
+            Some((_, true)) if self.failed >= total => EXIT_DUPLICATE,
+            first => batch_exit(total, self.failed, first.map(|f| f.0)),
+        }
+    }
+}
+
+/// Prints one line per outcome (or the JSON array) and returns the exit code.
+/// With `print_doc` false the JSON is left to the caller (`add --wait` prints
+/// one combined document).
+pub fn report(
     labels: &[String],
     outcomes: &[AddOutcome],
     json: bool,
     print_doc: bool,
 ) -> Result<i32, CliError> {
-    let mut first_failure = None;
-    let mut failed = 0;
+    let tally = Tally::of(outcomes);
+    if json {
+        if print_doc {
+            super::print_json(&outcomes)?;
+        }
+        return Ok(tally.exit(outcomes.len()));
+    }
     for (label, outcome) in labels.iter().zip(outcomes) {
         match outcome {
-            AddOutcome::Added { .. } if !json => {
+            AddOutcome::Added { .. } => {
                 let ids: Vec<String> = outcome.ids().iter().map(ToString::to_string).collect();
                 println!("added {}", ids.join(" "));
             }
-            AddOutcome::Failed { error } => {
-                failed += 1;
-                first_failure.get_or_insert(error.code);
-                if !json {
-                    eprintln!("dman: failed {label}: {}", error.message);
+            AddOutcome::Failed { error } => match dman_proto::DuplicateInfo::from_error(error) {
+                Some(d) if d.trackers_added > 0 => {
+                    println!("merged into {}: {}", d.id, error.message)
                 }
-            }
-            AddOutcome::Added { .. } => {}
+                Some(_) => eprintln!("dman: skipped {label}: {}", error.message),
+                None => eprintln!("dman: failed {label}: {}", error.message),
+            },
         }
     }
-    if json && print_doc {
-        super::print_json(&outcomes)?;
+    if tally.duplicates > 0 {
+        eprintln!("hint: use --force to add anyway");
     }
-    Ok(batch_exit(outcomes.len(), failed, first_failure))
+    Ok(tally.exit(outcomes.len()))
+}
+
+/// Asks whether to add the links found in the clipboard; Enter means yes.
+fn offer_clipboard(links: &[String]) -> Result<bool, CliError> {
+    use std::io::{BufRead as _, Write as _};
+    let shown: Vec<String> = links.iter().map(|l| super::clipboard::shown(l)).collect();
+    let what = match shown.as_slice() {
+        [one] => one.clone(),
+        many => format!("{} links ({})", many.len(), many.join(", ")),
+    };
+    eprint!("Add {what} from the clipboard? [Y/n] ");
+    std::io::stderr().flush()?;
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    Ok(matches!(
+        line.trim().to_ascii_lowercase().as_str(),
+        "" | "y" | "yes"
+    ))
+}
+
+/// The sources of this `add`: arguments, `-i` file and stdin, plus the
+/// clipboard with `--clipboard` (or, without any source, when a terminal can
+/// confirm it).
+async fn gather_inputs(ctx: &Ctx, args: &AddArgs) -> Result<Vec<String>, CliError> {
+    let mut inputs = collect_inputs(args)?;
+    if args.clipboard {
+        let links = super::clipboard::read_links().await?;
+        if !ctx.json {
+            let shown: Vec<String> = links.iter().map(|l| super::clipboard::shown(l)).collect();
+            eprintln!("from the clipboard: {}", shown.join(", "));
+        }
+        inputs.extend(links);
+    } else if inputs.is_empty()
+        && !ctx.json
+        && super::can_prompt()
+        && let Ok(links) = super::clipboard::read_links().await
+        && offer_clipboard(&links)?
+    {
+        inputs = links;
+    }
+    Ok(inputs)
 }
 
 pub async fn run(ctx: &Ctx, args: &AddArgs) -> Result<i32, CliError> {
-    let inputs = collect_inputs(args)?;
+    let inputs = gather_inputs(ctx, args).await?;
     if inputs.is_empty() {
-        return Err(
-            CliError::invalid("nothing to add: give a URL, magnet, file or `-`")
-                .with_hint("e.g. `dman add https://example.org/file.iso`; see `dman add --help`"),
-        );
+        return Err(CliError::invalid(
+            "nothing to add: give a URL, magnet, file or `-` (or --clipboard)",
+        )
+        .with_hint("e.g. `dman add https://example.org/file.iso`; see `dman add --help`"));
     }
     if args.video.any() && args.video.no_video {
         return Err(
@@ -329,6 +424,7 @@ pub async fn run(ctx: &Ctx, args: &AddArgs) -> Result<i32, CliError> {
         sources,
         options: build_options(args)?,
         paused: args.paused,
+        force: args.force,
     };
     let client = ctx.connect().await?;
     let reads_stdin = args.sources.iter().any(|s| s == "-");
@@ -784,6 +880,42 @@ mod tests {
         assert!(video.subtitles.as_ref().unwrap().embed);
         assert_eq!(video.embed_metadata, None);
         assert!(build_sources(&["magnet:?xt=x".into()], false, &forced).is_err());
+    }
+
+    fn dup(trackers_added: u32) -> AddOutcome {
+        let mut error =
+            dman_proto::RpcError::refused("already in your downloads as job 4 (paused)");
+        error.data = Some(
+            dman_proto::DuplicateInfo {
+                id: dman_proto::JobId(4),
+                state: dman_proto::JobState::Paused,
+                trackers_added,
+            }
+            .to_data(),
+        );
+        AddOutcome::Failed { error }
+    }
+
+    #[test]
+    fn duplicates_have_their_own_exit_code() {
+        let ok = AddOutcome::Added {
+            id: dman_proto::JobId(1),
+            extra_ids: vec![],
+        };
+        let bad = AddOutcome::Failed {
+            error: dman_proto::RpcError::not_found("x"),
+        };
+        let exit = |o: &[AddOutcome]| Tally::of(o).exit(o.len());
+        assert_eq!(exit(std::slice::from_ref(&ok)), 0);
+        assert_eq!(exit(&[dup(0)]), EXIT_DUPLICATE);
+        assert_eq!(exit(&[dup(0), dup(0)]), EXIT_DUPLICATE);
+        // A torrent that only got new trackers is not a failure.
+        assert_eq!(exit(&[dup(3)]), 0);
+        assert_eq!(exit(&[ok.clone(), dup(0)]), 8);
+        assert_eq!(exit(std::slice::from_ref(&bad)), 5);
+        assert_eq!(exit(&[bad, dup(0)]), 5);
+        let t = Tally::of(&[ok, dup(0), dup(2)]);
+        assert_eq!((t.failed, t.duplicates, t.merged), (1, 1, 1));
     }
 
     #[test]

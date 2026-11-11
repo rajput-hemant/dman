@@ -251,6 +251,7 @@ async fn seeds_to_a_leecher_stops_at_ratio_and_survives_a_restart() {
                 ..Default::default()
             },
             paused: false,
+            force: false,
         })
         .await
         .unwrap();
@@ -344,6 +345,7 @@ async fn add_from_seeder(c: &Client, seeder: &mut Seeder, options: JobOptions) -
             }],
             options,
             paused: false,
+            force: false,
         })
         .await
         .unwrap();
@@ -455,6 +457,7 @@ async fn magnet_job_survives_a_restart_from_its_stored_metadata() {
             }],
             options: JobOptions::default(),
             paused: false,
+            force: false,
         })
         .await
         .unwrap();

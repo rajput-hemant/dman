@@ -304,6 +304,59 @@ pub struct AddParams {
     /// Add without starting; the job stays paused until resumed.
     #[serde(default)]
     pub paused: bool,
+    /// Add even when an existing (not removed) job has the same info hash or
+    /// URL. Without it such a source fails with `Refused` and a
+    /// [`DuplicateInfo`] in the error's `data` (key `duplicate`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub force: bool,
+}
+
+/// Why a source of `jobs.add` was not added: an existing job already has it.
+/// Sent as `{"duplicate": DuplicateInfo}` in the `data` of the source's
+/// `Refused` error, so clients that do not know it still show the message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DuplicateInfo {
+    /// The existing job.
+    pub id: JobId,
+    pub state: JobState,
+    /// Trackers of the new source that the existing torrent did not have and
+    /// that were added to it (0 for non-torrents or when there were none).
+    #[serde(default)]
+    pub trackers_added: u32,
+}
+
+impl DuplicateInfo {
+    /// Key of this value inside [`crate::RpcError::data`].
+    pub const DATA_KEY: &'static str = "duplicate";
+
+    /// The duplicate details carried by an add failure, if any.
+    pub fn from_error(e: &crate::RpcError) -> Option<Self> {
+        let v = e.data.as_ref()?.get(Self::DATA_KEY)?;
+        serde_json::from_value(v.clone()).ok()
+    }
+
+    /// `data` value for an [`crate::RpcError`].
+    pub fn to_data(&self) -> serde_json::Value {
+        serde_json::json!({ Self::DATA_KEY: self })
+    }
+}
+
+/// Whether `s` is an http(s) URL whose path ends in `.torrent` (query and
+/// fragment ignored). The daemon fetches such a file itself, so it becomes a
+/// torrent job with a file list, like an uploaded `.torrent`.
+pub fn is_torrent_url(s: &str) -> bool {
+    let s = s.trim();
+    let Some((scheme, rest)) = s.split_once("://") else {
+        return false;
+    };
+    if !(scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")) {
+        return false;
+    }
+    let path = rest.split(['?', '#']).next().unwrap_or_default();
+    match path.split_once('/') {
+        Some((host, p)) => !host.is_empty() && p.to_ascii_lowercase().ends_with(".torrent"),
+        None => false,
+    }
 }
 
 /// Result of `jobs.add`: one entry per source, in order.
@@ -598,6 +651,50 @@ mod tests {
         assert_eq!(v["extra_ids"], serde_json::json!([4, 5]));
         assert_eq!(many.ids(), vec![JobId(3), JobId(4), JobId(5)]);
         assert_eq!(serde_json::from_value::<AddOutcome>(v).unwrap(), many);
+    }
+
+    #[test]
+    fn add_force_is_optional_on_the_wire() {
+        let p = AddParams {
+            sources: vec![],
+            options: JobOptions::default(),
+            paused: false,
+            force: false,
+        };
+        let v = serde_json::to_value(&p).unwrap();
+        assert!(v.get("force").is_none(), "{v}");
+        let back: AddParams =
+            serde_json::from_value(serde_json::json!({"sources": [], "force": true})).unwrap();
+        assert!(back.force);
+    }
+
+    #[test]
+    fn duplicate_info_travels_in_error_data() {
+        let d = DuplicateInfo {
+            id: JobId(12),
+            state: JobState::Paused,
+            trackers_added: 2,
+        };
+        let mut e = crate::RpcError::refused("already there");
+        assert_eq!(DuplicateInfo::from_error(&e), None);
+        e.data = Some(d.to_data());
+        assert_eq!(
+            e.data.as_ref().unwrap()["duplicate"]["state"],
+            serde_json::json!("paused")
+        );
+        assert_eq!(DuplicateInfo::from_error(&e), Some(d));
+    }
+
+    #[test]
+    fn torrent_urls() {
+        assert!(is_torrent_url("https://x.org/a/ubuntu.torrent"));
+        assert!(is_torrent_url("HTTP://x.org/U.TORRENT?key=1#f"));
+        assert!(!is_torrent_url("https://x.org/a.torrent.html"));
+        assert!(!is_torrent_url("https://x.org/download?f=a.torrent"));
+        assert!(!is_torrent_url("ftp://x.org/a.torrent"));
+        assert!(!is_torrent_url("/tmp/a.torrent"));
+        assert!(!is_torrent_url("https:///a.torrent"));
+        assert!(!is_torrent_url("magnet:?xt=urn:btih:a"));
     }
 
     #[test]

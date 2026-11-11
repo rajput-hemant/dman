@@ -7,7 +7,7 @@ commit this file together with the code it describes.
 
 ## Current state
 
-- Local repository only (no remote yet). Toolchain: Rust 1.97 stable, musl target.
+- Pushed to github.com/rajput-hemant/dman (main). All milestones and the picked CLI improvements are done. Publishing to package managers is handled by the owner; no release tagged yet. Toolchain: Rust 1.97 stable, musl target.
 - Engines available in the dev container: aria2c 1.37.0, yt-dlp 2026.10.26, ffmpeg.
 - M1 done: daemon (aria2 supervisor, dman-owned queue, disk guard, reconcile after restart, redb store, WS API with token auth) + CLI (add/list/get/pause/resume/remove/purge/reorder/limit/stats/daemon …). Verified end to end with the real binary.
 - Dev quick start: `cargo build -p dman`, then `DMAN_CONFIG_DIR=/tmp/x target/debug/dman daemon gen-config` (edit listen/rpc_port/download_dir), `dman daemon start`, `dman add <url>`, `dman list`.
@@ -113,7 +113,12 @@ commit this file together with the code it describes.
 ### User requests (2026-11-10, after the review)
 - [x] Leftover engine files: finished torrent/magnet jobs leave only their files. Job-owned `.aria2` control files and the `<infohash>.torrent` metadata copy are removed after completion (after seeding ends, if seeding is on). A `.torrent` that existed before the job, has another hash or doesn't parse is never touched; failed, paused and unfinished jobs keep their `.aria2` so they can resume. aria2 no longer writes upload copies (`rpc-save-upload-metadata=false`, the job blob is the copy). Older jobs from before this change only get their `.aria2` cleaned.
 - [x] Search providers: EZTV, Torlock, TorrentDownloads, Internet Archive, Academic Torrents and LinuxTracker are verified; LimeTorrents, SolidTorrents and 1337x are unverified (1337x hosts all serve a Cloudflare challenge, so the docs route it through Prowlarr/Jackett + FlareSolverr). Per-provider mirrors with fallback, per-provider/global proxy (`"none"` forces direct), `[search] dns` with DNS-over-HTTPS. See docs/search.md.
-- [ ] CLI improvements: list in `.plan/cli-improvements.md`, waiting for the owner's picks
+- [x] CLI improvements (owner took the recommended picks from `.plan/cli-improvements.md`):
+  - `list` --sort/--reverse/--name/--engine/--columns/--limit; `dman wait` and `add --wait` (exit 124 on --timeout); live progress bar for `get --watch` and `add --wait`; interactive "Add which?" after `dman search`
+  - `dman config get|set|unset|edit|path|show` (toml_edit, validated before saving, secrets masked, reloads the daemon); a `hint:` next step on errors with did-you-mean for ids/providers/profiles/keys; `dman probe --plan` (daemon `video.plan`)
+  - duplicate detection in the daemon add path (exit 9, `--force`; a duplicate torrent gets the new trackers); http(s) .torrent URLs become real torrent jobs; `dman set <ids>` via jobs.set_options; `add --clipboard`; `dman handle` + `dman integrate install|uninstall|status` (Linux .desktop, documented macOS/Windows, docs/browser.md)
+  - polish: local dates in `get`/`list`, commands grouped by task in `--help`
+- Not done, open for later: the remaining items of `.plan/cli-improvements.md`; Windows build (main.rs uses unix signals); publishing (owner handles package managers)
 
 ### UX pass (requested by the user, 2026-11-09)
 - [x] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
@@ -144,8 +149,8 @@ commit this file together with the code it describes.
 - [x] `AddOutcome::Added` now has `extra_ids` (metalinks with several files).
 - [x] `limits.set` persisted to config (done with M4 schedule work).
 - [x] `engine.restart` method + background retry every 60 s while the engine is unavailable; CLI `dman daemon engine-restart`.
-- Magnet follow-up, seeding, metalink and adoption paths are not yet tested against real aria2 (needs local tracker + seeder fixture from spikes/aria2/lib.py idea) — add in M4.
-- cargo-deny config (M8).
+- [x] Magnet follow-up, seeding, metalink and adoption paths tested against real aria2 (local seeder fixture; gated tests).
+- [x] cargo-deny config (done in M8).
 
 ## Confirmed decisions (do not re-ask)
 

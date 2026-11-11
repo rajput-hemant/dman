@@ -29,7 +29,8 @@ installed with `dman completions install`; `dman completions <shell>` prints the
 script instead.
 
 Output is a table for people. With `--json` every command prints one JSON document
-on stdout, and errors become {\"error\": {\"code\": ..., \"message\": ...}} on stderr.
+on stdout, and errors become {\"error\": {\"code\": ..., \"message\": ...}} on stderr
+(plus a \"hint\" when there is a next step to suggest).
 Questions are asked only in a terminal; scripts pass `--yes` to destructive commands.
 
 Exit codes:
@@ -74,6 +75,7 @@ pub fn command() -> clap::Command {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Manage the background daemon.
+    #[command(display_order = 25)]
     Daemon {
         #[command(subcommand)]
         cmd: DaemonCmd,
@@ -96,6 +98,7 @@ Examples:
 Adding a URL or torrent that is already in the list (same URL or info hash) is
 refused with exit code 9 and the existing job's ID; a known torrent gets the new
 link's trackers instead.")]
+    #[command(display_order = 1)]
     Add(Box<AddArgs>),
     /// Change options of existing downloads (limits, folder, files, seeding, headers).
     #[command(after_help = "\
@@ -111,6 +114,7 @@ Examples:
 
 Options that need a stopped transfer (folder, files, headers, connections) are
 refused while the download runs: pause it first (`dman pause 12`).")]
+    #[command(display_order = 7)]
     Set(Box<SetArgs>),
     /// Add a magnet, URL or .torrent handed over by the browser or file manager.
     #[command(after_help = "\
@@ -122,6 +126,7 @@ Examples:
 This is what `dman integrate install` registers for magnet links and .torrent
 files. It starts the daemon when needed and, as there is usually no terminal,
 reports the result as a desktop notification as well.")]
+    #[command(display_order = 27)]
     Handle(HandleArgs),
     /// Make dman the handler of magnet links and .torrent files (install, uninstall, status).
     #[command(after_help = "\
@@ -134,6 +139,7 @@ Linux: writes ~/.local/share/applications/dman-handler.desktop and makes it the
 default with xdg-mime. Windows: writes HKCU registry entries with reg.exe. macOS
 needs an app bundle for a URL scheme; `install` explains the alternatives.
 Browser bookmarklet and userscript: see docs/browser.md.")]
+    #[command(display_order = 28)]
     Integrate {
         #[command(subcommand)]
         cmd: IntegrateCmd,
@@ -147,6 +153,7 @@ Examples:
   dman list --sort speed --limit 5
   dman list --name ubuntu --engine aria2 --columns id,name,progress
   dman list --json | jq '.[].name'")]
+    #[command(display_order = 2)]
     List(ListArgs),
     /// Wait until downloads finish (exit 0 if all completed).
     #[command(after_help = "\
@@ -159,6 +166,7 @@ A torrent counts as finished once it completes (seeding does not delay the
 exit). Exit codes: 0 all completed, 1 every job failed, 8 some failed,
 124 the timeout expired (jobs keep running), 130 Ctrl-C. Waiting never
 changes the jobs.")]
+    #[command(display_order = 4)]
     Wait(WaitArgs),
     /// Show details of one download.
     #[command(after_help = "\
@@ -166,6 +174,7 @@ Examples:
   dman get 12
   dman get 12 --files
   dman get 12 --watch            live progress bar until the download ends")]
+    #[command(display_order = 3)]
     Get {
         /// Job ID.
         #[arg(add = comp::job_ids_any())]
@@ -182,6 +191,7 @@ Examples:
         peers: bool,
     },
     /// Rename a download (waiting/paused: new output name; complete: move on disk).
+    #[command(display_order = 10)]
     Rename {
         /// Job ID.
         #[arg(add = comp::job_ids_any())]
@@ -194,6 +204,7 @@ Examples:
         file: Option<u32>,
     },
     /// Delete the partial files of a finished torrent's deselected files (asks first).
+    #[command(display_order = 12)]
     Cleanup {
         /// Job ID.
         #[arg(add = comp::job_ids_finished())]
@@ -202,12 +213,14 @@ Examples:
         #[arg(long, short = 'y')]
         yes: bool,
     },
-    /// Daemon configuration.
+    /// Show or change settings (get, set, edit, show, path, reload).
+    #[command(display_order = 23)]
     Config {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
     /// Video quality picker defaults (`dman video prefs`).
+    #[command(display_order = 24)]
     Video {
         #[command(subcommand)]
         cmd: VideoCmd,
@@ -220,6 +233,7 @@ Examples:
   dman probe https://youtu.be/ID --json          the same as stable JSON
   dman probe https://youtu.be/ID --plan          the yt-dlp selector and post-processing add would use
   dman probe https://youtu.be/ID --plan --quality 720p --container mkv --subs en")]
+    #[command(display_order = 15)]
     Probe {
         /// Video page or stream URL.
         url: String,
@@ -239,6 +253,7 @@ Examples:
         plan_args: PlanArgs,
     },
     /// Show the files of a magnet link (or http(s) .torrent URL) without downloading it.
+    #[command(display_order = 14)]
     Preview {
         /// Magnet link, or the http(s) URL of a .torrent file.
         magnet: String,
@@ -247,27 +262,37 @@ Examples:
         timeout: Option<u32>,
     },
     /// Pause downloads.
+    #[command(display_order = 5)]
     Pause(TargetArgs),
     /// Resume downloads.
+    #[command(display_order = 6)]
     Resume(TargetArgs),
     /// Remove downloads (files are kept unless --delete-files).
+    #[command(display_order = 8)]
     Remove(RemoveArgs),
     /// Undo a remove: bring removed downloads back (not possible after --delete-files).
+    #[command(display_order = 9)]
     Restore(RestoreArgs),
     /// Drop finished jobs from the history.
+    #[command(display_order = 13)]
     Purge(PurgeArgs),
     /// Change a job's queue position.
+    #[command(display_order = 11)]
     Reorder(ReorderArgs),
     /// Show or set the global speed limits.
+    #[command(display_order = 19)]
     Limit(LimitArgs),
     /// Show or set the number of concurrent downloads.
+    #[command(display_order = 20)]
     MaxConcurrent {
         /// New limit; omit to print the current one.
         n: Option<u32>,
     },
     /// Show the schedule windows, the active one and the next change.
+    #[command(display_order = 21)]
     Schedule,
     /// Show global statistics.
+    #[command(display_order = 22)]
     Stats,
     /// Print a shell completion script, or install it (`completions install`).
     #[command(after_help = "\
@@ -275,6 +300,7 @@ Examples:
   dman completions install                install for the shell in $SHELL
   dman completions install --shell fish   choose the shell explicitly
   dman completions bash > dman.bash       print the script (for package managers)")]
+    #[command(display_order = 29)]
     Completions(CompletionsArgs),
     /// Search the enabled providers; optionally add results.
     #[command(after_help = "\
@@ -287,13 +313,16 @@ Examples:
 
 In a terminal (and without --add or --json) the results are followed by the
 question \"Add which?\"; answer with numbers such as 1,3 or 2-4, Enter skips.")]
+    #[command(display_order = 16)]
     Search(Box<SearchArgs>),
     /// Manage search providers (enable, disable, test, import, export).
+    #[command(display_order = 17)]
     Providers {
         #[command(subcommand)]
         cmd: ProvidersCmd,
     },
     /// Public tracker list status.
+    #[command(display_order = 18)]
     Trackers {
         #[command(subcommand)]
         cmd: TrackersCmd,
@@ -305,8 +334,10 @@ Examples:
   dman serve --bind 0.0.0.0 --persist     expose it on the network and remember that
   dman serve --base-path /dman            behind a reverse proxy at /dman
   dman serve --stop                       turn the web UI off again")]
+    #[command(display_order = 26)]
     Serve(ServeArgs),
     /// Update dman (installer installs only) or show the right command for your install.
+    #[command(display_order = 30)]
     Update(UpdateArgs),
 }
 

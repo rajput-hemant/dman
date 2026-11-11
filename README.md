@@ -43,8 +43,10 @@ dman completions install
 ```bash
 dman                                   # start the daemon if needed and open the TUI
 dman add "magnet:?xt=urn:btih:..."     # add from the command line
-dman list                              # show downloads (add --json for scripts)
-dman search ubuntu --add 1             # search providers and add the first result
+dman add https://example.org/f.iso --wait  # show progress, exit when done
+dman list --sort speed                 # show downloads (add --json for scripts)
+dman search ubuntu                     # search providers, then pick results to add
+dman config set limits.download 5MiB   # change a setting without opening the file
 dman serve                             # web UI at http://127.0.0.1:6811/
 dman integrate install                 # open magnet links from the browser with dman (docs/browser.md)
 ```
@@ -54,7 +56,8 @@ palette and `?` for every key.
 
 ## Configuration
 
-Settings live in `~/.config/dman/config.toml` (created by `dman daemon gen-config`):
+Settings live in `~/.config/dman/config.toml` (created by `dman daemon gen-config`;
+`dman config edit` opens it and checks it before saving):
 download folder, limits, schedule, search providers, video defaults, notifications,
 web UI and remote profiles. Most changes apply with `dman config reload`.
 

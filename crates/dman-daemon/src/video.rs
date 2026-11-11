@@ -15,9 +15,9 @@ use std::time::Duration;
 use dman_config::Paths;
 use dman_proto::method::EngineStatus;
 use dman_proto::video::{
-    PlaylistEntry, QualityChoice, QualityChoiceKind, QualityChoiceRef, VideoFormat, VideoPlan,
-    VideoPlanKind, VideoPreferences, VideoPreferencesUpdate, VideoProbe, VideoProbeParams,
-    VideoStreamKind,
+    PlaylistEntry, QualityChoice, QualityChoiceKind, QualityChoiceRef, VideoDownloadPlan,
+    VideoFormat, VideoPlan, VideoPlanKind, VideoPlanParams, VideoPreferences,
+    VideoPreferencesUpdate, VideoProbe, VideoProbeParams, VideoStreamKind,
 };
 use dman_proto::{Engine, ErrorCode, RpcError, VideoOptions, VideoSubtitles};
 use dman_ytdlp::{
@@ -123,6 +123,16 @@ impl VideoService {
     /// The engine status entry of yt-dlp.
     pub fn status(&self) -> EngineStatus {
         engine_status(&self.tools.borrow())
+    }
+
+    /// `video.plan`: what a download with these options would use right now. Nothing is
+    /// probed or downloaded, so it answers at once.
+    pub fn plan(&self, p: VideoPlanParams) -> Result<VideoDownloadPlan, RpcError> {
+        let tools = self.tools();
+        if tools.ytdlp.is_none() {
+            return Err(unavailable());
+        }
+        plan_for(&p.url, &p.options, &self.config_now(), &tools)
     }
 
     /// `video.probe`. Dropping the future kills yt-dlp (client disconnect).
@@ -497,6 +507,105 @@ pub fn resolve_options(mut o: VideoOptions, d: &dman_config::Video) -> VideoOpti
     o
 }
 
+/// Whether `dman add` would show the quality picker for a video added with `options`
+/// (before the video is probed), and why. Mirrors the clients' picker flow: no choice
+/// given, not a playlist, and `[video] ask_quality` on.
+fn picker_decision(o: &VideoOptions, d: &dman_config::Video) -> (bool, String) {
+    let blank = |s: &Option<String>| s.as_deref().is_none_or(|s| s.trim().is_empty());
+    if !blank(&o.quality) || !blank(&o.format_id) || !blank(&o.audio_only) {
+        return (false, "a quality or format was given".to_owned());
+    }
+    if o.playlist || o.playlist_items.is_some() {
+        return (false, "playlists use the defaults".to_owned());
+    }
+    if !d.ask_quality {
+        return (
+            false,
+            "`video.ask_quality` is off (`dman video prefs --ask true` turns it on)".to_owned(),
+        );
+    }
+    (
+        true,
+        "in a terminal when the video offers more than one quality \
+         (never with --yes, --json or a pipe; --quality skips it)"
+            .to_owned(),
+    )
+}
+
+/// The plan of a video download: resolves `options` against the `[video]` defaults like
+/// `jobs.add` does, builds the real yt-dlp spec with the tools detected now, and describes
+/// it. The format selector and the post-processing come from the same code the download
+/// uses ([`build_spec`], `dman_ytdlp::describe_postprocessing`).
+pub fn plan_for(
+    url: &str,
+    options: &VideoOptions,
+    defaults: &dman_config::Video,
+    tools: &Tools,
+) -> Result<VideoDownloadPlan, RpcError> {
+    let blank = |s: &Option<String>| s.as_deref().is_none_or(|s| s.trim().is_empty());
+    let resolved = resolve_options(options.clone(), defaults);
+    let spec =
+        build_spec(url, Path::new("."), &resolved, None, tools).map_err(RpcError::invalid)?;
+    let pp = dman_ytdlp::describe_postprocessing(&spec, tools);
+    let merge = tools.merge_supported();
+    let (source, quality) = if !blank(&options.audio_only) {
+        ("audio_only", resolved.audio_only.clone())
+    } else if !blank(&options.format_id) {
+        ("format_id", None)
+    } else if !blank(&options.quality) {
+        ("quality", resolved.quality.clone())
+    } else {
+        ("defaults", resolved.quality.clone())
+    };
+    let mut notes = Vec::new();
+    if !merge {
+        let preset_wants_merge = nonempty(&resolved.quality)
+            .and_then(|q| dman_ytdlp::parse_quality(q).ok())
+            .filter(|(preset, _)| !matches!(preset, QualityPreset::AudioOnly { .. }))
+            .is_some_and(|(preset, audio)| {
+                dman_ytdlp::selector_with_audio(preset, true, audio) != spec.selector
+            });
+        if preset_wants_merge {
+            notes.push(
+                "ffmpeg is missing: only single-file formats are requested, which can be a \
+                 lower quality than separate best video and audio; install ffmpeg to merge"
+                    .to_owned(),
+            );
+        }
+        if spec.selector.contains('+') {
+            notes.push(
+                "ffmpeg is missing: video and audio are saved as separate files \
+                 (allow_separate_streams)"
+                    .to_owned(),
+            );
+        }
+    }
+    let (asks_quality, ask_reason) = picker_decision(options, defaults);
+    Ok(VideoDownloadPlan {
+        url: spec.url.to_string(),
+        source: source.to_owned(),
+        quality,
+        selector: spec.selector.clone(),
+        ffmpeg: merge,
+        container: spec
+            .container
+            .filter(|_| merge && spec.audio_extract.is_none())
+            .map(|c| c.as_str().to_owned()),
+        audio_extract: spec
+            .audio_extract
+            .filter(|_| merge)
+            .map(|c| c.as_str().to_owned()),
+        playlist: spec.playlist,
+        playlist_items: spec.playlist_items.clone(),
+        output_template: spec.output_template.clone(),
+        post_processing: pp.applied,
+        skipped: pp.skipped,
+        asks_quality,
+        ask_reason,
+        notes,
+    })
+}
+
 fn nonempty(s: &Option<String>) -> Option<&str> {
     s.as_deref().map(str::trim).filter(|s| !s.is_empty())
 }
@@ -693,6 +802,113 @@ mod tests {
         };
         let s = build_spec("https://e.com/v", dir, &raw, None, &tools(true)).unwrap();
         assert_eq!(s.selector, "137+140");
+    }
+
+    #[test]
+    fn plan_describes_selector_postprocessing_and_picker() {
+        let d = dman_config::Video {
+            default_quality: "1080p".into(),
+            default_audio: "m4a".into(),
+            default_container: Some("mkv".into()),
+            ..Default::default()
+        };
+        let url = "https://e.com/v";
+        let p = plan_for(url, &VideoOptions::default(), &d, &tools(true)).unwrap();
+        assert_eq!(p.source, "defaults");
+        assert_eq!(p.quality.as_deref(), Some("1080p+m4a"));
+        assert_eq!(
+            p.selector,
+            "bv*[height<=1080]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]"
+        );
+        assert_eq!(p.container.as_deref(), Some("mkv"));
+        assert!(
+            p.ffmpeg && p.notes.is_empty() && p.skipped.is_empty(),
+            "{p:?}"
+        );
+        assert!(p.post_processing.iter().any(|s| s.contains("mkv")), "{p:?}");
+        assert!(
+            p.post_processing.iter().any(|s| s.contains("metadata")),
+            "{p:?}"
+        );
+        assert!(p.asks_quality, "{}", p.ask_reason);
+        // The selector is the one a real job gets.
+        let real = build_spec(
+            url,
+            Path::new("."),
+            &resolve_options(VideoOptions::default(), &d),
+            None,
+            &tools(true),
+        )
+        .unwrap();
+        assert_eq!(p.selector, real.selector);
+
+        // No ffmpeg: single-file selector, steps skipped, a note says why.
+        let p = plan_for(url, &VideoOptions::default(), &d, &tools(false)).unwrap();
+        assert_eq!(p.selector, "b[height<=1080]/b");
+        assert!(!p.ffmpeg && p.container.is_none());
+        assert!(p.skipped.iter().any(|s| s.contains("mkv")), "{p:?}");
+        assert!(
+            p.notes.iter().any(|n| n.contains("ffmpeg is missing")),
+            "{p:?}"
+        );
+
+        // Explicit choices: no picker, the source says where the format came from.
+        let o = VideoOptions {
+            quality: Some("audio:mp3".into()),
+            ..Default::default()
+        };
+        let p = plan_for(url, &o, &d, &tools(true)).unwrap();
+        assert_eq!(
+            (p.source.as_str(), p.audio_extract.as_deref()),
+            ("quality", Some("mp3"))
+        );
+        assert!(!p.asks_quality && p.container.is_none(), "{p:?}");
+        let o = VideoOptions {
+            format_id: Some("137+140".into()),
+            ..Default::default()
+        };
+        let p = plan_for(url, &o, &d, &tools(true)).unwrap();
+        assert_eq!(
+            (p.source.as_str(), p.selector.as_str()),
+            ("format_id", "137+140")
+        );
+        assert_eq!(p.quality, None);
+        // The picker is off when the preference says so, and for playlists.
+        let off = dman_config::Video {
+            ask_quality: false,
+            ..d.clone()
+        };
+        let p = plan_for(url, &VideoOptions::default(), &off, &tools(true)).unwrap();
+        assert!(
+            !p.asks_quality && p.ask_reason.contains("ask_quality"),
+            "{p:?}"
+        );
+        let pl = VideoOptions {
+            playlist_items: Some("1-3".into()),
+            ..Default::default()
+        };
+        let p = plan_for(url, &pl, &d, &tools(true)).unwrap();
+        assert!(!p.asks_quality && p.playlist, "{p:?}");
+        assert_eq!(p.playlist_items.as_deref(), Some("1-3"));
+
+        // What the real add would refuse is refused here too.
+        let bad = VideoOptions {
+            format_id: Some("137+140".into()),
+            ..Default::default()
+        };
+        let e = plan_for(url, &bad, &d, &tools(false)).unwrap_err();
+        assert_eq!(e.code, ErrorCode::InvalidInput);
+        assert!(plan_for("ftp://e.com/v", &VideoOptions::default(), &d, &tools(true)).is_err());
+        // Separate streams with consent: the note says so.
+        let consent = VideoOptions {
+            allow_separate_streams: true,
+            ..bad
+        };
+        let p = plan_for(url, &consent, &d, &tools(false)).unwrap();
+        assert!(
+            p.notes.iter().any(|n| n.contains("separate files")),
+            "{p:?}"
+        );
     }
 
     #[test]

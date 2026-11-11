@@ -39,6 +39,8 @@ pub const FS_LIST: &str = "fs.list";
 pub const ENGINE_STATUS: &str = "engine.status";
 /// `video.probe`: [`crate::VideoProbeParams`] -> [`crate::VideoProbe`].
 pub const VIDEO_PROBE: &str = "video.probe";
+/// `video.plan`: [`crate::video::VideoPlanParams`] -> [`crate::video::VideoDownloadPlan`].
+pub const VIDEO_PLAN: &str = "video.plan";
 /// `video.preferences.get`: no params -> [`crate::VideoPreferences`].
 pub const VIDEO_PREFERENCES_GET: &str = "video.preferences.get";
 /// `video.preferences.set`: [`crate::VideoPreferencesUpdate`] -> the new

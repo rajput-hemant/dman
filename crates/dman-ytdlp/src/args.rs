@@ -314,6 +314,94 @@ pub fn build_args(spec: &DownloadSpec, tools: &Tools, job_tag: &str) -> Vec<Stri
     a
 }
 
+/// What [`build_args`] makes yt-dlp do after downloading, in plain words, split into the
+/// steps that run and the ones that are dropped because ffmpeg is missing. It applies the
+/// same ffmpeg gating as [`build_args`], so a plan shown to the user matches the real run.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PostProcessing {
+    /// Steps that will run.
+    pub applied: Vec<String>,
+    /// Steps that were asked for but need ffmpeg (missing), with what happens instead.
+    pub skipped: Vec<String>,
+}
+
+impl PostProcessing {
+    /// A step that needs ffmpeg: it runs with ffmpeg, otherwise it is skipped with the
+    /// consequence `without`.
+    fn gated(&mut self, merge: bool, text: String, without: &str) {
+        if merge {
+            self.applied.push(text);
+        } else {
+            self.skipped.push(format!("{text}: {without}"));
+        }
+    }
+}
+
+/// The post-processing of `spec` with the given `tools`.
+pub fn describe_postprocessing(spec: &DownloadSpec, tools: &Tools) -> PostProcessing {
+    let merge = tools.merge_supported();
+    let mut out = PostProcessing::default();
+    if let Some(codec) = spec.audio_extract {
+        out.gated(
+            merge,
+            format!("convert the audio to {}", codec.as_str()),
+            "the original audio stream is kept",
+        );
+    } else if let Some(c) = spec.container {
+        out.gated(
+            merge,
+            format!("merge into a {} container", c.as_str()),
+            "yt-dlp keeps its own container",
+        );
+    }
+    if let Some(s) = &spec.subtitles {
+        // Writing the files needs no ffmpeg.
+        let auto = if s.auto {
+            " (and automatic captions)"
+        } else {
+            ""
+        };
+        out.applied.push(format!(
+            "write subtitles ({}){auto} next to the video",
+            s.langs.join(", ")
+        ));
+        if s.embed {
+            out.gated(
+                merge,
+                "embed the subtitles".to_owned(),
+                "they stay in separate files",
+            );
+        }
+    }
+    if spec.embed_thumbnail {
+        out.gated(
+            merge,
+            "embed the thumbnail".to_owned(),
+            "it is not embedded",
+        );
+    }
+    if spec.embed_metadata {
+        out.gated(merge, "embed metadata".to_owned(), "it is not embedded");
+    }
+    if let Some(sb) = &spec.sponsorblock {
+        if !sb.remove.is_empty() {
+            out.gated(
+                merge,
+                format!("cut SponsorBlock segments ({})", sb.remove.join(", ")),
+                "nothing is cut",
+            );
+        }
+        if !sb.mark.is_empty() {
+            out.gated(
+                merge,
+                format!("mark SponsorBlock segments ({})", sb.mark.join(", ")),
+                "nothing is marked",
+            );
+        }
+    }
+    out
+}
+
 /// `<dir>/.dman-<job_tag>.final`
 pub(crate) fn final_file_path(spec: &DownloadSpec, job_tag: &str) -> PathBuf {
     spec.dir.join(format!(".dman-{job_tag}.final"))
@@ -340,6 +428,67 @@ mod tests {
 
     fn s(v: &[&str]) -> Vec<String> {
         v.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn postprocessing_matches_the_arguments() {
+        let mut full = spec();
+        full.container = Some(Container::Mkv);
+        full.subtitles = Some(SubOpts {
+            langs: vec!["en".into(), "de".into()],
+            embed: true,
+            auto: true,
+        });
+        full.embed_thumbnail = true;
+        full.embed_metadata = true;
+        full.sponsorblock = Some(SponsorBlock {
+            remove: vec!["sponsor".into()],
+            mark: vec![],
+        });
+        let with = ffmpeg();
+        let pp = describe_postprocessing(&full, &with);
+        assert!(pp.skipped.is_empty(), "{pp:?}");
+        let args = build_args(&full, &with, "j");
+        for (flag, step) in [
+            ("--merge-output-format", "merge into a mkv container"),
+            ("--embed-subs", "embed the subtitles"),
+            ("--embed-thumbnail", "embed the thumbnail"),
+            ("--embed-metadata", "embed metadata"),
+            (
+                "--sponsorblock-remove",
+                "cut SponsorBlock segments (sponsor)",
+            ),
+            ("--write-subs", "write subtitles (en, de)"),
+        ] {
+            assert!(args.iter().any(|a| a == flag), "{flag} missing");
+            assert!(
+                pp.applied.iter().any(|a| a.contains(step)),
+                "{step} missing in {pp:?}"
+            );
+        }
+        // Without ffmpeg the same steps are reported as skipped and the flags are gone.
+        let none = Tools::default();
+        let pp = describe_postprocessing(&full, &none);
+        let args = build_args(&full, &none, "j");
+        assert_eq!(pp.skipped.len(), 5, "{pp:?}");
+        assert_eq!(pp.applied.len(), 1, "only writing subtitles runs: {pp:?}");
+        for flag in [
+            "--merge-output-format",
+            "--embed-subs",
+            "--embed-thumbnail",
+            "--embed-metadata",
+            "--sponsorblock-remove",
+        ] {
+            assert!(!args.iter().any(|a| a == flag), "{flag} present");
+        }
+        // Audio extraction replaces the container step.
+        let mut audio = spec();
+        audio.audio_extract = Some(AudioCodec::Mp3);
+        assert_eq!(
+            describe_postprocessing(&audio, &with).applied,
+            ["convert the audio to mp3"]
+        );
+        assert!(describe_postprocessing(&audio, &none).skipped[0].contains("original audio"));
     }
 
     #[test]

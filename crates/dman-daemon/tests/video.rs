@@ -706,6 +706,17 @@ async fn missing_ytdlp_is_explained_and_refused() {
         matches!(&err, ClientError::Rpc(e) if e.code == ErrorCode::EngineUnavailable),
         "{err:?}"
     );
+    let err = c
+        .video_plan(dman_proto::VideoPlanParams {
+            url: "https://www.youtube.com/watch?v=x".into(),
+            options: VideoOptions::default(),
+        })
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&err, ClientError::Rpc(e) if e.code == ErrorCode::EngineUnavailable),
+        "{err:?}"
+    );
     // engine.restart re-detects (still missing; aria2 too).
     assert!(c.engine_restart().await.is_err());
     assert!(c.list(ListParams::default()).await.unwrap().is_empty());
@@ -1112,6 +1123,17 @@ async fn video_preferences_persist_apply_and_drive_defaults() {
     assert_eq!(probe.suggested.video.as_deref(), Some("313+251"));
     assert_eq!(probe.audio_choices.len(), 3);
 
+    // `video.plan` answers from the same code, without probing.
+    let plan = c
+        .video_plan(dman_proto::VideoPlanParams {
+            url: "https://e.example/v/probe".into(),
+            options: VideoOptions::default(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(plan.selector, "bv*+ba/b");
+    assert!(plan.ffmpeg && plan.asks_quality, "{plan:?}");
+
     add_and_finish(&c, "d1", VideoOptions::default()).await;
     assert!(
         args_for(root.path(), "d1").contains("-f bv*+ba/b "),
@@ -1144,6 +1166,19 @@ async fn video_preferences_persist_apply_and_drive_defaults() {
     assert_eq!(saved.default_container.as_deref(), Some("mkv"));
 
     // Applied at once: no restart, no reload call.
+    let plan = c
+        .video_plan(dman_proto::VideoPlanParams {
+            url: "https://e.example/v/probe".into(),
+            options: VideoOptions::default(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        plan.selector,
+        "bv*[height<=1080]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]"
+    );
+    assert_eq!(plan.container.as_deref(), Some("mkv"));
+    assert!(!plan.asks_quality, "{plan:?}");
     add_and_finish(&c, "d2", VideoOptions::default()).await;
     let a = args_for(root.path(), "d2");
     assert!(

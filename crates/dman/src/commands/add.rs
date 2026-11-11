@@ -61,7 +61,8 @@ pub fn parse_select_files(s: &str) -> Result<Vec<u32>, String> {
 pub fn parse_key_value(s: &str) -> Result<(String, String), CliError> {
     match s.split_once('=') {
         Some((k, v)) if !k.is_empty() => Ok((k.to_owned(), v.to_owned())),
-        _ => Err(CliError::invalid(format!("expected KEY=VALUE, got '{s}'"))),
+        _ => Err(CliError::invalid(format!("expected KEY=VALUE, got '{s}'"))
+            .with_hint("write the option as -o KEY=VALUE, e.g. -o max-tries=5")),
     }
 }
 
@@ -101,16 +102,20 @@ fn collect_inputs(args: &AddArgs) -> Result<Vec<String>, CliError> {
         }
     }
     if let Some(file) = &args.input_file {
-        let text = std::fs::read_to_string(file)
-            .map_err(|e| CliError::invalid(format!("cannot read {file}: {e}")))?;
+        let text = std::fs::read_to_string(file).map_err(|e| {
+            CliError::invalid(format!("cannot read {file}: {e}"))
+                .with_hint("check the path of the -i/--input-file list")
+        })?;
         out.extend(parse_lines(&text));
     }
     Ok(out)
 }
 
 fn read_file_source(path: &str, kind: &Kind) -> Result<AddSource, CliError> {
-    let bytes =
-        std::fs::read(path).map_err(|e| CliError::invalid(format!("cannot read {path}: {e}")))?;
+    let bytes = std::fs::read(path).map_err(|e| {
+        CliError::invalid(format!("cannot read {path}: {e}"))
+            .with_hint("check that the file exists and is readable")
+    })?;
     let name = Path::new(path)
         .file_name()
         .map_or_else(|| path.to_owned(), |n| n.to_string_lossy().into_owned());
@@ -215,9 +220,11 @@ fn build_sources(inputs: &[String], mirror: bool, video: &VideoArgs) -> Result<B
             continue;
         }
         if mode == VideoMode::Always && kind == Kind::Uri {
-            return Err(CliError::invalid(format!(
-                "--video needs http(s) URLs, got '{input}'"
-            )));
+            return Err(
+                CliError::invalid(format!("--video needs http(s) URLs, got '{input}'")).with_hint(
+                    "drop --video to download it with aria2, or give the page's http(s) URL",
+                ),
+            );
         }
         match kind {
             Kind::Uri if mirror => mirrors.push(input.clone()),
@@ -299,20 +306,21 @@ fn report(
 pub async fn run(ctx: &Ctx, args: &AddArgs) -> Result<i32, CliError> {
     let inputs = collect_inputs(args)?;
     if inputs.is_empty() {
-        return Err(CliError::invalid(
-            "nothing to add: give a URL, magnet, file or `-`",
-        ));
+        return Err(
+            CliError::invalid("nothing to add: give a URL, magnet, file or `-`")
+                .with_hint("e.g. `dman add https://example.org/file.iso`; see `dman add --help`"),
+        );
     }
     if args.video.any() && args.video.no_video {
-        return Err(CliError::invalid(
-            "video options cannot be combined with --no-video",
-        ));
+        return Err(
+            CliError::invalid("video options cannot be combined with --no-video")
+                .with_hint("drop --no-video, or drop the video options"),
+        );
     }
     let (sources, labels, detected) = build_sources(&inputs, args.mirror, &args.video)?;
     if args.video.any() && !sources.iter().any(|s| matches!(s, AddSource::Video { .. })) {
-        return Err(CliError::invalid(
-            "video options need a video URL (add --video to download a URL with yt-dlp)",
-        ));
+        return Err(CliError::invalid("video options need a video URL")
+            .with_hint("add --video to download the URL with yt-dlp"));
     }
     for d in &detected {
         eprintln!("detected video URL {d}; use --no-video to download the page itself");
@@ -428,6 +436,110 @@ async fn choose_qualities(client: &Client, params: &mut AddParams) -> Result<(),
     Ok(())
 }
 
+/// The video options `dman probe --plan` was given (unset = the saved defaults).
+pub fn plan_options(
+    a: &crate::cli::PlanArgs,
+    playlist: bool,
+    cookies_from_browser: Option<String>,
+) -> VideoOptions {
+    video_options(&VideoArgs {
+        quality: a.quality.clone(),
+        format_id: a.format_id.clone(),
+        container: a.container.clone(),
+        playlist,
+        playlist_items: a.playlist_items.clone(),
+        subs: a.subs.clone(),
+        embed_subs: a.embed_subs,
+        auto_subs: a.auto_subs,
+        thumbnail: a.thumbnail,
+        no_metadata: a.no_metadata,
+        sponsorblock_remove: a.sponsorblock_remove.clone(),
+        cookies_from_browser,
+        allow_separate_streams: a.allow_separate_streams,
+        ..VideoArgs::default()
+    })
+}
+
+/// The human text of `dman probe --plan`.
+pub fn plan_text(p: &dman_proto::VideoDownloadPlan) -> String {
+    let source = match p.source.as_str() {
+        "defaults" => "saved defaults",
+        "format_id" => "--format-id",
+        "audio_only" => "audio only",
+        _ => "--quality",
+    };
+    let mut kv: Vec<(&str, String)> = vec![("url", p.url.clone())];
+    let format = match &p.quality {
+        Some(q) => format!("{q} ({source})"),
+        None => format!("exact format id ({source})"),
+    };
+    kv.push(("format", format));
+    kv.push(("selector", p.selector.clone()));
+    kv.push((
+        "ffmpeg",
+        if p.ffmpeg {
+            "available".into()
+        } else {
+            "missing (single-file formats only, nothing is merged or converted)".into()
+        },
+    ));
+    if let Some(c) = &p.container {
+        kv.push(("container", c.clone()));
+    }
+    if let Some(a) = &p.audio_extract {
+        kv.push(("audio", format!("converted to {a}")));
+    }
+    if p.playlist {
+        let items = p.playlist_items.as_deref().unwrap_or("all");
+        kv.push(("playlist", format!("yes (items: {items})")));
+    }
+    kv.push(("output", p.output_template.clone()));
+    kv.push((
+        "quality picker",
+        if p.asks_quality {
+            format!("would ask: {}", p.ask_reason)
+        } else {
+            format!("would not ask: {}", p.ask_reason)
+        },
+    ));
+    let mut out = crate::format::key_values(&kv);
+    out.push_str("\npost-processing:\n");
+    if p.post_processing.is_empty() {
+        out.push_str("  none\n");
+    }
+    for step in &p.post_processing {
+        out.push_str(&format!("  - {step}\n"));
+    }
+    if !p.skipped.is_empty() {
+        out.push_str("\nskipped (needs ffmpeg):\n");
+        for step in &p.skipped {
+            out.push_str(&format!("  - {step}\n"));
+        }
+    }
+    for n in &p.notes {
+        out.push_str(&format!("\nnote: {n}\n"));
+    }
+    out
+}
+
+/// `dman probe <url> --plan`: what a video download would use, without probing it.
+pub async fn plan(ctx: &Ctx, url: &str, options: &VideoOptions) -> Result<i32, CliError> {
+    let p = ctx
+        .connect()
+        .await?
+        .video_plan(dman_proto::VideoPlanParams {
+            url: url.to_owned(),
+            options: options.clone(),
+        })
+        .await?;
+    if ctx.json {
+        super::print_json(&p)?;
+    } else {
+        print!("{}", plan_text(&p));
+    }
+    Ok(0)
+}
+
 /// `dman probe <url>`: formats, subtitles, playlist entries and quality plans.
 pub async fn probe(
     ctx: &Ctx,
@@ -529,6 +641,64 @@ pub async fn preview(ctx: &Ctx, magnet: &str, timeout: Option<u32>) -> Result<i3
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn plan_options_carry_the_flags() {
+        let a = crate::cli::PlanArgs {
+            quality: Some("720p".into()),
+            container: Some("mkv".into()),
+            subs: vec!["en".into()],
+            thumbnail: true,
+            ..Default::default()
+        };
+        let o = plan_options(&a, true, Some("firefox".into()));
+        assert_eq!(o.quality.as_deref(), Some("720p"));
+        assert_eq!(o.container.as_deref(), Some("mkv"));
+        assert!(o.playlist && o.embed_thumbnail == Some(true));
+        assert_eq!(o.subtitles.unwrap().langs, ["en"]);
+        assert_eq!(o.cookies_from_browser.as_deref(), Some("firefox"));
+        assert_eq!(
+            plan_options(&Default::default(), false, None),
+            VideoOptions::default()
+        );
+    }
+
+    #[test]
+    fn plan_text_lists_selector_steps_and_fallback() {
+        let p = dman_proto::VideoDownloadPlan {
+            url: "https://e.com/v".into(),
+            source: "defaults".into(),
+            quality: Some("1080p".into()),
+            selector: "b[height<=1080]/b".into(),
+            ffmpeg: false,
+            output_template: "%(title)s.%(ext)s".into(),
+            post_processing: vec!["write subtitles (en) next to the video".into()],
+            skipped: vec!["merge into a mkv container: yt-dlp keeps its own container".into()],
+            asks_quality: true,
+            ask_reason: "in a terminal".into(),
+            notes: vec!["ffmpeg is missing: lower quality".into()],
+            ..Default::default()
+        };
+        let t = plan_text(&p);
+        assert!(
+            t.contains("format:") && t.contains("1080p (saved defaults)"),
+            "{t}"
+        );
+        assert!(
+            t.contains("selector:") && t.contains("b[height<=1080]/b"),
+            "{t}"
+        );
+        assert!(t.contains("ffmpeg:") && t.contains("missing"), "{t}");
+        assert!(t.contains("would ask: in a terminal"), "{t}");
+        assert!(t.contains("post-processing:\n  - write subtitles"), "{t}");
+        assert!(
+            t.contains("skipped (needs ffmpeg):\n  - merge into a mkv"),
+            "{t}"
+        );
+        assert!(t.contains("note: ffmpeg is missing"), "{t}");
+        let none = dman_proto::VideoDownloadPlan::default();
+        assert!(plan_text(&none).contains("post-processing:\n  none"));
+    }
 
     #[test]
     fn select_files() {

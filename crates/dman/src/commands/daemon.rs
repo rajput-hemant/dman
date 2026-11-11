@@ -114,7 +114,10 @@ fn spawn_daemon(ctx: &Ctx) -> Result<Child, CliError> {
         .stdout(out)
         .stderr(err)
         .spawn()
-        .map_err(|e| CliError::general(format!("cannot start daemon: {e}")))
+        .map_err(|e| {
+            CliError::general(format!("cannot start daemon: {e}"))
+                .with_hint("check that the dman binary is still installed and executable")
+        })
 }
 
 fn log_tail(ctx: &Ctx) -> String {
@@ -129,6 +132,7 @@ fn start_failure(ctx: &Ctx, reason: &str) -> CliError {
         ctx.paths.log_file().display(),
         log_tail(ctx)
     ))
+    .with_hint("fix what the log shows (`dman config path` finds the config), then run `dman daemon start`")
 }
 
 /// Spawn a detached daemon and poll until it accepts connections.
@@ -173,7 +177,11 @@ async fn stop(ctx: &Ctx) -> Result<i32, CliError> {
     let deadline = Instant::now() + WAIT_LIMIT;
     while ctx.connect().await.is_ok() {
         if Instant::now() >= deadline {
-            return Err(CliError::general("daemon did not stop within 15 s"));
+            return Err(
+                CliError::general("daemon did not stop within 15 s").with_hint(
+                    "check `dman daemon status`; see the log at `dman daemon status` if it hangs",
+                ),
+            );
         }
         tokio::time::sleep(POLL).await;
     }
@@ -182,7 +190,8 @@ async fn stop(ctx: &Ctx) -> Result<i32, CliError> {
     if ctx.is_local() {
         while lock_held(&ctx.paths.lock_file(&ctx.name)) {
             if Instant::now() >= deadline {
-                return Err(CliError::general("daemon did not stop within 15 s"));
+                return Err(CliError::general("daemon did not stop within 15 s")
+                .with_hint("check `dman daemon status`; see the log at `dman daemon status` if it hangs"));
             }
             tokio::time::sleep(POLL).await;
         }

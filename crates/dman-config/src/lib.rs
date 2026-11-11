@@ -8,6 +8,7 @@
 mod edit;
 mod error;
 mod fsutil;
+mod keys;
 mod notify;
 mod paths;
 mod redact;
@@ -24,6 +25,10 @@ mod web;
 
 pub use edit::ConfigDoc;
 pub use error::ConfigError;
+pub use keys::{
+    REDACTED, Value as TomlValue, config_keys, effective_value, lookup, redact_config, render_toml,
+    render_value, split_key, top_level_keys,
+};
 pub use notify::{Hook, Notify, NotifyEvent, Webhook};
 pub use paths::{ENV_CONFIG_DIR, Paths};
 pub use schedule::{ClockTime, DaySpec, ScheduleAction, ScheduleWindow, Weekday, validate_windows};

@@ -25,7 +25,8 @@ pub async fn run(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
     }
     let query = args.query.join(" ");
     if query.trim().is_empty() {
-        return Err(CliError::invalid("the query is empty"));
+        return Err(CliError::invalid("the query is empty")
+            .with_hint("give search words, e.g. `dman search ubuntu 24.04`"));
     }
     let client = ctx.connect().await?;
     // Subscribe before starting so no update of this search can be missed.
@@ -38,9 +39,8 @@ pub async fn run(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
         })
         .await?;
     if started.providers.is_empty() {
-        return Err(CliError::refused(
-            "no search provider is enabled; see `dman providers list` and `dman providers enable NAME`",
-        ));
+        return Err(CliError::refused("no search provider is enabled")
+            .with_hint("see `dman providers list`, then `dman providers enable NAME`"));
     }
     let id = started.search_id;
     let mut tick = tokio::time::interval(POLL);
@@ -55,7 +55,8 @@ pub async fn run(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
                 }
                 Ok(_) | Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => {
-                    return Err(CliError::unreachable("connection to the daemon was lost"));
+                    return Err(CliError::unreachable("connection to the daemon was lost")
+                        .with_hint("check `dman daemon status`, then repeat the search"));
                 }
             },
             _ = tick.tick() => {
@@ -86,13 +87,14 @@ pub async fn run(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
         }
     }
     if all_failed && snapshot.results.is_empty() {
-        return Err(CliError::general(
-            if ctx.json || snapshot.providers.len() > 1 {
+        return Err(
+            CliError::general(if ctx.json || snapshot.providers.len() > 1 {
                 "every provider failed".to_owned()
             } else {
                 format!("provider {} failed: {}", failed[0].0, failed[0].1)
-            },
-        ));
+            })
+            .with_hint("check a provider with `dman providers test NAME`"),
+        );
     }
 
     let shown = if args.limit == 0 {
@@ -245,7 +247,8 @@ async fn add_results(
             return Err(CliError::invalid(format!(
                 "no result number {n} (the search found {})",
                 snap.results.len()
-            )));
+            ))
+            .with_hint("pick a number from the results table"));
         }
     }
     let mut out: Vec<Option<Added>> = picks.iter().map(|_| None).collect();

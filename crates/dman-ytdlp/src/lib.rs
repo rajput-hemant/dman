@@ -21,7 +21,8 @@ mod run;
 mod tools;
 
 pub use args::{
-    DEFAULT_TEMPLATE, DownloadSpec, SponsorBlock, SubOpts, build_args, validate_extra_args,
+    DEFAULT_TEMPLATE, DownloadSpec, PostProcessing, SponsorBlock, SubOpts, build_args,
+    describe_postprocessing, validate_extra_args,
 };
 pub use choices::{Choice, ChoiceDefaults, ChoiceKind, Choices, Suggested, build_choices};
 pub use detect::is_probably_video_url;

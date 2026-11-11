@@ -147,6 +147,20 @@ pub fn profiles() -> ArgValueCandidates {
     ArgValueCandidates::new(|| profile_candidates(None))
 }
 
+/// Dotted keys of `dman config get|set|unset` (no daemon needed).
+pub fn config_keys() -> ArgValueCandidates {
+    ArgValueCandidates::new(|| {
+        let Ok(paths) = dman_config::Paths::discover() else {
+            return Vec::new();
+        };
+        let config = dman_config::Config::load(&paths).unwrap_or_default();
+        dman_config::config_keys(&config)
+            .into_iter()
+            .map(CompletionCandidate::new)
+            .collect()
+    })
+}
+
 /// Files that may be given to `dman add`: directories and torrent/metalink files.
 pub fn add_sources() -> clap_complete::engine::ArgValueCompleter {
     clap_complete::engine::ArgValueCompleter::new(PathCompleter::any().filter(|p| {
@@ -280,9 +294,10 @@ fn provider_candidates(
 /// through `$PATH`.
 pub fn registration_script(shell: &str) -> Result<Vec<u8>, CliError> {
     let shells = Shells::builtins();
-    let completer = shells
-        .completer(shell)
-        .ok_or_else(|| CliError::invalid(format!("unsupported shell '{shell}'")))?;
+    let completer = shells.completer(shell).ok_or_else(|| {
+        CliError::invalid(format!("unsupported shell '{shell}'"))
+            .with_hint("use bash, zsh, fish, elvish or powershell")
+    })?;
     let mut buf = Vec::new();
     completer.write_registration(ENV_VAR, "dman", "dman", "dman", &mut buf)?;
     Ok(buf)
@@ -305,7 +320,8 @@ pub fn run(args: &CompletionsArgs, json: bool) -> Result<i32, CliError> {
         (None, None) => Err(CliError::invalid(
             "specify a shell (bash, zsh, fish, elvish, powershell) to print its script, \
              or run `dman completions install`",
-        )),
+        )
+        .with_hint("e.g. `dman completions install`")),
     }
 }
 
@@ -337,9 +353,10 @@ impl InstallEnv {
     }
 
     fn home(&self) -> Result<&Path, CliError> {
-        self.home
-            .as_deref()
-            .ok_or_else(|| CliError::invalid("$HOME is not set; cannot choose where to install"))
+        self.home.as_deref().ok_or_else(|| {
+            CliError::invalid("$HOME is not set; cannot choose where to install")
+                .with_hint("set HOME, or print the script with `dman completions <shell>`")
+        })
     }
 
     /// Shell named by `$SHELL` (`/usr/bin/zsh` -> zsh).
@@ -411,7 +428,8 @@ pub fn install(
                 ),
                 None => "cannot detect your shell ($SHELL is not set); use --shell bash|zsh|fish"
                     .to_owned(),
-            }));
+            })
+            .with_hint("e.g. `dman completions install --shell bash`"));
         }
     };
     let path = match shell {
@@ -427,7 +445,8 @@ pub fn install(
                 "{} already exists with different content; not overwriting it \
                  (rerun with --force to replace it)",
                 path.display()
-            )));
+            ))
+            .with_hint("rerun with --force to replace it"));
         }
         Ok(_) => InstallAction::Replaced,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => InstallAction::Created,

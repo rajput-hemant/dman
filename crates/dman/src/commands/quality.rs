@@ -215,7 +215,8 @@ pub fn is_yes(answer: &str) -> bool {
 fn read_line(input: &mut impl BufRead) -> Result<String, CliError> {
     let mut line = String::new();
     if input.read_line(&mut line)? == 0 {
-        return Err(CliError::refused("aborted (no answer)"));
+        return Err(CliError::refused("aborted (no answer)")
+            .with_hint("answer in a terminal, or pass --quality / --yes to skip the picker"));
     }
     Ok(line.trim().to_owned())
 }
@@ -326,7 +327,10 @@ pub fn run_picker(
     } else {
         None
     };
-    let picked = pick(video, audio).map_err(CliError::invalid)?;
+    let picked = pick(video, audio).map_err(|e| {
+        CliError::invalid(e)
+            .with_hint("answer with a number from the list, or press Enter for the suggestion")
+    })?;
     write!(out, "Use as default? [y/N] ")?;
     out.flush()?;
     let use_default = is_yes(&read_line(input)?);
@@ -372,10 +376,14 @@ pub fn prefs_args_update(a: &PrefsArgs) -> Result<VideoPreferencesUpdate, CliErr
         if allowed.contains(&v) {
             Ok(v.to_owned())
         } else {
+            let close = crate::suggest::closest(v, allowed.iter().copied(), 2);
+            let hint = crate::suggest::did_you_mean(&close)
+                .unwrap_or_else(|| format!("use one of {}", allowed.join(", ")));
             Err(CliError::invalid(format!(
                 "invalid {what} '{v}': use one of {}",
                 allowed.join(", ")
-            )))
+            ))
+            .with_hint(hint))
         }
     };
     Ok(VideoPreferencesUpdate {

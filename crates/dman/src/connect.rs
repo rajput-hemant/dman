@@ -2,7 +2,7 @@
 
 use dman_client::{Client, ClientError, TlsOptions};
 use dman_config::expand_tilde;
-use dman_config::{Config, DaemonTarget, Paths, Profile, Secrets};
+use dman_config::{Config, ConfigError, DaemonTarget, Paths, Profile, Secrets};
 use secrecy::SecretString;
 use url::Url;
 
@@ -34,9 +34,12 @@ impl Ctx {
         let paths = Paths::discover()?;
         let config = Config::load(&paths)?;
         config.validate()?;
-        let (name, profile) = {
-            let (n, p) = config.profile(profile)?;
-            (n.to_owned(), p.clone())
+        let (name, profile) = match config.profile(profile) {
+            Ok((n, p)) => (n.to_owned(), p.clone()),
+            Err(ConfigError::UnknownProfile(bad)) => {
+                return Err(unknown_profile(&bad, &config));
+            }
+            Err(e) => return Err(e.into()),
         };
         Ok(Self {
             paths,
@@ -59,7 +62,8 @@ impl Ctx {
             Err(CliError::invalid(format!(
                 "{what} only works for local profiles (profile '{}' is remote)",
                 self.name
-            )))
+            ))
+            .with_hint("pick a local profile with --profile NAME, or run it on the remote host"))
         }
     }
 
@@ -88,6 +92,7 @@ impl Ctx {
                             dman_proto::ErrorCode::Unauthorized,
                             format!("secret '{secret_ref}' missing in secrets.toml"),
                         )
+                        .with_hint("start the daemon once (`dman daemon start`) to generate it")
                     })?
                 };
                 Ok((url, token))
@@ -104,6 +109,10 @@ impl Ctx {
                         dman_proto::ErrorCode::Unauthorized,
                         format!("secret '{secret_ref}' missing in secrets.toml"),
                     )
+                    .with_hint(format!(
+                        "add `{secret_ref} = \"<token of the remote daemon>\"` under [secrets] in {}",
+                        self.paths.secrets_file().display()
+                    ))
                 })?;
                 Ok((url, token))
             }
@@ -152,10 +161,15 @@ impl Ctx {
         match e {
             ClientError::Connect(detail) if self.is_local() => {
                 tracing::debug!("connect failed: {detail}");
-                CliError::unreachable("daemon not running (start it with `dman daemon start`)")
+                CliError::unreachable("daemon not running").with_hint("run `dman daemon start`")
             }
             ClientError::Connect(detail) => {
                 CliError::unreachable(format!("cannot connect to daemon at {url}: {detail}"))
+                    .with_hint(format!(
+                        "check the URL of profile '{}' (`dman config get profiles.{}.daemon.url`) \
+                         and that the remote daemon is running",
+                        self.name, self.name
+                    ))
             }
             other => other.into(),
         }
@@ -163,7 +177,21 @@ impl Ctx {
 }
 
 fn parse_url(s: &str) -> Result<Url, CliError> {
-    Url::parse(s).map_err(|e| CliError::invalid(format!("invalid daemon URL '{s}': {e}")))
+    Url::parse(s).map_err(|e| {
+        CliError::invalid(format!("invalid daemon URL '{s}': {e}"))
+            .with_hint("fix the profile's URL with `dman config edit`, e.g. wss://host:6810")
+    })
+}
+
+/// The error for a profile name that is not in the config, with the profiles
+/// that exist and the closest spelling.
+fn unknown_profile(bad: &str, config: &Config) -> CliError {
+    let names: Vec<&str> = config.profiles.keys().map(String::as_str).collect();
+    let close = crate::suggest::closest(bad, names.iter().copied(), 3);
+    let hint = crate::suggest::did_you_mean(&close)
+        .map(|d| format!("{d} Profiles: {}", names.join(", ")))
+        .unwrap_or_else(|| format!("profiles in config.toml: {}", names.join(", ")));
+    CliError::invalid(format!("unknown profile `{bad}`")).with_hint(hint)
 }
 
 #[cfg(test)]
@@ -219,6 +247,19 @@ mod tests {
         }
         let (url, _) = c.endpoint().unwrap();
         assert_eq!(url.as_str(), "wss://nas.example:6810/api/v1/ws");
+    }
+
+    #[test]
+    fn unknown_profile_suggests_names() {
+        let mut config = Config::default();
+        config.profiles.insert("work".into(), Profile::default());
+        let e = unknown_profile("wrok", &config);
+        assert_eq!(e.exit, 2);
+        let hint = e.hint.unwrap();
+        assert!(hint.contains("did you mean `work`?"), "{hint}");
+        assert!(hint.contains("local"), "{hint}");
+        let e = unknown_profile("zzzzzz", &config);
+        assert!(e.hint.unwrap().starts_with("profiles in config.toml"));
     }
 
     #[test]

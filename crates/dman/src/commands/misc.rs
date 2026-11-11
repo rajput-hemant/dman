@@ -1,9 +1,9 @@
-//! limit, max-concurrent, stats, schedule and config reload.
+//! limit, max-concurrent, stats and schedule.
 
 use dman_proto::method::LimitsUpdate;
 
 use super::print_json;
-use crate::cli::{ConfigCmd, LimitArgs};
+use crate::cli::LimitArgs;
 use crate::connect::Ctx;
 use crate::error::CliError;
 use crate::format;
@@ -117,18 +117,4 @@ pub async fn schedule(ctx: &Ctx) -> Result<i32, CliError> {
         print!("{}", format::schedule_text(&s, now_secs()));
     }
     Ok(0)
-}
-
-pub async fn config(ctx: &Ctx, cmd: &ConfigCmd) -> Result<i32, CliError> {
-    match cmd {
-        ConfigCmd::Reload => {
-            let r = ctx.connect().await?.config_reload().await?;
-            if ctx.json {
-                print_json(&r)?;
-            } else {
-                print!("{}", format::reload_text(&r));
-            }
-            Ok(0)
-        }
-    }
 }

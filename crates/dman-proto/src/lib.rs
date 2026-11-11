@@ -15,8 +15,9 @@ pub mod video;
 pub use error::{ErrorCode, RpcError};
 pub use job::*;
 pub use video::{
-    QualityChoice, QualityChoiceKind, QualityChoiceRef, VideoOptions, VideoPreferences,
-    VideoPreferencesUpdate, VideoProbe, VideoProbeParams, VideoSubtitles,
+    QualityChoice, QualityChoiceKind, QualityChoiceRef, VideoDownloadPlan, VideoOptions,
+    VideoPlanParams, VideoPreferences, VideoPreferencesUpdate, VideoProbe, VideoProbeParams,
+    VideoSubtitles,
 };
 
 /// Major version of the daemon API. Clients refuse to talk to a daemon with a

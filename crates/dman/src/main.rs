@@ -6,6 +6,7 @@ mod completion;
 mod connect;
 mod error;
 mod format;
+mod suggest;
 
 use clap::FromArgMatches as _;
 use cli::{Cli, Command, DaemonCmd};
@@ -34,10 +35,16 @@ fn report(err: &CliError, json: bool) {
     }
     if json {
         let code = serde_json::to_value(err.code).unwrap_or_default();
-        let body = serde_json::json!({ "error": { "code": code, "message": err.message } });
+        let mut body = serde_json::json!({ "error": { "code": code, "message": err.message } });
+        if let (Some(hint), Some(obj)) = (&err.hint, body["error"].as_object_mut()) {
+            obj.insert("hint".into(), hint.clone().into());
+        }
         eprintln!("{body}");
     } else {
         eprintln!("dman: {}", err.message);
+        if let Some(hint) = &err.hint {
+            eprintln!("hint: {hint}");
+        }
     }
 }
 

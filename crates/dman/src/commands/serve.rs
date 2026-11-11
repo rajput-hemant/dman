@@ -26,7 +26,9 @@ pub async fn run(ctx: &Ctx, args: &ServeArgs) -> Result<i32, CliError> {
         web.base_path.clone_from(b);
     }
     web.enabled = true;
-    web.validate().map_err(CliError::invalid)?;
+    web.validate().map_err(|e| {
+        CliError::invalid(e).with_hint("see the accepted values with `dman serve --help`")
+    })?;
     if ctx.is_local() {
         ensure_token(ctx, &web)?;
     }

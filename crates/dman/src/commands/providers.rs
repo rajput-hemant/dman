@@ -15,8 +15,10 @@ fn read_source(file: &str) -> Result<String, CliError> {
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut t)?;
         Ok(t)
     } else {
-        std::fs::read_to_string(file)
-            .map_err(|e| CliError::invalid(format!("cannot read {file}: {e}")))
+        std::fs::read_to_string(file).map_err(|e| {
+            CliError::invalid(format!("cannot read {file}: {e}"))
+                .with_hint("check the path, or pass `-` to read from stdin")
+        })
     }
 }
 

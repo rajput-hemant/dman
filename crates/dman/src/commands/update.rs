@@ -222,11 +222,16 @@ async fn get_bytes(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, CliEr
         .send()
         .await
         .and_then(reqwest::Response::error_for_status)
-        .map_err(|e| CliError::general(format!("download of {url} failed: {e}")))?;
+        .map_err(|e| download_failed(url, &e))?;
     resp.bytes()
         .await
         .map(|b| b.to_vec())
-        .map_err(|e| CliError::general(format!("download of {url} failed: {e}")))
+        .map_err(|e| download_failed(url, &e))
+}
+
+fn download_failed(url: &str, e: &reqwest::Error) -> CliError {
+    CliError::general(format!("download of {url} failed: {e}"))
+        .with_hint("check your network connection and retry `dman update`")
 }
 
 async fn fetch_release(client: &reqwest::Client, api: &str) -> Result<Release, CliError> {
@@ -316,9 +321,10 @@ fn extract_binary(archive: &Path, dest: &Path) -> Result<PathBuf, CliError> {
         .status()
         .map_err(|e| CliError::general(format!("cannot run tar: {e}")))?;
     if !status.success() {
-        return Err(CliError::general(
-            "tar could not unpack the release archive",
-        ));
+        return Err(
+            CliError::general("tar could not unpack the release archive")
+                .with_hint("retry `dman update`, or reinstall from the releases page"),
+        );
     }
     let mut dirs = vec![dest.to_path_buf()];
     for _ in 0..2 {
@@ -335,9 +341,10 @@ fn extract_binary(archive: &Path, dest: &Path) -> Result<PathBuf, CliError> {
         }
         dirs = next;
     }
-    Err(CliError::general(
-        "the release archive does not contain a dman binary",
-    ))
+    Err(
+        CliError::general("the release archive does not contain a dman binary")
+            .with_hint("reinstall from the releases page"),
+    )
 }
 
 /// Download, verify and install `release` over `exe`.
@@ -351,6 +358,7 @@ async fn install_release(
     let find = |n: &str| release.assets.iter().find(|a| a.name == n);
     let archive = find(&name).ok_or_else(|| {
         CliError::general(format!("release {} has no asset {name}", release.tag_name))
+            .with_hint("build from source instead: `cargo install dman`")
     })?;
     let sum_name = format!("{name}.sha256");
     let sum = find(&sum_name).ok_or_else(|| {
@@ -362,7 +370,9 @@ async fn install_release(
     let data = get_bytes(client, &archive.browser_download_url).await?;
     let sum_text = String::from_utf8(get_bytes(client, &sum.browser_download_url).await?)
         .map_err(|_| CliError::general("checksum file is not text"))?;
-    verify_checksum(&data, &sum_text, &name).map_err(CliError::general)?;
+    verify_checksum(&data, &sum_text, &name).map_err(|e| {
+        CliError::general(e).with_hint("nothing was installed; retry `dman update`")
+    })?;
 
     let tmp = tempfile::tempdir_in(exe.parent().unwrap_or(Path::new(".")))
         .or_else(|_| tempfile::tempdir())
@@ -377,6 +387,7 @@ async fn install_release(
             "cannot replace {} (permissions?): {e}",
             exe.display()
         ))
+        .with_hint("run `dman update` as a user who may write to that directory")
     })
 }
 
@@ -397,7 +408,10 @@ fn run_command(program: &Path, args: &[&str]) -> Result<bool, CliError> {
         .args(args)
         .status()
         .map(|s| s.success())
-        .map_err(|e| CliError::general(format!("cannot run {}: {e}", program.display())))
+        .map_err(|e| {
+            CliError::general(format!("cannot run {}: {e}", program.display()))
+                .with_hint("make sure it is installed and on your PATH")
+        })
 }
 
 /// `dman update [--check] [--yes]`.
@@ -462,7 +476,8 @@ pub async fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<i32, CliError> {
             if args.yes || confirm("run `brew upgrade dman` now?") {
                 let ok = run_command(Path::new("brew"), &["upgrade", "dman"])?;
                 if !ok {
-                    return Err(CliError::general("`brew upgrade dman` failed"));
+                    return Err(CliError::general("`brew upgrade dman` failed")
+                        .with_hint("run `brew update` and try `brew upgrade dman` yourself"));
                 }
                 return done(true);
             }
@@ -474,12 +489,14 @@ pub async fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<i32, CliError> {
             done(false)
         }
         InstallMethod::System | InstallMethod::Unknown => Err(CliError::refused(format!(
-            "dman was installed via {}, so it will not replace itself; run: {command}",
+            "dman was installed via {}, so it will not replace itself",
             method.label()
-        ))),
+        ))
+        .with_hint(format!("run: {command}"))),
         InstallMethod::Installer => {
             let (Some(target), Some(exe)) = (target_triple(), exe) else {
-                return Err(CliError::refused("no release build for this platform"));
+                return Err(CliError::refused("no release build for this platform")
+                    .with_hint("build from source: `cargo install dman`"));
             };
             install_release(&client, &release, target, &exe).await?;
             say(format!("updated to {latest}"));

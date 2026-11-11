@@ -7,8 +7,8 @@ use std::sync::Arc;
 use dman_config::Paths;
 use dman_proto::method::EngineStatus;
 use dman_proto::{
-    Engine, ErrorCode, RpcError, VideoPreferences, VideoPreferencesUpdate, VideoProbe,
-    VideoProbeParams,
+    Engine, ErrorCode, RpcError, VideoDownloadPlan, VideoPlanParams, VideoPreferences,
+    VideoPreferencesUpdate, VideoProbe, VideoProbeParams,
 };
 use dman_ytdlp::Tools;
 use tokio::sync::watch;
@@ -39,6 +39,10 @@ impl VideoService {
     pub(crate) fn apply_config(&self, _cfg: &dman_config::Video) {}
 
     pub fn preferences(&self) -> Result<VideoPreferences, RpcError> {
+        Err(unavailable())
+    }
+
+    pub fn plan(&self, _p: VideoPlanParams) -> Result<VideoDownloadPlan, RpcError> {
         Err(unavailable())
     }
 

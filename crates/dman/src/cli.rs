@@ -163,16 +163,31 @@ Examples:
         #[command(subcommand)]
         cmd: VideoCmd,
     },
-    /// Show the formats, subtitles and quality plans of a video URL (yt-dlp).
+    /// Show the formats, subtitles and quality plans of a video URL (yt-dlp), or with
+    /// --plan what `dman add` would do.
+    #[command(after_help = "\
+Examples:
+  dman probe https://youtu.be/ID                 formats, subtitles and quality plans
+  dman probe https://youtu.be/ID --json          the same as stable JSON
+  dman probe https://youtu.be/ID --plan          the yt-dlp selector and post-processing add would use
+  dman probe https://youtu.be/ID --plan --quality 720p --container mkv --subs en")]
     Probe {
         /// Video page or stream URL.
         url: String,
-        /// List the playlist entries instead of probing one video.
+        /// List the playlist entries instead of probing one video (with --plan: plan the
+        /// whole playlist).
         #[arg(long)]
         playlist: bool,
         /// Read cookies from this browser (firefox, chrome, ...).
         #[arg(long, value_name = "BROWSER", add = comp::browser())]
         cookies_from_browser: Option<String>,
+        /// Print what `dman add` would do for the saved preferences and the flags below:
+        /// the exact yt-dlp format selector, the post-processing, the ffmpeg fallback and
+        /// whether the quality picker would ask. Nothing is probed or downloaded.
+        #[arg(long)]
+        plan: bool,
+        #[command(flatten)]
+        plan_args: PlanArgs,
     },
     /// Show the files of a magnet link without downloading it.
     Preview {
@@ -515,6 +530,45 @@ pub struct AddArgs {
     pub video: VideoArgs,
 }
 
+/// The `dman add` video flags that change a plan (`dman probe --plan`).
+#[derive(Args, Debug, Default)]
+#[command(next_help_heading = "With --plan")]
+pub struct PlanArgs {
+    /// Quality: best, 2160p, 1440p, 1080p, 720p, 480p, audio:m4a|mp3|opus, or a yt-dlp selector.
+    #[arg(long, value_name = "Q", requires = "plan", add = comp::quality())]
+    pub quality: Option<String>,
+    /// Exact format id(s) from `dman probe`, e.g. 137+140.
+    #[arg(long, value_name = "ID", requires = "plan")]
+    pub format_id: Option<String>,
+    /// Container for merged video: mp4, mkv or webm.
+    #[arg(long, value_name = "C", requires = "plan", add = comp::container())]
+    pub container: Option<String>,
+    /// Playlist items, e.g. 1-3,7.
+    #[arg(long, value_name = "LIST", requires = "plan")]
+    pub playlist_items: Option<String>,
+    /// Subtitle languages, e.g. en,de.
+    #[arg(long, value_name = "LANGS", value_delimiter = ',', requires = "plan")]
+    pub subs: Vec<String>,
+    /// Embed the subtitles into the video (needs ffmpeg).
+    #[arg(long, requires = "plan")]
+    pub embed_subs: bool,
+    /// Also fetch automatic captions.
+    #[arg(long, requires = "plan")]
+    pub auto_subs: bool,
+    /// Embed the thumbnail (needs ffmpeg).
+    #[arg(long, requires = "plan")]
+    pub thumbnail: bool,
+    /// Do not embed metadata.
+    #[arg(long, requires = "plan")]
+    pub no_metadata: bool,
+    /// Cut SponsorBlock segments, e.g. sponsor,intro (needs ffmpeg).
+    #[arg(long, value_name = "CATS", value_delimiter = ',', requires = "plan", add = comp::sponsorblock())]
+    pub sponsorblock_remove: Vec<String>,
+    /// Without ffmpeg, accept video and audio as separate files instead of a lower quality.
+    #[arg(long, requires = "plan")]
+    pub allow_separate_streams: bool,
+}
+
 /// Video options of `dman add` (yt-dlp engine).
 #[derive(Args, Debug, Default)]
 #[command(next_help_heading = "Video (yt-dlp)")]
@@ -696,6 +750,73 @@ pub enum ConfigCmd {
     /// Re-read config.toml in the running daemon and apply what can change live
     /// (limits, schedule, notifications, search, torrents, video defaults).
     Reload,
+    /// Print one setting (or a whole section) of the effective configuration.
+    #[command(after_help = "\
+Examples:
+  dman config get limits.download
+  dman config get search          a whole section, as TOML
+  dman config get --json ui.theme
+
+Secrets (tokens, passwords, proxy credentials, webhook URLs) are shown as <redacted>.")]
+    Get {
+        /// Dotted key such as `limits.download` or `search.dns`.
+        #[arg(value_name = "KEY", add = comp::config_keys())]
+        key: String,
+    },
+    /// Change one setting in config.toml (comments and layout are kept).
+    #[command(after_help = "\
+Examples:
+  dman config set limits.download 5MiB
+  dman config set ui.mouse true
+  dman config set profiles.local.download_dir ~/Downloads/dman
+  dman config set search.dns doh:cloudflare --no-reload
+
+The whole file is checked before it is saved; a bad value leaves it untouched. A running
+daemon is reloaded afterwards and told which settings need `dman daemon restart`.")]
+    Set {
+        /// Dotted key such as `limits.download`.
+        #[arg(value_name = "KEY", add = comp::config_keys())]
+        key: String,
+        /// New value: a number, true/false, a list like ["a","b"], or text.
+        #[arg(value_name = "VALUE", allow_hyphen_values = true)]
+        value: String,
+        /// Only write the file; do not reload the daemon.
+        #[arg(long)]
+        no_reload: bool,
+    },
+    /// Remove a setting from config.toml so its default applies again.
+    #[command(after_help = "\
+Examples:
+  dman config unset limits.download")]
+    Unset {
+        /// Dotted key such as `limits.download`.
+        #[arg(value_name = "KEY", add = comp::config_keys())]
+        key: String,
+        /// Only write the file; do not reload the daemon.
+        #[arg(long)]
+        no_reload: bool,
+    },
+    /// Edit config.toml in $VISUAL / $EDITOR; it is checked before it replaces the file.
+    #[command(after_help = "\
+Examples:
+  dman config edit
+  EDITOR='code -w' dman config edit
+
+The editor works on a copy. If the result is not a valid configuration you are asked
+whether to open the editor again; declining discards the edit and keeps the file.")]
+    Edit {
+        /// Only write the file; do not reload the daemon.
+        #[arg(long)]
+        no_reload: bool,
+    },
+    /// Print the path of config.toml.
+    Path,
+    /// Print the effective configuration (file plus defaults) with secrets redacted.
+    #[command(after_help = "\
+Examples:
+  dman config show
+  dman config show --json")]
+    Show,
 }
 
 #[derive(Subcommand, Debug)]
@@ -805,6 +926,23 @@ mod tests {
             Some(Command::Search(a)) => *a,
             other => panic!("not a search: {other:?}"),
         }
+    }
+
+    #[test]
+    fn probe_plan_flags_need_plan() {
+        match parse(&["probe", "https://e.com/v", "--plan", "--quality", "720p"])
+            .unwrap()
+            .command
+        {
+            Some(Command::Probe {
+                plan: true,
+                plan_args,
+                ..
+            }) => assert_eq!(plan_args.quality.as_deref(), Some("720p")),
+            other => panic!("not a plan: {other:?}"),
+        }
+        assert!(parse(&["probe", "https://e.com/v", "--quality", "720p"]).is_err());
+        assert!(parse(&["probe", "https://e.com/v", "--playlist"]).is_ok());
     }
 
     #[test]

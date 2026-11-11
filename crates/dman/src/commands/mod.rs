@@ -1,8 +1,10 @@
 //! Command implementations. Each returns the process exit code on success.
 
 pub mod add;
+pub mod config;
 pub mod control;
 pub mod daemon;
+pub mod hints;
 pub mod list;
 pub mod misc;
 pub mod progress;
@@ -35,9 +37,8 @@ pub fn say(ctx: &Ctx, human: &str, status: &str) -> Result<(), CliError> {
 
 /// The error for a command whose feature was compiled out of this build.
 fn missing(what: &str, feature: &str) -> CliError {
-    CliError::refused(format!(
-        "this build of dman has no {what}; rebuild with --features {feature}"
-    ))
+    CliError::refused(format!("this build of dman has no {what}"))
+        .with_hint(format!("rebuild with --features {feature}"))
 }
 
 /// Prompts are shown only when both ends are a terminal (stdin to answer, stderr
@@ -47,8 +48,17 @@ pub fn can_prompt() -> bool {
     std::io::stdin().is_terminal() && std::io::stderr().is_terminal()
 }
 
-/// Run the selected command and return the process exit code.
+/// Run the selected command and return the process exit code. A "not found" failure
+/// gets did-you-mean suggestions from what the daemon actually has.
 pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
+    let (profile, json) = (cli.profile.clone(), cli.json);
+    match dispatch_command(cli).await {
+        Err(e) => Err(hints::enrich(profile.as_deref(), json, e).await),
+        ok => ok,
+    }
+}
+
+async fn dispatch_command(cli: Cli) -> Result<i32, CliError> {
     let Some(command) = cli.command.as_ref() else {
         let ctx = Ctx::load(&cli)?;
         let code = daemon::bare(&ctx).await?;
@@ -89,7 +99,7 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
             control::rename(&Ctx::load(&cli)?, *id, name, *file).await
         }
         Command::Cleanup { id, yes } => control::cleanup(&Ctx::load(&cli)?, *id, *yes).await,
-        Command::Config { cmd } => misc::config(&Ctx::load(&cli)?, cmd).await,
+        Command::Config { cmd } => config::run(&cli, cmd).await,
         Command::Video { cmd } => match cmd {
             crate::cli::VideoCmd::Prefs(a) => quality::prefs(&Ctx::load(&cli)?, a).await,
         },
@@ -97,6 +107,21 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
             url,
             playlist,
             cookies_from_browser,
+            plan: true,
+            plan_args,
+        } => {
+            add::plan(
+                &Ctx::load(&cli)?,
+                url,
+                &add::plan_options(plan_args, *playlist, cookies_from_browser.clone()),
+            )
+            .await
+        }
+        Command::Probe {
+            url,
+            playlist,
+            cookies_from_browser,
+            ..
         } => {
             add::probe(
                 &Ctx::load(&cli)?,

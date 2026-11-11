@@ -398,6 +398,15 @@ macro_rules! typed_api {
                 .await
         }
 
+        /// `video.plan`: the format selector and post-processing a video download with
+        /// these options would use now (nothing is probed).
+        pub async fn video_plan(
+            &self,
+            params: dman_proto::VideoPlanParams,
+        ) -> Result<dman_proto::VideoDownloadPlan, ClientError> {
+            self.call(method::VIDEO_PLAN, params).await
+        }
+
         /// `video.preferences.get`: the quality-picker defaults (`[video]`).
         pub async fn video_preferences(&self) -> Result<dman_proto::VideoPreferences, ClientError> {
             self.call(method::VIDEO_PREFERENCES_GET, ()).await

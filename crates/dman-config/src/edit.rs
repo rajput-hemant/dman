@@ -64,6 +64,41 @@ impl ConfigDoc {
         Ok(())
     }
 
+    /// Set `path` to the value written as `raw` on a command line. `raw` is read as a TOML
+    /// value when it is one (`true`, `5`, `["a", "b"]`) and as plain text otherwise
+    /// (`5MiB`, `~/Downloads`); when the typed reading makes an invalid configuration the
+    /// plain-text reading is tried too (`title 5`). Nothing changes unless the whole
+    /// document is a valid configuration afterwards, which is returned.
+    pub fn set_checked(&mut self, path: &[&str], raw: &str) -> Result<crate::Config, ConfigError> {
+        let mut candidates: Vec<Value> = Vec::new();
+        if let Ok(v) = raw.trim().parse::<Value>() {
+            candidates.push(v);
+        }
+        candidates.push(Value::from(raw));
+        let mut first_error = None;
+        for value in candidates {
+            let mut trial = self.clone();
+            trial.set(path, value)?;
+            match trial.validate() {
+                Ok(cfg) => {
+                    *self = trial;
+                    return Ok(cfg);
+                }
+                Err(e) => {
+                    first_error.get_or_insert(e);
+                }
+            }
+        }
+        Err(first_error.unwrap_or_else(|| ConfigError::BadPath(path.join("."))))
+    }
+
+    /// Parse the document as a complete configuration and check it.
+    pub fn validate(&self) -> Result<crate::Config, ConfigError> {
+        let cfg = crate::Config::from_toml_str(&self.doc.to_string(), &self.path)?;
+        cfg.validate()?;
+        Ok(cfg)
+    }
+
     /// Remove the key at `path`; `true` if it existed. Other keys, comments
     /// and formatting are untouched.
     pub fn remove(&mut self, path: &[&str]) -> Result<bool, ConfigError> {
@@ -216,6 +251,29 @@ fn to_edit_table(t: &toml::Table) -> Result<Table, ConfigError> {
 mod tests {
     use super::*;
     use crate::Config;
+
+    #[test]
+    fn set_checked_validates_before_changing_anything() {
+        let text = "# top\n[limits]\ndownload = \"1MiB\" # cap\n";
+        let mut doc = ConfigDoc::parse(text, "c.toml").unwrap();
+        let cfg = doc.set_checked(&["limits", "download"], "5MiB").unwrap();
+        assert_eq!(cfg.limits.download.0, 5 << 20);
+        assert!(doc.to_string_lossy().contains("download = \"5MiB\" # cap"));
+        // Typed readings: bool and integer.
+        doc.set_checked(&["ui", "mouse"], "true").unwrap();
+        doc.set_checked(&["limits", "max_concurrent"], "7").unwrap();
+        let before = doc.to_string_lossy();
+        let err = doc
+            .set_checked(&["limits", "download"], "lots")
+            .unwrap_err();
+        assert!(matches!(err, ConfigError::Parse { .. }), "{err}");
+        assert!(doc.set_checked(&["limits", "dwonload"], "1").is_err());
+        assert!(doc.set_checked(&["ui", "mouse"], "maybe").is_err());
+        assert_eq!(doc.to_string_lossy(), before, "a bad value changes nothing");
+        // An integer for a string setting falls back to text.
+        doc.set_checked(&["web", "title"], "5").unwrap();
+        assert!(doc.to_string_lossy().contains("title = \"5\""));
+    }
 
     #[test]
     fn remove_drops_only_that_key() {

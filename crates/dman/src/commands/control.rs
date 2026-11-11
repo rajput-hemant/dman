@@ -10,7 +10,12 @@ use crate::cli::{PurgeArgs, RemoveArgs, ReorderArgs, RestoreArgs, TargetArgs};
 use crate::connect::Ctx;
 use crate::error::{CliError, batch_exit};
 
-fn report(ctx: &Ctx, verb: &str, res: &BatchResult) -> Result<i32, CliError> {
+async fn report(
+    ctx: &Ctx,
+    client: &dman_client::Client,
+    verb: &str,
+    res: &BatchResult,
+) -> Result<i32, CliError> {
     if ctx.json {
         print_json(res)?;
     } else {
@@ -21,6 +26,9 @@ fn report(ctx: &Ctx, verb: &str, res: &BatchResult) -> Result<i32, CliError> {
         for f in &res.failed {
             eprintln!("dman: failed {}: {}", f.id, f.error.message);
         }
+        if let Some(hint) = batch_hint(client, res).await {
+            eprintln!("hint: {hint}");
+        }
     }
     let first: Option<ErrorCode> = res.failed.first().map(|f| f.error.code);
     Ok(batch_exit(
@@ -28,6 +36,41 @@ fn report(ctx: &Ctx, verb: &str, res: &BatchResult) -> Result<i32, CliError> {
         res.failed.len(),
         first,
     ))
+}
+
+/// The next step for the failures of a batch: the hint of the first failure with
+/// one, plus did-you-mean ids when jobs were not found.
+async fn batch_hint(client: &dman_client::Client, res: &BatchResult) -> Option<String> {
+    let first = res
+        .failed
+        .iter()
+        .find_map(|f| crate::error::rpc_hint(&f.error))?;
+    let missing: Vec<String> = res
+        .failed
+        .iter()
+        .filter(|f| f.error.code == ErrorCode::NotFound)
+        .map(|f| f.id.to_string())
+        .collect();
+    if missing.is_empty() {
+        return Some(first);
+    }
+    let jobs = client
+        .list(dman_proto::method::ListParams::default())
+        .await
+        .ok()?;
+    let ids: Vec<String> = jobs.iter().map(|j| j.id.to_string()).collect();
+    let mut close: Vec<String> = Vec::new();
+    for m in &missing {
+        for c in crate::suggest::closest(m, ids.iter().map(String::as_str), 2) {
+            if !close.contains(&c) {
+                close.push(c);
+            }
+        }
+    }
+    Some(match crate::suggest::did_you_mean(&close) {
+        Some(d) => format!("{first} ({d})"),
+        None => first,
+    })
 }
 
 fn join_ids(ids: &[JobId]) -> String {
@@ -94,7 +137,7 @@ pub async fn pause(ctx: &Ctx, a: &TargetArgs) -> Result<i32, CliError> {
         say(ctx, "paused all", "paused_all")?;
         return Ok(0);
     }
-    report(ctx, "paused", &client.pause(&a.ids).await?)
+    report(ctx, &client, "paused", &client.pause(&a.ids).await?).await
 }
 
 pub async fn resume(ctx: &Ctx, a: &TargetArgs) -> Result<i32, CliError> {
@@ -104,7 +147,7 @@ pub async fn resume(ctx: &Ctx, a: &TargetArgs) -> Result<i32, CliError> {
         say(ctx, "resumed all", "resumed_all")?;
         return Ok(0);
     }
-    report(ctx, "resumed", &client.resume(&a.ids).await?)
+    report(ctx, &client, "resumed", &client.resume(&a.ids).await?).await
 }
 
 /// Ask a question on stderr and read one line from stdin.
@@ -126,9 +169,10 @@ fn confirm(question: &str, yes: bool) -> Result<(), CliError> {
         return Ok(());
     }
     if !can_prompt() {
-        return Err(CliError::refused(
-            "refusing destructive action without --yes",
-        ));
+        return Err(
+            CliError::refused("refusing destructive action without --yes")
+                .with_hint("rerun with --yes to confirm, or from a terminal to be asked"),
+        );
     }
     if !is_yes(&ask(&format!("{question} [y/N] "))?) {
         return Err(CliError::refused("aborted"));
@@ -148,13 +192,15 @@ pub async fn remove(ctx: &Ctx, a: &RemoveArgs) -> Result<i32, CliError> {
         delete_files: a.delete_files,
         force: a.force,
     };
-    let res = ctx.connect().await?.remove(params).await?;
-    report(ctx, "removed", &res)
+    let client = ctx.connect().await?;
+    let res = client.remove(params).await?;
+    report(ctx, &client, "removed", &res).await
 }
 
 pub async fn restore(ctx: &Ctx, a: &RestoreArgs) -> Result<i32, CliError> {
-    let res = ctx.connect().await?.restore(&a.ids).await?;
-    report(ctx, "restored", &res)
+    let client = ctx.connect().await?;
+    let res = client.restore(&a.ids).await?;
+    report(ctx, &client, "restored", &res).await
 }
 
 pub async fn purge(ctx: &Ctx, a: &PurgeArgs) -> Result<i32, CliError> {
@@ -182,12 +228,12 @@ pub async fn purge(ctx: &Ctx, a: &PurgeArgs) -> Result<i32, CliError> {
                 ok: Vec::new(),
                 failed: Vec::new(),
             };
-            return report(ctx, "purged", &none);
+            return report(ctx, &client, "purged", &none).await;
         }
         say(ctx, "nothing to purge", "nothing_to_purge")?;
         return Ok(0);
     }
-    report(ctx, "purged", &client.purge(&ids).await?)
+    report(ctx, &client, "purged", &client.purge(&ids).await?).await
 }
 
 fn reorder_target(a: &ReorderArgs) -> Reorder {

@@ -42,6 +42,7 @@ Exit codes:
   6    refused (needs --yes, disk full, not allowed here)
   7    engine unavailable (aria2 or yt-dlp missing or not running)
   8    partial failure (some items of a batch failed)
+  124  timed out (`dman wait --timeout`, `dman add --wait --timeout`)
   130  interrupted (Ctrl-C)";
 
 /// dman: a terminal-first download manager.
@@ -85,7 +86,8 @@ Examples:
   dman add -i urls.txt --max-download-limit 2MiB
   dman add --mirror https://a.example/f.zip https://b.example/f.zip
   dman add https://youtu.be/ID                     choose the quality (asks in a terminal)
-  dman add https://youtu.be/ID --quality 1080p --container mkv --subs en")]
+  dman add https://youtu.be/ID --quality 1080p --container mkv --subs en
+  dman add https://example.org/big.iso --wait    show progress, exit when it is done")]
     Add(Box<AddArgs>),
     /// List downloads.
     #[command(after_help = "\
@@ -93,13 +95,36 @@ Examples:
   dman list
   dman list --state active,seeding
   dman list --watch
+  dman list --sort speed --limit 5
+  dman list --name ubuntu --engine aria2 --columns id,name,progress
   dman list --json | jq '.[].name'")]
     List(ListArgs),
+    /// Wait until downloads finish (exit 0 if all completed).
+    #[command(after_help = "\
+Examples:
+  dman wait 12
+  dman wait 3 4 5 --timeout 30m
+  dman add https://example.org/big.iso --wait && ./next-step.sh
+
+A torrent counts as finished once it completes (seeding does not delay the
+exit). Exit codes: 0 all completed, 1 every job failed, 8 some failed,
+124 the timeout expired (jobs keep running), 130 Ctrl-C. Waiting never
+changes the jobs.")]
+    Wait(WaitArgs),
     /// Show details of one download.
+    #[command(after_help = "\
+Examples:
+  dman get 12
+  dman get 12 --files
+  dman get 12 --watch            live progress bar until the download ends")]
     Get {
         /// Job ID.
         #[arg(add = comp::job_ids_any())]
         id: JobId,
+        /// Redraw a progress bar (speed, ETA, peers) until the download ends; plain
+        /// lines every few seconds when stderr is not a terminal.
+        #[arg(long, short = 'w')]
+        watch: bool,
         /// Also list the files.
         #[arg(long)]
         files: bool,
@@ -193,7 +218,11 @@ Examples:
   dman search ubuntu 24.04
   dman search 'blade runner' --provider YTS --category movies
   dman search ubuntu --limit 5 --add 1,2   add the first two results
-  dman search --history")]
+  dman search ubuntu --no-prompt           never ask which to add (default in scripts)
+  dman search --history
+
+In a terminal (and without --add or --json) the results are followed by the
+question \"Add which?\"; answer with numbers such as 1,3 or 2-4, Enter skips.")]
     Search(Box<SearchArgs>),
     /// Manage search providers (enable, disable, test, import, export).
     Providers {
@@ -290,6 +319,9 @@ pub struct SearchArgs {
     /// Show at most this many results (0 = all).
     #[arg(long, value_name = "N", default_value_t = 20)]
     pub limit: usize,
+    /// Do not ask which results to add, even in a terminal.
+    #[arg(long)]
+    pub no_prompt: bool,
     /// Show the recent queries instead of searching.
     #[arg(long, conflicts_with_all = ["query", "add"])]
     pub history: bool,
@@ -472,6 +504,13 @@ pub struct AddArgs {
     /// Never ask: videos use the saved quality defaults (also implied by pipes and --json).
     #[arg(long, short = 'y')]
     pub yes: bool,
+    /// Wait until the added downloads finish, showing progress on stderr (exit 0
+    /// if all completed, 124 on --timeout).
+    #[arg(long, conflicts_with = "paused")]
+    pub wait: bool,
+    /// With --wait: give up after this long, e.g. 90s, 15m, 2h (jobs keep running).
+    #[arg(long, requires = "wait", value_name = "DURATION", value_parser = crate::commands::wait::parse_duration)]
+    pub timeout: Option<std::time::Duration>,
     #[command(flatten)]
     pub video: VideoArgs,
 }
@@ -590,9 +629,56 @@ pub struct ListArgs {
     /// Only these states (comma-separated).
     #[arg(long, value_enum, value_delimiter = ',')]
     pub state: Vec<StateArg>,
+    /// Only jobs whose name contains this text (case-insensitive).
+    #[arg(long, value_name = "TEXT")]
+    pub name: Option<String>,
+    /// Only jobs of this engine.
+    #[arg(long, value_enum, value_name = "ENGINE")]
+    pub engine: Option<EngineArg>,
+    /// Sort by this key (speed, size, progress, added: highest/newest first; eta:
+    /// soonest first; name: A-Z).
+    #[arg(long, value_enum, value_name = "KEY")]
+    pub sort: Option<SortKey>,
+    /// Reverse the sort order.
+    #[arg(long)]
+    pub reverse: bool,
+    /// Show at most this many jobs (after filtering and sorting).
+    #[arg(long, value_name = "N")]
+    pub limit: Option<usize>,
+    /// Columns of the table (comma-separated); ignored with --json.
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "LIST")]
+    pub columns: Vec<crate::format::Column>,
     /// Keep running and redraw on every update (Ctrl-C to stop).
     #[arg(long)]
     pub watch: bool,
+}
+
+/// Engine filter of `dman list`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum EngineArg {
+    Aria2,
+    Ytdlp,
+}
+
+/// Sort keys of `dman list`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum SortKey {
+    Speed,
+    Eta,
+    Size,
+    Added,
+    Name,
+    Progress,
+}
+
+#[derive(Args, Debug)]
+pub struct WaitArgs {
+    /// Job IDs to wait for.
+    #[arg(required = true, add = comp::job_ids_running())]
+    pub ids: Vec<JobId>,
+    /// Give up after this long, e.g. 90s, 15m, 2h, 1h30m (exit 124; jobs keep running).
+    #[arg(long, value_name = "DURATION", value_parser = crate::commands::wait::parse_duration)]
+    pub timeout: Option<std::time::Duration>,
 }
 
 #[derive(Args, Debug)]

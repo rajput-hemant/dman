@@ -87,50 +87,162 @@ fn rate_or_dash(v: u64) -> String {
     if v == 0 { "-".into() } else { speed(v) }
 }
 
-fn job_row(j: &Job) -> [String; 7] {
-    [
-        j.id.to_string(),
-        state(j.state).to_owned(),
-        progress(j),
-        rate_or_dash(j.download_speed),
-        rate_or_dash(j.upload_speed),
-        eta(j.eta_secs()),
-        if j.total_bytes == 0 {
-            "-".into()
-        } else {
-            size(j.total_bytes)
-        },
-    ]
+/// A column of the job table, selectable with `dman list --columns`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum Column {
+    Id,
+    State,
+    Progress,
+    Down,
+    Up,
+    Eta,
+    Size,
+    Name,
+    Engine,
+    Added,
+    Dir,
 }
 
-/// Render the job table (ID STATE PROGRESS DOWN UP ETA SIZE NAME) for a terminal
-/// of `width` columns; NAME is truncated to the remaining space.
-pub fn job_table(jobs: &[Job], width: usize) -> String {
-    const HEADERS: [&str; 7] = ["ID", "STATE", "PROGRESS", "DOWN", "UP", "ETA", "SIZE"];
-    let rows: Vec<[String; 7]> = jobs.iter().map(job_row).collect();
-    let mut widths = HEADERS.map(str::len);
-    for row in &rows {
+impl Column {
+    /// The columns shown when `--columns` is not given.
+    pub const DEFAULT: [Column; 8] = [
+        Column::Id,
+        Column::State,
+        Column::Progress,
+        Column::Down,
+        Column::Up,
+        Column::Eta,
+        Column::Size,
+        Column::Name,
+    ];
+
+    fn header(self) -> &'static str {
+        match self {
+            Column::Id => "ID",
+            Column::State => "STATE",
+            Column::Progress => "PROGRESS",
+            Column::Down => "DOWN",
+            Column::Up => "UP",
+            Column::Eta => "ETA",
+            Column::Size => "SIZE",
+            Column::Name => "NAME",
+            Column::Engine => "ENGINE",
+            Column::Added => "ADDED",
+            Column::Dir => "DIR",
+        }
+    }
+
+    /// Text columns are left-aligned, numbers right-aligned.
+    fn left_aligned(self) -> bool {
+        matches!(
+            self,
+            Column::State | Column::Name | Column::Engine | Column::Dir
+        )
+    }
+
+    fn cell(self, j: &Job) -> String {
+        match self {
+            Column::Id => j.id.to_string(),
+            Column::State => state(j.state).to_owned(),
+            Column::Progress => progress(j),
+            Column::Down => rate_or_dash(j.download_speed),
+            Column::Up => rate_or_dash(j.upload_speed),
+            Column::Eta => eta(j.eta_secs()),
+            Column::Size if j.total_bytes == 0 => "-".into(),
+            Column::Size => size(j.total_bytes),
+            Column::Name => j.name.clone(),
+            Column::Engine => format!("{:?}", j.engine).to_lowercase(),
+            Column::Added => local_time(j.added_at),
+            Column::Dir => j.dir.clone(),
+        }
+    }
+
+    fn is_long(self) -> bool {
+        matches!(self, Column::Name | Column::Dir)
+    }
+}
+
+/// Render the job table with the given columns (the default set when empty)
+/// for a terminal of `width` columns; NAME and DIR are truncated to the space
+/// the other columns leave.
+pub fn job_table_with(jobs: &[Job], width: usize, columns: &[Column]) -> String {
+    let columns = if columns.is_empty() {
+        &Column::DEFAULT[..]
+    } else {
+        columns
+    };
+    let mut rows: Vec<Vec<String>> = jobs
+        .iter()
+        .map(|j| columns.iter().map(|c| c.cell(j)).collect())
+        .collect();
+    let short: usize = columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| !c.is_long())
+        .map(|(i, c)| {
+            rows.iter()
+                .map(|r| r[i].chars().count())
+                .chain([c.header().len()])
+                .max()
+                .unwrap_or(0)
+                + COLUMN_GAP.len()
+        })
+        .sum();
+    let long_count = columns.iter().filter(|c| c.is_long()).count();
+    if long_count > 0 {
+        let gaps = long_count * COLUMN_GAP.len();
+        let each = (width.saturating_sub(short + gaps) / long_count).max(MIN_NAME_WIDTH);
+        for row in &mut rows {
+            for (cell, c) in row.iter_mut().zip(columns) {
+                if c.is_long() {
+                    *cell = truncate(cell, each);
+                }
+            }
+        }
+    }
+    let headers: Vec<&str> = columns.iter().map(|c| c.header()).collect();
+    let left: Vec<usize> = columns
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.left_aligned())
+        .map(|(i, _)| i)
+        .collect();
+    table_dyn(&headers, &rows, &left)
+}
+
+/// Like [`table`] for a column count known only at run time.
+fn table_dyn(headers: &[&str], rows: &[Vec<String>], left: &[usize]) -> String {
+    let n = headers.len();
+    let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
+    for row in rows {
         for (w, cell) in widths.iter_mut().zip(row) {
             *w = (*w).max(cell.chars().count());
         }
     }
-    let used: usize = widths.iter().map(|w| w + COLUMN_GAP.len()).sum();
-    let name_width = width.saturating_sub(used).max(MIN_NAME_WIDTH);
-    let rows: Vec<[String; 8]> = jobs
-        .iter()
-        .zip(rows)
-        .map(|(j, [id, st, pr, dn, up, eta, sz])| {
-            [id, st, pr, dn, up, eta, sz, truncate(&j.name, name_width)]
-        })
-        .collect();
-    // STATE (index 1) is left-aligned; the other columns are right-aligned.
-    table(
-        [
-            "ID", "STATE", "PROGRESS", "DOWN", "UP", "ETA", "SIZE", "NAME",
-        ],
-        &rows,
-        &[1],
-    )
+    let line = |cells: Vec<&str>| {
+        let mut out = String::new();
+        for (i, cell) in cells.iter().enumerate() {
+            let w = widths[i];
+            if i + 1 == n {
+                // The last column is never padded, so lines carry no trailing blanks.
+                out.push_str(cell);
+            } else {
+                if left.contains(&i) {
+                    out.push_str(&format!("{cell:<w$}"));
+                } else {
+                    out.push_str(&format!("{cell:>w$}"));
+                }
+                out.push_str(COLUMN_GAP);
+            }
+        }
+        out.push('\n');
+        out
+    };
+    let mut out = line(headers.to_vec());
+    for row in rows {
+        out.push_str(&line(row.iter().map(String::as_str).collect()));
+    }
+    out
 }
 
 /// Generic table: `left` lists the columns that are left-aligned (the last
@@ -326,6 +438,29 @@ pub fn date(secs: Option<i64>) -> String {
         )
 }
 
+/// Local `2026-11-11 09:35`, or the raw number if it is out of range.
+pub fn local_time(secs: i64) -> String {
+    jiff::Timestamp::from_second(secs).map_or_else(
+        |_| secs.to_string(),
+        |t| {
+            t.to_zoned(jiff::tz::TimeZone::system())
+                .strftime("%Y-%m-%d %H:%M")
+                .to_string()
+        },
+    )
+}
+
+/// `2026-11-11 09:35 (5m ago)` for a past unix time, relative to `now`.
+pub fn local_time_ago(secs: i64, now: i64) -> String {
+    let ago = match (now - secs).max(0) {
+        0..=59 => "just now".to_owned(),
+        s @ 60..=3599 => format!("{}m ago", s / 60),
+        s @ 3600..=86_399 => format!("{}h ago", s / 3600),
+        s => format!("{}d ago", s / 86_400),
+    };
+    format!("{} ({ago})", local_time(secs))
+}
+
 /// `12/3` (seeders/leechers), `-` when neither is known.
 pub fn seeds(s: Option<u32>, l: Option<u32>) -> String {
     if s.is_none() && l.is_none() {
@@ -444,6 +579,15 @@ pub fn key_values(pairs: &[(&str, String)]) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn local_times_read_as_dates_with_an_age() {
+        let t = local_time_ago(1_794_389_786, 1_794_389_786 + 300);
+        assert!(t.ends_with(" (5m ago)"), "{t}");
+        assert_eq!(t.len(), "2026-11-11 09:35 (5m ago)".len(), "{t}");
+        assert!(local_time_ago(0, 3 * 86_400).ends_with("(3d ago)"));
+    }
+
     use super::*;
 
     #[test]
@@ -648,13 +792,33 @@ mod tests {
     #[test]
     fn table_truncates_name_to_width() {
         let long = "x".repeat(200);
-        let t = job_table(&[job(1, &long), job(22, "short")], 80);
+        let t = job_table_with(&[job(1, &long), job(22, "short")], 80, &[]);
         let lines: Vec<&str> = t.lines().collect();
         assert!(lines[0].starts_with(" ID  STATE") || lines[0].starts_with("ID"));
         assert!(lines[0].ends_with("NAME"));
         assert!(lines.iter().all(|l| l.chars().count() <= 80), "{t}");
         assert!(lines[1].ends_with('…'));
         assert!(lines[2].ends_with("short"));
+    }
+
+    #[test]
+    fn table_with_chosen_columns() {
+        let t = job_table_with(
+            &[job(1, "alpha"), job(22, "beta")],
+            80,
+            &[Column::Name, Column::Id, Column::Engine],
+        );
+        let lines: Vec<&str> = t.lines().collect();
+        assert_eq!(lines.len(), 3);
+        assert!(
+            lines[0].starts_with("NAME ") && lines[0].ends_with("ENGINE"),
+            "{t}"
+        );
+        assert!(lines[1].starts_with("alpha"), "{t}");
+        assert!(
+            lines[2].contains("22") && lines[2].ends_with("aria2"),
+            "{t}"
+        );
     }
 
     #[test]

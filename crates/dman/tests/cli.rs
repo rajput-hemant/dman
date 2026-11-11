@@ -545,3 +545,99 @@ fn search_explains_a_build_without_search() {
             .stderr(predicate::str::contains("rebuild with --features search"));
     }
 }
+
+#[test]
+fn list_options_are_validated_before_connecting() {
+    let dir = config_dir();
+    dman(&dir)
+        .args(["list", "--sort", "bogus"])
+        .assert()
+        .code(2);
+    dman(&dir)
+        .args(["list", "--columns", "id,nope"])
+        .assert()
+        .code(2);
+    dman(&dir)
+        .args(["list", "--engine", "bogus"])
+        .assert()
+        .code(2);
+    // Valid options reach the connection attempt.
+    dman(&dir)
+        .args([
+            "list",
+            "--sort",
+            "speed",
+            "--reverse",
+            "--name",
+            "x",
+            "--engine",
+            "aria2",
+            "--columns",
+            "id,name",
+            "--limit",
+            "3",
+        ])
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn wait_needs_ids_a_valid_timeout_and_a_daemon() {
+    let dir = config_dir();
+    dman(&dir).arg("wait").assert().code(2);
+    dman(&dir)
+        .args(["wait", "1", "--timeout", "soon"])
+        .assert()
+        .code(2);
+    dman(&dir)
+        .args(["wait", "1", "--timeout", "0"])
+        .assert()
+        .code(2);
+    dman(&dir)
+        .args(["wait", "1", "--timeout", "5m"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn add_wait_flags_are_checked() {
+    let dir = config_dir();
+    dman(&dir)
+        .args(["add", "http://x.invalid/a", "--timeout", "5s"])
+        .assert()
+        .code(2);
+    dman(&dir)
+        .args(["add", "http://x.invalid/a", "--wait", "--paused"])
+        .assert()
+        .code(2);
+    dman(&dir)
+        .args(["add", "http://x.invalid/a", "--wait", "--timeout", "5s"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn get_watch_and_search_no_prompt_reach_the_daemon_check() {
+    let dir = config_dir();
+    dman(&dir).args(["get", "1", "--watch"]).assert().code(3);
+    #[cfg(feature = "search")]
+    dman(&dir)
+        .args(["search", "ubuntu", "--no-prompt"])
+        .assert()
+        .code(3);
+}
+
+#[test]
+fn help_documents_wait_and_the_timeout_code() {
+    let dir = config_dir();
+    dman(&dir)
+        .args(["wait", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Examples:").and(predicate::str::contains("124")));
+    dman(&dir)
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("  124  "));
+}

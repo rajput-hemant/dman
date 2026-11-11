@@ -1,33 +1,113 @@
 //! `dman list` and `dman get`.
 
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use dman_client::Client;
 use dman_proto::method::{Event, ListParams};
-use dman_proto::{Job, JobId, JobState};
+use dman_proto::{Engine, Job, JobId, JobState};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::print_json;
-use crate::cli::ListArgs;
+use super::progress::Renderer;
+use super::wait::track;
+use crate::cli::{EngineArg, ListArgs, SortKey};
 use crate::connect::Ctx;
 use crate::error::CliError;
-use crate::format;
+use crate::format::{self, Column};
 
 const CLEAR_SCREEN: &str = "\x1b[2J\x1b[H";
 
 pub async fn list(ctx: &Ctx, args: &ListArgs) -> Result<i32, CliError> {
-    let states: Vec<JobState> = args.state.iter().map(|s| (*s).into()).collect();
+    let view = View::from_args(args);
     let client = ctx.connect().await?;
     if args.watch {
-        watch(ctx, &client, &states).await
+        watch(ctx, &client, &view).await
     } else {
-        let jobs = client.list(ListParams { states }).await?;
-        render(ctx, &jobs, false)?;
+        let jobs = client
+            .list(ListParams {
+                states: view.states.clone(),
+            })
+            .await?;
+        render(ctx, &view.apply(jobs), &view.columns, false)?;
         Ok(0)
     }
 }
 
-fn render(ctx: &Ctx, jobs: &[Job], watching: bool) -> Result<(), CliError> {
+/// Client-side filtering, sorting and limiting of the job list.
+struct View {
+    states: Vec<JobState>,
+    name: Option<String>,
+    engine: Option<Engine>,
+    sort: Option<SortKey>,
+    reverse: bool,
+    limit: Option<usize>,
+    columns: Vec<Column>,
+}
+
+impl View {
+    fn from_args(args: &ListArgs) -> Self {
+        Self {
+            states: args.state.iter().map(|s| (*s).into()).collect(),
+            name: args.name.as_ref().map(|n| n.to_lowercase()),
+            engine: args.engine.map(|e| match e {
+                EngineArg::Aria2 => Engine::Aria2,
+                EngineArg::Ytdlp => Engine::YtDlp,
+            }),
+            sort: args.sort,
+            reverse: args.reverse,
+            limit: args.limit,
+            columns: args.columns.clone(),
+        }
+    }
+
+    fn matches(&self, j: &Job) -> bool {
+        (self.states.is_empty() || self.states.contains(&j.state))
+            && self.engine.is_none_or(|e| j.engine == e)
+            && self
+                .name
+                .as_ref()
+                .is_none_or(|n| j.name.to_lowercase().contains(n))
+    }
+
+    /// Filter, sort and limit `jobs`.
+    fn apply(&self, jobs: Vec<Job>) -> Vec<Job> {
+        let mut out: Vec<Job> = jobs.into_iter().filter(|j| self.matches(j)).collect();
+        if let Some(key) = self.sort {
+            out.sort_by(|a, b| compare(key, a, b));
+            if self.reverse {
+                out.reverse();
+            }
+        } else if self.reverse {
+            out.reverse();
+        }
+        if let Some(n) = self.limit {
+            out.truncate(n);
+        }
+        out
+    }
+}
+
+/// Natural order of each key: biggest or newest first, soonest ETA first (unknown
+/// last), names A-Z. `--reverse` flips it.
+fn compare(key: SortKey, a: &Job, b: &Job) -> Ordering {
+    let by = match key {
+        SortKey::Speed => b.download_speed.cmp(&a.download_speed),
+        SortKey::Size => b.total_bytes.cmp(&a.total_bytes),
+        SortKey::Added => b.added_at.cmp(&a.added_at),
+        SortKey::Progress => b.progress().total_cmp(&a.progress()),
+        SortKey::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        SortKey::Eta => match (a.eta_secs(), b.eta_secs()) {
+            (Some(x), Some(y)) => x.cmp(&y),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        },
+    };
+    by.then(a.id.cmp(&b.id))
+}
+
+fn render(ctx: &Ctx, jobs: &[Job], columns: &[Column], watching: bool) -> Result<(), CliError> {
     if ctx.json {
         // Watching streams one compact document per update (JSON lines).
         if watching {
@@ -43,7 +123,10 @@ fn render(ctx: &Ctx, jobs: &[Job], watching: bool) -> Result<(), CliError> {
     if jobs.is_empty() {
         println!("no downloads");
     } else {
-        print!("{}", format::job_table(jobs, format::terminal_width()));
+        print!(
+            "{}",
+            format::job_table_with(jobs, format::terminal_width(), columns)
+        );
     }
     Ok(())
 }
@@ -67,14 +150,7 @@ fn apply(jobs: &mut BTreeMap<JobId, Job>, event: Event) -> bool {
     true
 }
 
-fn visible(jobs: &BTreeMap<JobId, Job>, states: &[JobState]) -> Vec<Job> {
-    jobs.values()
-        .filter(|j| states.is_empty() || states.contains(&j.state))
-        .cloned()
-        .collect()
-}
-
-async fn watch(ctx: &Ctx, client: &Client, states: &[JobState]) -> Result<i32, CliError> {
+async fn watch(ctx: &Ctx, client: &Client, view: &View) -> Result<i32, CliError> {
     let mut rx = client.subscribe().await?;
     let mut jobs = BTreeMap::new();
     loop {
@@ -91,17 +167,35 @@ async fn watch(ctx: &Ctx, client: &Client, states: &[JobState]) -> Result<i32, C
             () = client.closed() => return Err(dman_client::ClientError::Disconnected.into()),
         };
         if changed {
-            render(ctx, &visible(&jobs, states), true)?;
+            render(
+                ctx,
+                &view.apply(jobs.values().cloned().collect()),
+                &view.columns,
+                true,
+            )?;
         }
     }
 }
 
-pub async fn get(ctx: &Ctx, id: JobId, files: bool, peers: bool) -> Result<i32, CliError> {
+pub async fn get(
+    ctx: &Ctx,
+    id: JobId,
+    files: bool,
+    peers: bool,
+    watch: bool,
+) -> Result<i32, CliError> {
     let client = ctx.connect().await?;
+    let mut code = 0;
+    if watch {
+        // The bar goes to stderr; the details below still go to stdout afterwards.
+        let renderer = (!ctx.json).then(|| Renderer::new(true));
+        let tracked = track(&client, &[id], None, renderer).await?;
+        code = tracked.exit_code();
+    }
     let d = client.detail(id).await?;
     if ctx.json {
         print_json(&d)?;
-        return Ok(0);
+        return Ok(code);
     }
     print!("{}", details(&d.job));
     if !d.renames.is_empty() {
@@ -127,7 +221,7 @@ pub async fn get(ctx: &Ctx, id: JobId, files: bool, peers: bool) -> Result<i32, 
             print!("{}", format::peer_table(&d.peers));
         }
     }
-    Ok(0)
+    Ok(code)
 }
 
 fn details(j: &Job) -> String {
@@ -163,9 +257,10 @@ fn details(j: &Job) -> String {
     if let Some(p) = j.queue_position {
         pairs.push(("queue", p.to_string()));
     }
-    pairs.push(("added", j.added_at.to_string()));
+    let now = jiff::Timestamp::now().as_second();
+    pairs.push(("added", crate::format::local_time_ago(j.added_at, now)));
     if let Some(c) = j.completed_at {
-        pairs.push(("completed", c.to_string()));
+        pairs.push(("completed", crate::format::local_time_ago(c, now)));
     }
     if let Some(e) = &j.error {
         pairs.push(("error", e.clone()));
@@ -202,6 +297,81 @@ mod tests {
         }
     }
 
+    fn view() -> View {
+        View {
+            states: vec![],
+            name: None,
+            engine: None,
+            sort: None,
+            reverse: false,
+            limit: None,
+            columns: vec![],
+        }
+    }
+
+    fn named(id: u64, name: &str, speed: u64, total: u64, done: u64) -> Job {
+        Job {
+            name: name.into(),
+            download_speed: speed,
+            total_bytes: total,
+            completed_bytes: done,
+            added_at: id as i64,
+            ..job(id, JobState::Active)
+        }
+    }
+
+    fn ids(jobs: &[Job]) -> Vec<u64> {
+        jobs.iter().map(|j| j.id.0).collect()
+    }
+
+    #[test]
+    fn name_filter_is_case_insensitive_and_engine_filters() {
+        let mut y = named(3, "Clip", 0, 0, 0);
+        y.engine = Engine::YtDlp;
+        let jobs = vec![
+            named(1, "Ubuntu ISO", 0, 0, 0),
+            named(2, "debian", 0, 0, 0),
+            y,
+        ];
+        let v = View {
+            name: Some("ubu".into()),
+            ..view()
+        };
+        assert_eq!(ids(&v.apply(jobs.clone())), vec![1]);
+        let v = View {
+            engine: Some(Engine::YtDlp),
+            ..view()
+        };
+        assert_eq!(ids(&v.apply(jobs)), vec![3]);
+    }
+
+    #[test]
+    fn sorting_limit_and_reverse() {
+        let jobs = vec![
+            named(1, "b", 10, 300, 30),
+            named(2, "a", 30, 100, 90),
+            named(3, "c", 0, 200, 20),
+        ];
+        let sorted = |key, reverse, limit| {
+            ids(&View {
+                sort: Some(key),
+                reverse,
+                limit,
+                ..view()
+            }
+            .apply(jobs.clone()))
+        };
+        assert_eq!(sorted(SortKey::Speed, false, None), vec![2, 1, 3]);
+        assert_eq!(sorted(SortKey::Speed, true, None), vec![3, 1, 2]);
+        assert_eq!(sorted(SortKey::Size, false, None), vec![1, 3, 2]);
+        assert_eq!(sorted(SortKey::Name, false, None), vec![2, 1, 3]);
+        assert_eq!(sorted(SortKey::Added, false, None), vec![3, 2, 1]);
+        assert_eq!(sorted(SortKey::Progress, false, None), vec![2, 1, 3]);
+        // Soonest ETA first; the job with no speed (unknown ETA) last.
+        assert_eq!(sorted(SortKey::Eta, false, None), vec![2, 1, 3]);
+        assert_eq!(sorted(SortKey::Speed, false, Some(2)), vec![2, 1]);
+    }
+
     #[test]
     fn events_update_map_and_filter() {
         let mut m = BTreeMap::new();
@@ -211,14 +381,18 @@ mod tests {
                 jobs: vec![job(1, JobState::Active), job(2, JobState::Paused)]
             }
         ));
-        assert_eq!(visible(&m, &[JobState::Paused]).len(), 1);
+        let paused = View {
+            states: vec![JobState::Paused],
+            ..view()
+        };
+        assert_eq!(paused.apply(m.values().cloned().collect()).len(), 1);
         assert!(apply(
             &mut m,
             Event::JobsRemoved {
                 ids: vec![JobId(1)]
             }
         ));
-        assert_eq!(visible(&m, &[]).len(), 1);
+        assert_eq!(view().apply(m.values().cloned().collect()).len(), 1);
         assert!(!apply(
             &mut m,
             Event::Stats {

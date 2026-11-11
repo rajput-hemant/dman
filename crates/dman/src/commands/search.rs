@@ -130,6 +130,14 @@ pub async fn run(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
                     snapshot.results.len() - shown
                 );
             }
+            if args.add.is_empty() && !args.no_prompt && interactive() {
+                let picks = ask_picks(&mut std::io::stdin().lock(), &mut std::io::stderr(), shown)?;
+                if !picks.is_empty() {
+                    let (outcomes, exit) = add_results(&client, &snapshot, &picks).await?;
+                    added = outcomes;
+                    code = exit;
+                }
+            }
         }
         for a in &added {
             match a {
@@ -139,6 +147,65 @@ pub async fn run(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
         }
     }
     Ok(code)
+}
+
+/// The pick prompt appears only when both ends are a terminal.
+fn interactive() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+}
+
+/// Parse a selection such as `1,3`, `2-4` or `1 3-5` into result numbers in the
+/// order given, without repeats. Every number must be within `1..=max`.
+fn parse_selection(input: &str, max: usize) -> Result<Vec<usize>, String> {
+    let number = |t: &str| match t.trim().parse::<usize>() {
+        Ok(n) if (1..=max).contains(&n) => Ok(n),
+        Ok(n) => Err(format!("{n} is not a result number (1-{max})")),
+        Err(_) => Err(format!("`{}` is not a number", t.trim())),
+    };
+    let mut out = Vec::new();
+    for part in input
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|p| !p.is_empty())
+    {
+        let range: Vec<usize> = match part.split_once('-') {
+            Some((a, b)) => {
+                let (a, b) = (number(a)?, number(b)?);
+                if b < a {
+                    return Err(format!("`{part}` is not a valid range"));
+                }
+                (a..=b).collect()
+            }
+            None => vec![number(part)?],
+        };
+        for n in range {
+            if !out.contains(&n) {
+                out.push(n);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Ask which results to add until the answer parses; empty input or end of input
+/// means none.
+fn ask_picks(
+    input: &mut impl std::io::BufRead,
+    out: &mut impl std::io::Write,
+    max: usize,
+) -> Result<Vec<usize>, CliError> {
+    loop {
+        write!(out, "Add which? (e.g. 1,3 or 2-4; Enter to skip) ")?;
+        out.flush()?;
+        let mut line = String::new();
+        if input.read_line(&mut line)? == 0 {
+            return Ok(Vec::new());
+        }
+        match parse_selection(&line, max) {
+            Ok(picks) => return Ok(picks),
+            Err(e) => writeln!(out, "{e}")?,
+        }
+    }
 }
 
 fn progress(ctx: &Ctx, provider: &str, status: &ProviderStatus) {
@@ -262,4 +329,42 @@ async fn history(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
         print!("{}", format::history_table(&list));
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selections() {
+        assert_eq!(parse_selection("1,3", 5).unwrap(), vec![1, 3]);
+        assert_eq!(parse_selection("2-4", 5).unwrap(), vec![2, 3, 4]);
+        assert_eq!(parse_selection(" 1 3-4,3 ", 5).unwrap(), vec![1, 3, 4]);
+        assert!(parse_selection("", 5).unwrap().is_empty());
+        assert!(parse_selection("0", 5).is_err());
+        assert!(parse_selection("6", 5).is_err());
+        assert!(parse_selection("4-2", 5).is_err());
+        assert!(parse_selection("a", 5).is_err());
+        assert!(parse_selection("1-", 5).is_err());
+    }
+
+    #[test]
+    fn prompt_asks_again_after_a_bad_answer() {
+        let mut out = Vec::new();
+        let picks = ask_picks(&mut "9\n2-3\n".as_bytes(), &mut out, 4).unwrap();
+        assert_eq!(picks, vec![2, 3]);
+        let text = String::from_utf8(out).unwrap();
+        assert!(text.contains("not a result number"), "{text}");
+        assert_eq!(text.matches("Add which?").count(), 2);
+        assert!(
+            ask_picks(&mut "\n".as_bytes(), &mut Vec::new(), 4)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            ask_picks(&mut "".as_bytes(), &mut Vec::new(), 4)
+                .unwrap()
+                .is_empty()
+        );
+    }
 }

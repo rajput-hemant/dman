@@ -4,16 +4,20 @@ use std::path::Path;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use dman_proto::{AddOutcome, AddParams, AddSource, JobOptions, VideoOptions, VideoSubtitles};
+use dman_proto::{
+    AddOutcome, AddParams, AddSource, JobId, JobOptions, VideoOptions, VideoSubtitles,
+};
 
 use std::io::IsTerminal;
 
 use dman_client::Client;
 
 use crate::cli::{AddArgs, VideoArgs};
+use crate::commands::progress::Renderer;
 use crate::commands::quality;
+use crate::commands::wait::{conclude, track};
 use crate::connect::Ctx;
-use crate::error::{CliError, batch_exit};
+use crate::error::{CliError, EXIT_TIMEOUT, batch_exit};
 
 /// What a source string refers to.
 #[derive(Debug, PartialEq, Eq)]
@@ -262,7 +266,12 @@ fn build_options(args: &AddArgs) -> Result<JobOptions, CliError> {
     Ok(o)
 }
 
-fn report(labels: &[String], outcomes: &[AddOutcome], json: bool) -> Result<i32, CliError> {
+fn report(
+    labels: &[String],
+    outcomes: &[AddOutcome],
+    json: bool,
+    print_doc: bool,
+) -> Result<i32, CliError> {
     let mut first_failure = None;
     let mut failed = 0;
     for (label, outcome) in labels.iter().zip(outcomes) {
@@ -281,7 +290,7 @@ fn report(labels: &[String], outcomes: &[AddOutcome], json: bool) -> Result<i32,
             AddOutcome::Added { .. } => {}
         }
     }
-    if json {
+    if json && print_doc {
         super::print_json(&outcomes)?;
     }
     Ok(batch_exit(outcomes.len(), failed, first_failure))
@@ -327,7 +336,37 @@ pub async fn run(ctx: &Ctx, args: &AddArgs) -> Result<i32, CliError> {
         choose_qualities(&client, &mut params).await?;
     }
     let outcomes = client.add(params).await?;
-    report(&labels, &outcomes, ctx.json)
+    if !args.wait {
+        return report(&labels, &outcomes, ctx.json, true);
+    }
+    let added = report(&labels, &outcomes, ctx.json, false)?;
+    let ids: Vec<JobId> = outcomes.iter().flat_map(AddOutcome::ids).collect();
+    if ids.is_empty() {
+        if ctx.json {
+            super::print_json(&serde_json::json!({ "added": outcomes, "jobs": [] }))?;
+        }
+        return Ok(added);
+    }
+    let renderer = (!ctx.json).then(|| Renderer::new(true));
+    let tracked = track(&client, &ids, args.timeout, renderer).await?;
+    let waited = if ctx.json {
+        let code = tracked.exit_code();
+        super::print_json(&serde_json::json!({
+            "added": outcomes,
+            "jobs": tracked.jobs,
+            "timed_out": tracked.timed_out,
+        }))?;
+        code
+    } else {
+        conclude(ctx, &tracked, args.timeout)?
+    };
+    // A timeout is reported as such; otherwise a failure to add some sources wins
+    // over the outcome of the jobs that were added.
+    Ok(if waited == EXIT_TIMEOUT || added == 0 {
+        waited
+    } else {
+        added
+    })
 }
 
 /// The quality flow for every video source without an explicit choice:

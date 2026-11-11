@@ -5,11 +5,13 @@ pub mod control;
 pub mod daemon;
 pub mod list;
 pub mod misc;
+pub mod progress;
 pub mod providers;
 pub mod quality;
 pub mod search;
 pub mod serve;
 pub mod update;
+pub mod wait;
 
 use crate::cli::{Cli, Command};
 use crate::connect::Ctx;
@@ -76,9 +78,13 @@ pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
             Ok(code)
         }
         Command::Update(args) => update::run(&Ctx::load(&cli)?, args).await,
-        Command::Get { id, files, peers } => {
-            list::get(&Ctx::load(&cli)?, *id, *files, *peers).await
-        }
+        Command::Wait(args) => wait::run(&Ctx::load(&cli)?, args).await,
+        Command::Get {
+            id,
+            files,
+            peers,
+            watch,
+        } => list::get(&Ctx::load(&cli)?, *id, *files, *peers, *watch).await,
         Command::Rename { id, name, file } => {
             control::rename(&Ctx::load(&cli)?, *id, name, *file).await
         }

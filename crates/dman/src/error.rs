@@ -7,6 +7,10 @@ use dman_proto::ErrorCode;
 /// Exit status for Ctrl-C.
 pub const EXIT_INTERRUPTED: i32 = 130;
 
+/// Exit status when `dman wait --timeout` (or `add --wait --timeout`) expires; the
+/// same value as coreutils `timeout`.
+pub const EXIT_TIMEOUT: i32 = 124;
+
 /// An error that ends the process with a message and an exit code.
 #[derive(Debug, Clone)]
 pub struct CliError {
@@ -144,6 +148,7 @@ mod tests {
             );
         }
         assert!(help.contains(&format!("  {}  ", EXIT_INTERRUPTED)));
+        assert!(help.contains(&format!("  {}  ", EXIT_TIMEOUT)));
     }
 
     #[test]

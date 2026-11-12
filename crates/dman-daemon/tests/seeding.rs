@@ -286,19 +286,28 @@ async fn seeds_to_a_leecher_stops_at_ratio_and_survives_a_restart() {
     );
     // A fresh leecher (the old one lost its connection) announces to the tracker.
     seeder.cmd(&format!("leecher {}", root.path().join("leech2").display()));
+    let limit = (RATIO * SIZE as f64) as u64;
     let jobs = wait_jobs(&c, 90, "seeding to end at the ratio", |j| {
-        job(j, id).state == JobState::Complete
+        let j = job(j, id);
+        // dman checks the ratio on every poll, counting the bytes of the first
+        // run too, and ends seeding in that same poll: a job still seeding
+        // never shows the ratio reached. A ratio restarted from zero would keep
+        // it seeding up to `u1 + limit`.
+        assert!(
+            j.state != JobState::Seeding || j.uploaded_bytes < limit,
+            "ratio was restarted from zero: before {u1}, still seeding at {}",
+            j.uploaded_bytes
+        );
+        j.state == JobState::Complete
     })
     .await;
     let done = job(&jobs, id);
-    let limit = (RATIO * SIZE as f64) as u64;
     assert!(done.uploaded_bytes >= limit, "{done:?}");
-    // aria2 alone would count from zero again and need `limit` more bytes.
-    assert!(
-        done.uploaded_bytes < u1 + limit,
-        "ratio was restarted from zero: before {u1}, now {}",
-        done.uploaded_bytes
-    );
+    // The final figure has no upper bound below a whole torrent: aria2's
+    // upload limit is an average over several seconds, and after an idle
+    // spell it answers all of a peer's queued block requests at once, so the
+    // rest of the torrent can go out between two polls whatever the limit.
+    assert!(done.uploaded_bytes <= u1 + SIZE, "{done:?}");
     assert!(done.ratio() >= RATIO, "{}", done.ratio());
 
     // Exactly one Completed and one SeedCompleted over both runs.

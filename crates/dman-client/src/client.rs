@@ -329,7 +329,16 @@ macro_rules! typed_api {
         /// `jobs.add`: one outcome per source, in order. The daemon fetches
         /// http(s) `.torrent` URLs before adding them, so this may take a while.
         pub async fn add(&self, params: AddParams) -> Result<Vec<AddOutcome>, ClientError> {
-            let wait = 15 + 30 * params.sources.len().min(10) as u64;
+            // The daemon fetches those files one after another, up to 30 s each.
+            let fetches = params
+                .sources
+                .iter()
+                .filter(|s| {
+                    matches!(s, dman_proto::AddSource::Uris { uris }
+                        if uris.len() == 1 && dman_proto::is_torrent_url(&uris[0]))
+                })
+                .count() as u64;
+            let wait = 15 + 30 * fetches;
             self.call_with_timeout(method::JOBS_ADD, params, Duration::from_secs(wait))
                 .await
         }

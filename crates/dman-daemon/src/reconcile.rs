@@ -153,8 +153,8 @@ impl Manager {
                     && e.rec.desired != Desired::Stopped
                     && e.rec.gid.as_deref().is_none_or(|g| !by_gid.contains_key(g))
             })
-            .filter_map(|e| e.rec.info_hash.as_ref())
-            .map(|h| h.to_ascii_lowercase())
+            // A magnet job may not have had its hash reported yet: its link has it.
+            .filter_map(|e| crate::manager::dedupe::job_hash(&e.rec))
             .collect();
         if lost.is_empty() {
             return;
@@ -236,7 +236,14 @@ impl Manager {
         opts.set("dir", rec.dir.clone());
         opts.set("pause", "true");
         // Jobs stored without explicit seed settings follow the current default.
-        crate::manager::seeding::apply_policy(&mut opts, &rec.options, &self.torrents, rec.kind);
+        // The new download counts from zero in aria2: hand it what is left.
+        crate::manager::seeding::apply_policy(
+            &mut opts,
+            &rec.options,
+            &self.torrents,
+            rec.kind,
+            crate::manager::seeding::Seeded::before_readd(&rec, now()),
+        );
         if rec.completed_at.is_some()
             && matches!(rec.kind, SourceKind::Torrent | SourceKind::Magnet)
         {

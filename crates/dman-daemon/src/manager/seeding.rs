@@ -21,7 +21,15 @@
 //!
 //! Whichever comes first ends seeding: the download is removed from aria2, the
 //! job becomes `Complete` and `JobFinished { SeedCompleted }` is announced once.
-//! aria2's own limits stay set but are never reached before dman's.
+//!
+//! aria2 gets the same limits, reduced by what earlier engine sessions already
+//! used up (see [`Seeded`]). dman's check only runs once per poll, while aria2
+//! checks its own limits continuously; its upload limiter averages over a
+//! window of several seconds, so after an idle spell a peer can fetch a burst
+//! far above `max-upload-limit` between two polls. Without the reduced limits a
+//! restored seeding job would be bounded only by the poll and could overshoot
+//! its ratio by a whole burst. When aria2 ends seeding itself the poll sees
+//! the download complete and announces `SeedCompleted` the same way.
 
 use dman_aria2::{Gid, Options};
 use dman_config::Torrents;
@@ -56,17 +64,88 @@ pub(crate) fn limits(o: &JobOptions, cfg: &Torrents) -> (f64, Option<u64>) {
     (ratio, time)
 }
 
-/// Sets the aria2 seeding options of a torrent/magnet job (`always` = also
-/// the unlimited/ratio values of a seeding job, used when switching on).
-pub(crate) fn apply_policy(a: &mut Options, o: &JobOptions, cfg: &Torrents, kind: SourceKind) {
+/// Smallest ratio handed to aria2: `0` would mean "no ratio limit" there.
+const MIN_ENGINE_RATIO: f64 = 0.0001;
+
+/// What a job already used up of its seeding limits before the aria2
+/// download the options are meant for; aria2 counts from zero per download.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Seeded {
+    /// Bytes uploaded that aria2's counter for the download will not include.
+    pub uploaded: u64,
+    /// Size the ratio is measured against (`0` = unknown).
+    pub size: u64,
+    /// Seconds already spent seeding, when aria2's seed clock starts afresh.
+    pub secs: Option<i64>,
+}
+
+impl Seeded {
+    /// Usage of `rec` for a new aria2 download of it (a re-add): every byte
+    /// uploaded so far, and the time since seeding first began.
+    pub(crate) fn before_readd(rec: &JobRecord, now: i64) -> Self {
+        Self {
+            uploaded: rec.uploaded_total(),
+            size: ratio_size(rec),
+            secs: rec.completed_at.map(|t| now.saturating_sub(t).max(0)),
+        }
+    }
+
+    /// Usage of `rec` outside its current aria2 download (option changes on
+    /// a live download, whose own counters aria2 keeps).
+    pub(crate) fn outside_current(rec: &JobRecord) -> Self {
+        Self {
+            uploaded: rec.uploaded_base,
+            size: ratio_size(rec),
+            secs: None,
+        }
+    }
+}
+
+/// Size a job's ratio is measured against.
+fn ratio_size(rec: &JobRecord) -> u64 {
+    if rec.completed_bytes > 0 {
+        rec.completed_bytes
+    } else {
+        rec.total_bytes
+    }
+}
+
+/// Sets the aria2 seeding options of a torrent/magnet job. A seeding job's
+/// ratio and time are reduced by what `done` already used up, so aria2 stops
+/// at the job's real limits rather than restarting them from zero.
+pub(crate) fn apply_policy(
+    a: &mut Options,
+    o: &JobOptions,
+    cfg: &Torrents,
+    kind: SourceKind,
+    done: Seeded,
+) {
     if !matches!(kind, SourceKind::Torrent | SourceKind::Magnet) {
         return;
     }
     if seeds(o, cfg) {
         let (ratio, time) = limits(o, cfg);
+        let ratio = if ratio > 0.0 && done.size > 0 {
+            (ratio - done.uploaded as f64 / done.size as f64).max(MIN_ENGINE_RATIO)
+        } else {
+            ratio
+        };
         a.set("seed-ratio", ratio.to_string());
         match time {
-            Some(m) => a.set("seed-time", m.to_string()),
+            Some(m) => {
+                let left = match done.secs {
+                    // Whole minutes, at least one: dman's own check ends seeding
+                    // on time, and `0` would make aria2 skip seeding altogether.
+                    Some(s) => {
+                        let left = i64::try_from(m.saturating_mul(60))
+                            .unwrap_or(i64::MAX)
+                            .saturating_sub(s);
+                        u64::try_from(left).unwrap_or(0).div_ceil(60).max(1)
+                    }
+                    None => m,
+                };
+                a.set("seed-time", left.to_string());
+            }
             None => a.set("seed-time", UNLIMITED_MINUTES),
         }
     } else {
@@ -83,11 +162,7 @@ pub(crate) fn stop_reason(rec: &JobRecord, now: i64, cfg: &Torrents) -> Option<S
         return Some("seeding is off".into());
     }
     let (limit, time) = limits(&rec.options, cfg);
-    let size = if rec.completed_bytes > 0 {
-        rec.completed_bytes
-    } else {
-        rec.total_bytes
-    };
+    let size = ratio_size(rec);
     if limit > 0.0 && size > 0 {
         let ratio = rec.uploaded_total() as f64 / size as f64;
         if ratio >= limit {
@@ -225,6 +300,7 @@ mod tests {
             &opts(None, None, None),
             &Torrents::default(),
             SourceKind::Torrent,
+            Seeded::default(),
         );
         assert_eq!(a.get("seed-time"), Some("0"));
         let mut a = Options::new();
@@ -233,6 +309,7 @@ mod tests {
             &opts(None, Some(2.0), None),
             &Torrents::default(),
             SourceKind::Magnet,
+            Seeded::default(),
         );
         assert_eq!(a.get("seed-ratio"), Some("2"));
         assert_eq!(a.get("seed-time"), Some(UNLIMITED_MINUTES));
@@ -242,8 +319,50 @@ mod tests {
             &opts(None, None, None),
             &Torrents::default(),
             SourceKind::Http,
+            Seeded::default(),
         );
         assert!(a.is_empty());
+    }
+
+    #[test]
+    fn aria2_gets_what_is_left_of_the_limits() {
+        let mut r = rec(Some(0.8), Some(60));
+        r.uploaded_base = 300;
+        r.uploaded_session = 190;
+        // A re-add counts from zero in aria2: everything so far is used up.
+        let mut a = Options::new();
+        let done = Seeded::before_readd(&r, 1_000 + 25 * 60 + 1);
+        apply_policy(&mut a, &r.options, &on(), SourceKind::Torrent, done);
+        let ratio: f64 = a.get("seed-ratio").unwrap().parse().unwrap();
+        assert!((ratio - 0.31).abs() < 1e-9, "{ratio}");
+        assert_eq!(a.get("seed-time"), Some("35"));
+        // A live download keeps its own counter: only the earlier sessions count.
+        let mut a = Options::new();
+        let done = Seeded::outside_current(&r);
+        apply_policy(&mut a, &r.options, &on(), SourceKind::Torrent, done);
+        let ratio: f64 = a.get("seed-ratio").unwrap().parse().unwrap();
+        assert!((ratio - 0.5).abs() < 1e-9, "{ratio}");
+        assert_eq!(a.get("seed-time"), Some("60"));
+        // Used up: aria2 still gets a positive ratio and time (0 means unlimited
+        // ratio or no seeding at all there); dman stops the job on its next poll.
+        r.uploaded_session = 900;
+        let mut a = Options::new();
+        let done = Seeded::before_readd(&r, 1_000 + 120 * 60);
+        apply_policy(&mut a, &r.options, &on(), SourceKind::Torrent, done);
+        assert_eq!(a.get("seed-ratio"), Some("0.0001"));
+        assert_eq!(a.get("seed-time"), Some("1"));
+        // No ratio limit stays unlimited.
+        let r = rec(Some(0.0), None);
+        let mut a = Options::new();
+        apply_policy(
+            &mut a,
+            &r.options,
+            &on(),
+            SourceKind::Torrent,
+            Seeded::before_readd(&r, 5_000),
+        );
+        assert_eq!(a.get("seed-ratio"), Some("0"));
+        assert_eq!(a.get("seed-time"), Some(UNLIMITED_MINUTES));
     }
 
     #[test]

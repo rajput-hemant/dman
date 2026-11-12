@@ -40,14 +40,10 @@ pub(super) const KEY: &str = "torrent_file";
 /// writing its control file when it reports the download as complete.
 pub(crate) const SETTLE_TICKS: u8 = 2;
 
-/// The info hash (40 hex digits, lower case) of a `magnet:` link, if it has a
-/// plain hex `btih`.
+/// The info hash (40 hex digits, lower case) of a `magnet:` link, from its
+/// hex or base32 `btih`; aria2 names the metadata copy after the hex form.
 pub(crate) fn magnet_hash(uri: &str) -> Option<String> {
-    let query = uri.strip_prefix("magnet:?")?;
-    query.split('&').find_map(|kv| {
-        let v = kv.strip_prefix("xt=urn:btih:")?;
-        (v.len() == 40 && v.bytes().all(|b| b.is_ascii_hexdigit())).then(|| v.to_ascii_lowercase())
-    })
+    super::dedupe::magnet_btih(uri)
 }
 
 /// Paths aria2 may save the metadata of `hash` under inside `dir`.
@@ -298,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn magnet_hash_needs_a_hex_btih() {
+    fn magnet_hash_needs_a_full_btih() {
         let h = "0123456789abcdef0123456789ABCDEF01234567";
         assert_eq!(
             magnet_hash(&format!("magnet:?dn=x&xt=urn:btih:{h}&tr=y")),

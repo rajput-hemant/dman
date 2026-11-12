@@ -160,7 +160,7 @@ pub(super) fn trackers_of(src: &AddSource) -> Vec<String> {
 }
 
 /// The info hash of an existing job, when known.
-pub(super) fn job_hash(rec: &JobRecord) -> Option<String> {
+pub(crate) fn job_hash(rec: &JobRecord) -> Option<String> {
     if let Some(h) = &rec.info_hash
         && h.len() == 40
     {

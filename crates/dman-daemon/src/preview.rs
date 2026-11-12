@@ -248,10 +248,11 @@ impl Preview {
             return Err(RpcError::invalid("the URL contains a line break"));
         }
         let client = self.client()?;
-        let _slot = self
-            .slots
-            .try_acquire()
-            .map_err(|_| RpcError::refused("too many previews in progress"))?;
+        let _slot = self.slots.try_acquire().map_err(|_| {
+            RpcError::refused(
+                "too many magnet previews or .torrent downloads in progress; try again shortly",
+            )
+        })?;
         let (gid, dir) = self.registry.fresh();
         tokio::fs::create_dir_all(&dir).await.map_err(|e| {
             err(
@@ -329,7 +330,16 @@ impl Preview {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(u64::from(secs));
         loop {
             match client
-                .tell_status(&g, &["status", "errorCode", "errorMessage", "totalLength"])
+                .tell_status(
+                    &g,
+                    &[
+                        "status",
+                        "errorCode",
+                        "errorMessage",
+                        "totalLength",
+                        "completedLength",
+                    ],
+                )
                 .await
             {
                 Ok(st) => match st.status {
@@ -349,7 +359,10 @@ impl Preview {
                             format!("the download of {what} was removed"),
                         ));
                     }
-                    _ if st.total_length.is_some_and(|n| n > MAX_TORRENT_BYTES) => {
+                    // A server that sends no length is caught by what arrived.
+                    _ if st.total_length.max(st.completed_length).unwrap_or(0)
+                        > MAX_TORRENT_BYTES =>
+                    {
                         return Err(err(
                             ErrorCode::Refused,
                             format!(

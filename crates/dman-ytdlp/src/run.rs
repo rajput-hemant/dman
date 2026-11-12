@@ -257,7 +257,7 @@ async fn terminate(
 /// How to stop a process tree.
 #[derive(Debug, Clone, Copy)]
 enum Stop {
-    /// SIGTERM on Unix; a plain `taskkill /T` on Windows.
+    /// SIGTERM on Unix; the same as `Force` on Windows.
     Graceful,
     /// SIGKILL on Unix; `taskkill /T /F` on Windows.
     Force,
@@ -283,23 +283,27 @@ fn signal_group(pid: u32, stop: Stop) {
     }
 }
 
-/// Stop the process `pid` and its children with `taskkill /T`. Windows has no
-/// process groups that can be signalled, so the tree is walked by process id.
+/// Stop the process `pid` and its children with `taskkill /T /F`. Windows has
+/// no process groups that can be signalled, so the tree is walked by process
+/// id. A polite `taskkill` only posts a close message to windows, which a
+/// windowless yt-dlp never sees, so both kinds of stop end the tree at once.
+/// taskkill is started, not waited for: this also runs from `Drop`, on an
+/// async worker thread.
 #[cfg(windows)]
 fn signal_group(pid: u32, stop: Stop) {
     use std::os::windows::process::CommandExt as _;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut cmd = std::process::Command::new("taskkill");
-    cmd.args(["/PID", &pid.to_string(), "/T"]);
-    if matches!(stop, Stop::Force) {
-        cmd.arg("/F");
-    }
-    let result = cmd
+    // The system copy by full path, never whatever `taskkill` PATH finds first.
+    let exe = std::env::var_os("SystemRoot")
+        .map(|r| PathBuf::from(r).join("System32").join("taskkill.exe"))
+        .unwrap_or_else(|| PathBuf::from(r"C:\Windows\System32\taskkill.exe"));
+    let result = std::process::Command::new(exe)
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .creation_flags(CREATE_NO_WINDOW)
-        .status();
+        .spawn();
     if let Err(err) = result {
         tracing::debug!(pid, ?stop, %err, "taskkill failed");
     }

@@ -204,7 +204,8 @@ impl Manager {
         {
             // Switching seeding on/off (or its limits) reaches aria2 too; a seeding
             // job that no longer seeds is stopped by the next poll.
-            super::seeding::apply_policy(&mut changes, &merged, &self.torrents, kind);
+            let done = super::seeding::Seeded::outside_current(&e.rec);
+            super::seeding::apply_policy(&mut changes, &merged, &self.torrents, kind, done);
         }
         let active =
             e.running_in_engine() || matches!(e.rec.state, JobState::Active | JobState::Seeding);

@@ -9,7 +9,7 @@ mod add;
 pub(crate) mod artefacts;
 mod cleanup;
 mod control;
-mod dedupe;
+pub(crate) mod dedupe;
 mod detail;
 mod events;
 pub(crate) mod finish;

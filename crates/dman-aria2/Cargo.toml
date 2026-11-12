@@ -6,6 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["aria2", "json-rpc", "download", "dman"]
+categories = ["api-bindings", "network-programming"]
 
 [dependencies]
 tokio = { workspace = true, features = ["rt", "net", "sync", "time", "macros", "process", "fs", "io-util"] }

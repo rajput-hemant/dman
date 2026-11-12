@@ -6,6 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["dman", "download-manager", "daemon", "aria2"]
+categories = ["network-programming"]
 
 [features]
 default = ["web", "search", "video", "notify"]

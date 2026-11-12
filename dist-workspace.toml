@@ -1,7 +1,7 @@
 # cargo-dist configuration (https://axodotdev.github.io/cargo-dist/).
-# Release flow: bump the version, tag `vX.Y.Z`, push the tag; .github/workflows/release.yml
-# builds the four archives, the shell installer and the Homebrew formula and
-# publishes a GitHub release.
+# Release flow (docs/releasing.md): bump the version, tag `vX.Y.Z`, push the tag;
+# .github/workflows/release.yml builds the five archives, the shell and PowerShell
+# installers and the Homebrew formula, and publishes a GitHub release.
 
 [workspace]
 members = ["cargo:."]
@@ -16,21 +16,25 @@ targets = [
     "aarch64-unknown-linux-musl",
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
 ]
-installers = ["shell", "homebrew"]
+installers = ["shell", "powershell", "homebrew"]
 tap = "rajput-hemant/homebrew-tap"
 # Needs the HOMEBREW_TAP_TOKEN repository secret (a PAT with write access to the tap).
 publish-jobs = ["homebrew"]
-# `dman update` expects `dman-<target>.tar.gz` plus `dman-<target>.tar.gz.sha256`.
+# `dman update` expects `dman-<target>.tar.gz` (`.zip` on Windows) plus a `.sha256` file.
 unix-archive = ".tar.gz"
+windows-archive = ".zip"
 checksum = "sha256"
-# The shell installer writes ~/.config/dman/dman-receipt.json, which `dman update`
-# reads to recognise installer installs (it never uses axoupdater itself).
+# The installers write an install receipt only when the updater is enabled:
+# $XDG_CONFIG_HOME/dman/dman-receipt.json, else ~/.config/dman/ (Unix) or
+# %LOCALAPPDATA%\dman\ (Windows). `dman update` reads it to recognise installer
+# installs; it never uses the separate `dman-update` (axoupdater) binary.
 install-updater = true
 install-path = "~/.local/bin"
 install-success-msg = "dman installed. Run `dman` to start; `dman update --check` to look for updates."
 # Musl needs a C toolchain for ring: see .github/build-setup.yml.
-github-build-setup = "build-setup.yml"
+github-build-setup = "../build-setup.yml"
 pr-run-mode = "plan"
 # release.yml is maintained by hand (compact version of the generated one).
 allow-dirty = ["ci"]
@@ -42,3 +46,9 @@ x86_64-unknown-linux-musl = "ubuntu-24.04"
 aarch64-unknown-linux-musl = "ubuntu-24.04-arm"
 x86_64-apple-darwin = "macos-13"
 aarch64-apple-darwin = "macos-14"
+x86_64-pc-windows-msvc = "windows-2022"
+
+# Runtime dependency of the Homebrew formula (`depends_on "aria2"`). yt-dlp and
+# ffmpeg stay optional: the formula template has no caveats, so the README says so.
+[dist.dependencies.homebrew]
+aria2 = { stage = ["run"] }

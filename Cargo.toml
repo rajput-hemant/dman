@@ -6,22 +6,25 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.97"
-license = "LicenseRef-Proprietary"
-publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/rajput-hemant/dman"
+homepage = "https://github.com/rajput-hemant/dman"
+readme = "README.md"
+publish = true
 
 [workspace.dependencies]
-# internal
-dman-proto = { path = "crates/dman-proto" }
-dman-config = { path = "crates/dman-config" }
-dman-aria2 = { path = "crates/dman-aria2" }
-dman-daemon = { path = "crates/dman-daemon", default-features = false }
-dman-client = { path = "crates/dman-client" }
-dman-tui = { path = "crates/dman-tui", default-features = false }
-dman-store = { path = "crates/dman-store" }
-dman-torrent = { path = "crates/dman-torrent" }
-dman-ytdlp = { path = "crates/dman-ytdlp" }
-dman-search = { path = "crates/dman-search", default-features = false }
-dman-web = { path = "crates/dman-web" }
+# internal (the version is required for crates.io; keep it equal to workspace.package.version)
+dman-proto = { version = "0.1.0", path = "crates/dman-proto" }
+dman-config = { version = "0.1.0", path = "crates/dman-config" }
+dman-aria2 = { version = "0.1.0", path = "crates/dman-aria2" }
+dman-daemon = { version = "0.1.0", path = "crates/dman-daemon", default-features = false }
+dman-client = { version = "0.1.0", path = "crates/dman-client" }
+dman-tui = { version = "0.1.0", path = "crates/dman-tui", default-features = false }
+dman-store = { version = "0.1.0", path = "crates/dman-store" }
+dman-torrent = { version = "0.1.0", path = "crates/dman-torrent" }
+dman-ytdlp = { version = "0.1.0", path = "crates/dman-ytdlp" }
+dman-search = { version = "0.1.0", path = "crates/dman-search", default-features = false }
+dman-web = { version = "0.1.0", path = "crates/dman-web" }
 
 # runtime and data
 tokio = { version = "1.54", default-features = false }

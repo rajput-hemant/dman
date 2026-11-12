@@ -29,13 +29,26 @@ queue, so downloads keep running after you close the interface. The daemon start
 
 ## Install
 
-From source:
+dman needs `aria2c`; `yt-dlp` and `ffmpeg` are optional (video downloads). Homebrew,
+Scoop, winget and the AUR package install aria2 with dman.
 
 ```bash
-cargo install --locked --git https://github.com/rajput-hemant/dman dman
+# Installer, Linux and macOS
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/rajput-hemant/dman/releases/latest/download/dman-installer.sh | sh
+# Installer, Windows (PowerShell)
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/rajput-hemant/dman/releases/latest/download/dman-installer.ps1 | iex"
+
+brew install rajput-hemant/tap/dman                                       # Homebrew
+scoop bucket add rajput-hemant https://github.com/rajput-hemant/scoop-bucket
+scoop install rajput-hemant/dman                                          # Scoop
+winget install rajput-hemant.dman                                         # winget
+cargo install --locked dman                                               # from source (crates.io)
+yay -S dman-bin                                                           # Arch Linux (AUR)
 ```
 
-Slimmer builds: `--no-default-features --features web,search` (features: `web`, `search`, `video`, `notify`; all on by default).
+Installer installs update themselves with `dman update`; for the others it prints the
+package manager's command. Slimmer source builds: `--no-default-features --features web,search`
+(features: `web`, `search`, `video`, `notify`; all on by default). Releasing: [docs/releasing.md](docs/releasing.md).
 
 Then enable shell completions:
 

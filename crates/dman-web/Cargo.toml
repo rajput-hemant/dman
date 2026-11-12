@@ -6,6 +6,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["dman", "htmx", "web-ui"]
+categories = ["web-programming::http-server"]
 
 [dependencies]
 dman-proto.workspace = true

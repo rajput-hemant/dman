@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+PackageIdentifier: rajput-hemant.dman
+PackageVersion: __VERSION__
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: dman.exe
+    PortableCommandAlias: dman
+Dependencies:
+  PackageDependencies:
+    - PackageIdentifier: aria2.aria2
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/rajput-hemant/dman/releases/download/v__VERSION__/dman-x86_64-pc-windows-msvc.zip
+    InstallerSha256: __SHA256_WINDOWS_X86_64__
+ManifestType: installer
+ManifestVersion: 1.10.0

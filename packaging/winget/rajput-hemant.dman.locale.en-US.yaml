@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+PackageIdentifier: rajput-hemant.dman
+PackageVersion: __VERSION__
+PackageLocale: en-US
+Publisher: rajput-hemant
+PublisherUrl: https://github.com/rajput-hemant
+PackageName: dman
+PackageUrl: https://github.com/rajput-hemant/dman
+License: MIT OR Apache-2.0
+LicenseUrl: https://github.com/rajput-hemant/dman/blob/main/LICENSE-MIT
+ShortDescription: Terminal-first download manager built on aria2.
+Description: dman is a download manager with a CLI, a TUI and a web UI, driven by a background daemon. It uses aria2 for HTTP, FTP and BitTorrent downloads; install yt-dlp and ffmpeg for video downloads.
+Moniker: dman
+Tags:
+  - download-manager
+  - aria2
+  - torrent
+  - yt-dlp
+  - tui
+  - cli
+ReleaseNotesUrl: https://github.com/rajput-hemant/dman/releases/tag/v__VERSION__
+ManifestType: defaultLocale
+ManifestVersion: 1.10.0

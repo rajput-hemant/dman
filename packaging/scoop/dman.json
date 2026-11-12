@@ -1,0 +1,31 @@
+{
+    "version": "__VERSION__",
+    "description": "Terminal-first download manager built on aria2 (optional yt-dlp for video)",
+    "homepage": "https://github.com/rajput-hemant/dman",
+    "license": "MIT|Apache-2.0",
+    "depends": "main/aria2",
+    "suggest": {
+        "video downloads": [
+            "main/yt-dlp",
+            "main/ffmpeg"
+        ]
+    },
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/rajput-hemant/dman/releases/download/v__VERSION__/dman-x86_64-pc-windows-msvc.zip",
+            "hash": "__SHA256_WINDOWS_X86_64__"
+        }
+    },
+    "bin": "dman.exe",
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/rajput-hemant/dman/releases/download/v$version/dman-x86_64-pc-windows-msvc.zip",
+                "hash": {
+                    "url": "$url.sha256"
+                }
+            }
+        }
+    }
+}

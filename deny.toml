@@ -1,5 +1,5 @@
 # cargo-deny configuration. Run: cargo deny check
-# Licenses: permissive only, so dman itself can stay proprietary-capable.
+# Licenses: permissive only, compatible with dman's own MIT OR Apache-2.0.
 
 [graph]
 targets = [
@@ -7,6 +7,7 @@ targets = [
     "aarch64-unknown-linux-musl",
     "x86_64-apple-darwin",
     "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
 ]
 
 [licenses]
@@ -30,10 +31,6 @@ allow = [
     "BSL-1.0",
     "CDLA-Permissive-2.0",
 ]
-[licenses.private]
-# Workspace crates are publish = false / proprietary.
-ignore = true
-
 # Strong copyleft (GPL, AGPL, LGPL) stays disallowed.
 
 [advisories]

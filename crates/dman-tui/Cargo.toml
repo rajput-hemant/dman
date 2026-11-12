@@ -6,6 +6,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords = ["dman", "tui", "ratatui", "download-manager"]
+categories = ["command-line-utilities"]
+# Snapshot test fixtures are only read by the tests, not needed to build.
+exclude = ["src/snapshots", "src/tests/snapshots"]
 
 [features]
 default = ["notify"]

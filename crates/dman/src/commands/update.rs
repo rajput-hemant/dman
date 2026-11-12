@@ -1,12 +1,14 @@
 //! `dman update` and the opt-in update check.
 //!
 //! dman only replaces its own binary when it was put there by the dman
-//! installer (cargo-dist shell script, which leaves an install receipt).
-//! Homebrew, cargo and system package installs are left to their managers.
+//! installers (the cargo-dist shell and PowerShell scripts, which leave an
+//! install receipt). Package-manager installs (Homebrew, Scoop, winget, cargo,
+//! pacman/AUR, other system packages) are never touched: `dman update` prints
+//! the package manager's own upgrade command instead.
 //! Nothing here runs unless asked: `dman update`, or `[update] check = true`
 //! (at most one request per day, notice on stderr).
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::process::Command as Process;
 use std::time::Duration;
 
@@ -24,45 +26,92 @@ const REPO: &str = "rajput-hemant/dman";
 const DEFAULT_API: &str = "https://api.github.com";
 /// Overrides the GitHub API base URL (tests, mirrors).
 const ENV_API: &str = "DMAN_UPDATE_API";
-const INSTALLER_URL: &str =
-    "https://github.com/rajput-hemant/dman/releases/latest/download/dman-installer.sh";
-const GIT_URL: &str = "https://github.com/rajput-hemant/dman";
+const SHELL_INSTALLER: &str = "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/rajput-hemant/dman/releases/latest/download/dman-installer.sh | sh";
+const POWERSHELL_INSTALLER: &str = "powershell -ExecutionPolicy Bypass -c \"irm https://github.com/rajput-hemant/dman/releases/latest/download/dman-installer.ps1 | iex\"";
+/// Package identifier in the winget community repository.
+const WINGET_ID: &str = "rajput-hemant.dman";
+/// pacman package names dman may be installed under (the AUR package is `dman-bin`).
+const PACMAN_NAMES: [&str; 3] = ["dman-bin", "dman", "dman-git"];
 const CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 const CACHE_FILE: &str = "update-check.json";
 const NOTICE_TIMEOUT: Duration = Duration::from_secs(3);
 const UPDATE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How this binary got onto the machine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InstallMethod {
-    Homebrew,
-    Cargo,
+    /// The dman shell or PowerShell installer (the only case dman updates itself).
     Installer,
+    Homebrew,
+    Scoop,
+    Winget,
+    Cargo,
+    /// A pacman package, normally `dman-bin` from the AUR.
+    Pacman {
+        package: String,
+    },
+    /// Another system package manager (dpkg, rpm, ...).
     System,
     Unknown,
 }
 
+impl Serialize for InstallMethod {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.id())
+    }
+}
+
 impl InstallMethod {
-    fn label(self) -> &'static str {
+    /// Stable name for `--json` output.
+    fn id(&self) -> &'static str {
         match self {
-            Self::Homebrew => "Homebrew",
+            Self::Installer => "installer",
+            Self::Homebrew => "homebrew",
+            Self::Scoop => "scoop",
+            Self::Winget => "winget",
             Self::Cargo => "cargo",
-            Self::Installer => "the dman installer",
-            Self::System => "a system package manager",
-            Self::Unknown => "an unknown method",
+            Self::Pacman { .. } => "pacman",
+            Self::System => "system",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    fn label(&self) -> String {
+        match self {
+            Self::Installer => "the dman installer".into(),
+            Self::Homebrew => "Homebrew".into(),
+            Self::Scoop => "Scoop".into(),
+            Self::Winget => "winget".into(),
+            Self::Cargo => "cargo install".into(),
+            Self::Pacman { package } => format!("pacman (package {package})"),
+            Self::System => "a system package manager".into(),
+            Self::Unknown => "an unknown method".into(),
         }
     }
 
     /// The command that upgrades dman for this install method.
-    pub fn upgrade_command(self) -> String {
+    pub fn upgrade_command(&self) -> String {
         match self {
-            Self::Homebrew => "brew upgrade dman".into(),
-            Self::Cargo => format!("cargo install --locked --git {GIT_URL} dman"),
             Self::Installer => "dman update".into(),
+            Self::Homebrew => "brew upgrade dman".into(),
+            Self::Scoop => "scoop update dman".into(),
+            Self::Winget => format!("winget upgrade --id {WINGET_ID}"),
+            Self::Cargo => "cargo install --locked dman".into(),
+            // The AUR packages need an AUR helper; `yay` is the most common one.
+            Self::Pacman { package } if package == "dman" => "sudo pacman -Syu dman".into(),
+            Self::Pacman { package } => format!("yay -Syu {package}"),
             Self::System => "update dman with your system package manager".into(),
-            Self::Unknown => format!("curl --proto '=https' --tlsv1.2 -LsSf {INSTALLER_URL} | sh"),
+            Self::Unknown => "use the tool you installed dman with".into(),
         }
+    }
+}
+
+/// The installer one-liner for this platform.
+fn installer_command() -> &'static str {
+    if cfg!(windows) {
+        POWERSHELL_INSTALLER
+    } else {
+        SHELL_INSTALLER
     }
 }
 
@@ -72,21 +121,85 @@ pub struct DetectEnv {
     pub home: Option<PathBuf>,
     pub cargo_home: Option<PathBuf>,
     pub homebrew_prefix: Option<PathBuf>,
+    /// `$SCOOP` and `$SCOOP_GLOBAL`, for Scoop installs outside the default root.
+    pub scoop_roots: Vec<PathBuf>,
+    /// The installed pacman package that provides dman, if any.
+    pub pacman_package: Option<String>,
+}
+
+fn env_path(key: &str) -> Option<PathBuf> {
+    std::env::var_os(key)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
 }
 
 impl DetectEnv {
     pub fn from_process() -> Self {
-        let var = |k: &str| {
-            std::env::var_os(k)
-                .filter(|v| !v.is_empty())
-                .map(PathBuf::from)
-        };
         Self {
-            home: var("HOME"),
-            cargo_home: var("CARGO_HOME"),
-            homebrew_prefix: var("HOMEBREW_PREFIX"),
+            // Windows has USERPROFILE instead of HOME.
+            home: env_path("HOME").or_else(|| env_path("USERPROFILE")),
+            cargo_home: env_path("CARGO_HOME"),
+            homebrew_prefix: env_path("HOMEBREW_PREFIX"),
+            scoop_roots: ["SCOOP", "SCOOP_GLOBAL"]
+                .into_iter()
+                .filter_map(env_path)
+                .collect(),
+            pacman_package: if cfg!(target_os = "linux") {
+                std::fs::read_dir("/var/lib/pacman/local")
+                    .ok()
+                    .and_then(|dir| {
+                        pacman_package(
+                            dir.flatten()
+                                .filter_map(|e| e.file_name().into_string().ok()),
+                        )
+                    })
+            } else {
+                None
+            },
         }
     }
+}
+
+/// Find dman among pacman's local database entries (`<name>-<pkgver>-<pkgrel>`).
+fn pacman_package(entries: impl IntoIterator<Item = String>) -> Option<String> {
+    entries.into_iter().find_map(|entry| {
+        let mut parts = entry.rsplitn(3, '-');
+        let (_rel, _ver, name) = (parts.next()?, parts.next()?, parts.next()?);
+        PACMAN_NAMES.contains(&name).then(|| name.to_owned())
+    })
+}
+
+/// Path components, lower-cased and with Windows' `\\?\` prefix removed, so
+/// paths compare the way Windows and macOS (case-insensitive by default) do.
+/// On Linux a false match would need two paths that differ only in case.
+fn path_key(p: &Path) -> Vec<String> {
+    p.components()
+        .filter_map(|c| match c {
+            Component::Prefix(pre) => Some(match pre.kind() {
+                Prefix::Disk(d) | Prefix::VerbatimDisk(d) => format!("{}:", d as char),
+                Prefix::UNC(server, share) | Prefix::VerbatimUNC(server, share) => format!(
+                    r"\\{}\{}",
+                    server.to_string_lossy(),
+                    share.to_string_lossy()
+                ),
+                _ => pre.as_os_str().to_string_lossy().into_owned(),
+            }),
+            Component::CurDir => None,
+            other => Some(other.as_os_str().to_string_lossy().into_owned()),
+        })
+        .map(|s| s.to_lowercase())
+        .collect()
+}
+
+/// Whether `path` is `dir` or inside it.
+fn is_under(path: &Path, dir: &Path) -> bool {
+    let (p, d) = (path_key(path), path_key(dir));
+    !d.is_empty() && p.starts_with(&d)
+}
+
+/// Whether `path` contains the directory names `seq` one after the other.
+fn has_dirs(path: &Path, seq: &[&str]) -> bool {
+    path_key(path).windows(seq.len()).any(|w| w == seq)
 }
 
 /// The parts of cargo-dist's install receipt (`dman-receipt.json`) we use.
@@ -96,12 +209,18 @@ pub struct Receipt {
 }
 
 impl Receipt {
-    /// Where the installer writes the receipt: `$XDG_CONFIG_HOME` or `~/.config`.
-    /// This is independent of `DMAN_CONFIG_DIR`, it is the installer's choice.
-    pub fn path(home: Option<&Path>, xdg_config_home: Option<&Path>) -> Option<PathBuf> {
-        let base = match xdg_config_home {
-            Some(x) => x.to_path_buf(),
-            None => home?.join(".config"),
+    /// Where the installers write the receipt: `$XDG_CONFIG_HOME/dman`, else
+    /// `%LOCALAPPDATA%\dman` on Windows (pass `local_app_data` only there), else
+    /// `~/.config/dman`. This is independent of `DMAN_CONFIG_DIR`, it is the
+    /// installer's choice.
+    pub fn path(
+        home: Option<&Path>,
+        xdg_config_home: Option<&Path>,
+        local_app_data: Option<&Path>,
+    ) -> Option<PathBuf> {
+        let base = match (xdg_config_home, local_app_data) {
+            (Some(x), _) | (None, Some(x)) => x.to_path_buf(),
+            (None, None) => home?.join(".config"),
         };
         Some(base.join("dman").join("dman-receipt.json"))
     }
@@ -115,15 +234,17 @@ impl Receipt {
         let Some(dir) = exe.parent() else {
             return false;
         };
-        dir == self.install_prefix || dir == self.install_prefix.join("bin")
+        let dir = path_key(dir);
+        dir == path_key(&self.install_prefix) || dir == path_key(&self.install_prefix.join("bin"))
     }
 }
 
 /// Classify an installed binary. `exe` should be canonicalised by the caller.
 ///
-/// Order: Homebrew, installer receipt that owns this exact location, cargo,
-/// system package paths, unknown. The receipt check precedes cargo only so an
-/// installer that installs into `~/.cargo/bin` is not mistaken for `cargo install`.
+/// Order: Homebrew, installer receipt that owns this exact location, Scoop,
+/// winget, cargo, system package paths, unknown. The receipt check precedes
+/// cargo only so an installer that installs into `~/.cargo/bin` is not
+/// mistaken for `cargo install`.
 pub fn detect(exe: &Path, env: &DetectEnv, receipt: Option<&Receipt>) -> InstallMethod {
     let mut brew: Vec<PathBuf> = vec![
         "/opt/homebrew".into(),
@@ -137,22 +258,44 @@ pub fn detect(exe: &Path, env: &DetectEnv, receipt: Option<&Receipt>) -> Install
             brew.push(p.clone());
         }
     }
-    if brew.iter().any(|p| exe.starts_with(p)) {
+    if brew.iter().any(|p| is_under(exe, p)) {
         return InstallMethod::Homebrew;
     }
     if receipt.is_some_and(|r| r.owns(exe)) {
         return InstallMethod::Installer;
+    }
+    // Scoop: <root>/apps/dman/<version>/dman.exe (`current` is a junction to it).
+    if has_dirs(exe, &["scoop", "apps", "dman"])
+        || env
+            .scoop_roots
+            .iter()
+            .any(|r| is_under(exe, &r.join("apps").join("dman")))
+    {
+        return InstallMethod::Scoop;
+    }
+    // winget portable packages: %LOCALAPPDATA%\Microsoft\WinGet\Packages\<id>_<source>\
+    // (or Program Files\WinGet\Packages), linked from WinGet\Links.
+    if has_dirs(exe, &["winget", "packages"]) || has_dirs(exe, &["winget", "links"]) {
+        return InstallMethod::Winget;
     }
     let cargo_bin = env
         .cargo_home
         .clone()
         .or_else(|| env.home.as_ref().map(|h| h.join(".cargo")))
         .map(|c| c.join("bin"));
-    if cargo_bin.is_some_and(|b| exe.starts_with(b)) {
+    if cargo_bin.is_some_and(|b| is_under(exe, &b)) {
         return InstallMethod::Cargo;
     }
-    if exe.starts_with("/usr/bin") || exe.starts_with("/usr/sbin") {
-        return InstallMethod::System;
+    if ["/usr/bin", "/usr/sbin", "/bin"]
+        .iter()
+        .any(|d| is_under(exe, Path::new(d)))
+    {
+        return match &env.pacman_package {
+            Some(package) => InstallMethod::Pacman {
+                package: package.clone(),
+            },
+            None => InstallMethod::System,
+        };
     }
     InstallMethod::Unknown
 }
@@ -163,11 +306,17 @@ fn detect_current() -> (InstallMethod, Option<PathBuf>) {
     };
     let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
     let env = DetectEnv::from_process();
-    let xdg = std::env::var_os("XDG_CONFIG_HOME")
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from);
-    let receipt =
-        Receipt::path(env.home.as_deref(), xdg.as_deref()).and_then(|p| Receipt::load(&p));
+    let local_app_data = if cfg!(windows) {
+        env_path("LOCALAPPDATA")
+    } else {
+        None
+    };
+    let receipt = Receipt::path(
+        env.home.as_deref(),
+        env_path("XDG_CONFIG_HOME").as_deref(),
+        local_app_data.as_deref(),
+    )
+    .and_then(|p| Receipt::load(&p));
     (detect(&exe, &env, receipt.as_ref()), Some(exe))
 }
 
@@ -178,8 +327,27 @@ pub fn target_triple() -> Option<&'static str> {
         ("linux", "aarch64") => "aarch64-unknown-linux-musl",
         ("macos", "x86_64") => "x86_64-apple-darwin",
         ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("windows", "x86_64") => "x86_64-pc-windows-msvc",
         _ => return None,
     })
+}
+
+/// The release archive for `target`: `.zip` on Windows, `.tar.gz` elsewhere.
+pub fn archive_name(target: &str) -> String {
+    if target.contains("-windows-") {
+        format!("dman-{target}.zip")
+    } else {
+        format!("dman-{target}.tar.gz")
+    }
+}
+
+/// The executable inside the archive for `target`.
+fn binary_name(target: &str) -> &'static str {
+    if target.contains("-windows-") {
+        "dman.exe"
+    } else {
+        "dman"
+    }
 }
 
 /// Parse a release tag (`v1.2.3` or `1.2.3`).
@@ -276,17 +444,66 @@ pub fn verify_checksum(data: &[u8], checksum_file: &str, asset_name: &str) -> Re
     }
 }
 
-/// Replace `exe` with `new_binary`: copy next to it, move the old one to
-/// `<exe>.old`, rename the new one in; the backup is removed on success and
-/// restored on failure.
-pub fn replace_binary(exe: &Path, new_binary: &Path) -> std::io::Result<()> {
-    let with_ext = |ext: &str| {
-        let mut name = exe.file_name().unwrap_or_default().to_os_string();
-        name.push(ext);
-        exe.with_file_name(name)
+/// `exe` with `suffix` appended to its file name.
+fn sibling(exe: &Path, suffix: &str) -> PathBuf {
+    let mut name = exe.file_name().unwrap_or_default().to_os_string();
+    name.push(suffix);
+    exe.with_file_name(name)
+}
+
+/// Whether `name` is a backup an earlier update left next to `exe_name`:
+/// `<exe_name>.old` or `<exe_name>.old.<n>`.
+fn is_backup_name(name: &str, exe_name: &str) -> bool {
+    match name
+        .strip_prefix(exe_name)
+        .and_then(|r| r.strip_prefix(".old"))
+    {
+        Some("") => true,
+        Some(rest) => rest
+            .strip_prefix('.')
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())),
+        None => false,
+    }
+}
+
+/// Remove backups earlier updates could not delete. Windows cannot delete a
+/// program while it runs, so the old binary stays until a later update; one
+/// that is still running (an old daemon) is skipped and tried again next time.
+fn remove_old_backups(exe: &Path) {
+    let (Some(dir), Some(exe_name)) = (exe.parent(), exe.file_name().and_then(|n| n.to_str()))
+    else {
+        return;
     };
-    let staged = with_ext(".new");
-    let backup = with_ext(".old");
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if entry
+            .file_name()
+            .to_str()
+            .is_some_and(|n| is_backup_name(n, exe_name))
+        {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+/// A backup path that is not taken (an older backup may still be in use).
+fn free_backup_path(exe: &Path) -> PathBuf {
+    std::iter::once(sibling(exe, ".old"))
+        .chain((1..100).map(|n| sibling(exe, &format!(".old.{n}"))))
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| sibling(exe, ".old"))
+}
+
+/// Replace `exe` with `new_binary`: copy next to it, move the old one aside
+/// (renaming works even while it runs, also on Windows), rename the new one in.
+/// The old one is restored on failure and removed on success; when it cannot
+/// be removed (Windows, still running) its path is returned.
+pub fn replace_binary(exe: &Path, new_binary: &Path) -> std::io::Result<Option<PathBuf>> {
+    remove_old_backups(exe);
+    let staged = sibling(exe, ".new");
+    let backup = free_backup_path(exe);
     let result = (|| {
         std::fs::copy(new_binary, &staged)?;
         #[cfg(unix)]
@@ -294,7 +511,6 @@ pub fn replace_binary(exe: &Path, new_binary: &Path) -> std::io::Result<()> {
             use std::os::unix::fs::PermissionsExt as _;
             std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
         }
-        let _ = std::fs::remove_file(&backup);
         std::fs::rename(exe, &backup)?;
         if let Err(e) = std::fs::rename(&staged, exe) {
             let _ = std::fs::rename(&backup, exe);
@@ -303,10 +519,7 @@ pub fn replace_binary(exe: &Path, new_binary: &Path) -> std::io::Result<()> {
         Ok(())
     })();
     match result {
-        Ok(()) => {
-            let _ = std::fs::remove_file(&backup);
-            Ok(())
-        }
+        Ok(()) => Ok(std::fs::remove_file(&backup).err().map(|_| backup)),
         Err(e) => {
             let _ = std::fs::remove_file(&staged);
             Err(e)
@@ -314,10 +527,29 @@ pub fn replace_binary(exe: &Path, new_binary: &Path) -> std::io::Result<()> {
     }
 }
 
-/// Unpack a `.tar.gz` with the system `tar` and return the `dman` binary in it.
-fn extract_binary(archive: &Path, dest: &Path) -> Result<PathBuf, CliError> {
-    let status = Process::new("tar")
-        .arg("-xzf")
+/// The `tar` to unpack with. Windows 10 and later ship bsdtar, which also
+/// reads `.zip`; the full path avoids picking up GNU tar from Git or MSYS2,
+/// which cannot.
+fn tar_program() -> PathBuf {
+    if cfg!(windows)
+        && let Some(root) = env_path("SystemRoot")
+    {
+        let tar = root.join("System32").join("tar.exe");
+        if tar.is_file() {
+            return tar;
+        }
+    }
+    PathBuf::from("tar")
+}
+
+/// Unpack a release archive with the system `tar` and return the binary in it.
+fn extract_binary(archive: &Path, dest: &Path, binary: &str) -> Result<PathBuf, CliError> {
+    let gzip = archive
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.ends_with(".tar.gz"));
+    let status = Process::new(tar_program())
+        .arg(if gzip { "-xzf" } else { "-xf" })
         .arg(archive)
         .arg("-C")
         .arg(dest)
@@ -337,7 +569,7 @@ fn extract_binary(archive: &Path, dest: &Path) -> Result<PathBuf, CliError> {
                 let path = entry.path();
                 if path.is_dir() {
                     next.push(path);
-                } else if path.file_name().is_some_and(|n| n == "dman") {
+                } else if path.file_name().is_some_and(|n| n == binary) {
                     return Ok(path);
                 }
             }
@@ -345,23 +577,24 @@ fn extract_binary(archive: &Path, dest: &Path) -> Result<PathBuf, CliError> {
         dirs = next;
     }
     Err(
-        CliError::general("the release archive does not contain a dman binary")
+        CliError::general(format!("the release archive does not contain {binary}"))
             .with_hint("reinstall from the releases page"),
     )
 }
 
-/// Download, verify and install `release` over `exe`.
+/// Download, verify and install `release` over `exe`. Returns the old binary's
+/// path when it had to be left behind (see [`replace_binary`]).
 async fn install_release(
     client: &reqwest::Client,
     release: &Release,
     target: &str,
     exe: &Path,
-) -> Result<(), CliError> {
-    let name = format!("dman-{target}.tar.gz");
+) -> Result<Option<PathBuf>, CliError> {
+    let name = archive_name(target);
     let find = |n: &str| release.assets.iter().find(|a| a.name == n);
     let archive = find(&name).ok_or_else(|| {
         CliError::general(format!("release {} has no asset {name}", release.tag_name))
-            .with_hint("build from source instead: `cargo install dman`")
+            .with_hint("build from source instead: `cargo install --locked dman`")
     })?;
     let sum_name = format!("{name}.sha256");
     let sum = find(&sum_name).ok_or_else(|| {
@@ -384,7 +617,7 @@ async fn install_release(
     std::fs::write(&archive_path, &data)?;
     let unpack = tmp.path().join("unpack");
     std::fs::create_dir(&unpack)?;
-    let new_bin = extract_binary(&archive_path, &unpack)?;
+    let new_bin = extract_binary(&archive_path, &unpack, binary_name(target))?;
     replace_binary(exe, &new_bin).map_err(|e| {
         CliError::general(format!(
             "cannot replace {} (permissions?): {e}",
@@ -470,49 +703,52 @@ pub async fn run(ctx: &Ctx, args: &UpdateArgs) -> Result<i32, CliError> {
         }
         Ok(0)
     };
-    say(format!(
-        "dman {current} -> {latest} (installed via {})",
-        method.label()
-    ));
-    match method {
-        InstallMethod::Homebrew => {
-            if args.yes || confirm("run `brew upgrade dman` now?") {
-                let ok = run_command(Path::new("brew"), &["upgrade", "dman"])?;
-                if !ok {
-                    return Err(CliError::general("`brew upgrade dman` failed")
-                        .with_hint("run `brew update` and try `brew upgrade dman` yourself"));
-                }
-                return done(true);
-            }
-            say(format!("run: {command}"));
-            done(false)
+    match &method {
+        InstallMethod::Installer => {}
+        InstallMethod::Unknown => {
+            return Err(CliError::refused(format!(
+                "dman {latest} is available, but it is not clear how dman {current} was \
+                 installed, so it will not replace itself"
+            ))
+            .with_hint(format!(
+                "{command}; to switch to the self-updating install, run: {}",
+                installer_command()
+            )));
         }
-        InstallMethod::Cargo => {
-            say(format!("run: {command}"));
-            done(false)
-        }
-        InstallMethod::System | InstallMethod::Unknown => Err(CliError::refused(format!(
-            "dman was installed via {}, so it will not replace itself",
-            method.label()
-        ))
-        .with_hint(format!("run: {command}"))),
-        InstallMethod::Installer => {
-            let (Some(target), Some(exe)) = (target_triple(), exe) else {
-                return Err(CliError::refused("no release build for this platform")
-                    .with_hint("build from source: `cargo install dman`"));
-            };
-            install_release(&client, &release, target, &exe).await?;
-            say(format!("updated to {latest}"));
-            if args.yes || confirm("restart the daemon now (`dman daemon restart`)?") {
-                if !run_command(&exe, &["daemon", "restart"])? {
-                    say("daemon restart failed; run `dman daemon restart` yourself".into());
-                }
-            } else {
-                say("restart the daemon to use the new version: dman daemon restart".into());
-            }
-            done(true)
+        // A package manager owns the binary: never replace it, only say how.
+        _ => {
+            say(format!(
+                "dman {latest} is available (you have {current}), installed via {}.",
+                method.label()
+            ));
+            say(format!("To update, run: {command}"));
+            return done(false);
         }
     }
+    say(format!(
+        "dman {current} -> {latest} (installed via the dman installer)"
+    ));
+    let (Some(target), Some(exe)) = (target_triple(), exe) else {
+        return Err(CliError::refused("no release build for this platform")
+            .with_hint("build from source: `cargo install --locked dman`"));
+    };
+    let left_behind = install_release(&client, &release, target, &exe).await?;
+    say(format!("updated to {latest}"));
+    if let Some(old) = left_behind {
+        say(format!(
+            "the previous version is still running, so it was left at {}; \
+             the next `dman update` removes it",
+            old.display()
+        ));
+    }
+    if args.yes || confirm("restart the daemon now (`dman daemon restart`)?") {
+        if !run_command(&exe, &["daemon", "restart"])? {
+            say("daemon restart failed; run `dman daemon restart` yourself".into());
+        }
+    } else {
+        say("restart the daemon to use the new version: dman daemon restart".into());
+    }
+    done(true)
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -597,8 +833,7 @@ mod tests {
     fn env() -> DetectEnv {
         DetectEnv {
             home: Some("/home/u".into()),
-            cargo_home: None,
-            homebrew_prefix: None,
+            ..DetectEnv::default()
         }
     }
 
@@ -671,6 +906,175 @@ mod tests {
     }
 
     #[test]
+    fn detects_scoop() {
+        for p in [
+            "C:/Users/u/scoop/apps/dman/0.1.0/dman.exe",
+            "C:/Users/u/Scoop/Apps/dman/current/dman.exe",
+            "C:/ProgramData/scoop/apps/dman/0.1.0/dman.exe",
+        ] {
+            assert_eq!(
+                detect(Path::new(p), &env(), None),
+                InstallMethod::Scoop,
+                "{p}"
+            );
+        }
+        let mut e = env();
+        e.scoop_roots = vec!["D:/tools".into()];
+        assert_eq!(
+            detect(Path::new("D:/tools/apps/dman/0.1.0/dman.exe"), &e, None),
+            InstallMethod::Scoop
+        );
+        // another app's directory is not dman's Scoop install
+        assert_eq!(
+            detect(Path::new("D:/tools/apps/other/dman.exe"), &e, None),
+            InstallMethod::Unknown
+        );
+    }
+
+    #[test]
+    fn detects_winget() {
+        for p in [
+            "C:/Users/u/AppData/Local/Microsoft/WinGet/Packages/rajput-hemant.dman_Microsoft.Winget.Source_8wekyb3d8bbwe/dman.exe",
+            "C:/Program Files/WinGet/Packages/rajput-hemant.dman_Microsoft.Winget.Source_8wekyb3d8bbwe/dman.exe",
+            "C:/Users/u/AppData/Local/Microsoft/WinGet/Links/dman.exe",
+        ] {
+            assert_eq!(
+                detect(Path::new(p), &env(), None),
+                InstallMethod::Winget,
+                "{p}"
+            );
+        }
+    }
+
+    #[test]
+    fn detects_windows_cargo_and_installer() {
+        let e = DetectEnv {
+            home: Some("C:/Users/U".into()),
+            ..DetectEnv::default()
+        };
+        assert_eq!(
+            detect(Path::new("C:/Users/U/.cargo/bin/dman.exe"), &e, None),
+            InstallMethod::Cargo
+        );
+        // the receipt's prefix may differ in case from the canonical exe path
+        let r = Receipt {
+            install_prefix: "C:/Users/U/.local/bin".into(),
+        };
+        assert_eq!(
+            detect(Path::new("c:/users/u/.local/bin/dman.exe"), &e, Some(&r)),
+            InstallMethod::Installer
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_paths_match_across_separators_and_verbatim_prefix() {
+        // what the PowerShell installer writes vs what canonicalize returns
+        let r = Receipt {
+            install_prefix: r"C:\Users\u\.local/bin".into(),
+        };
+        let exe = Path::new(r"\\?\C:\Users\u\.local\bin\dman.exe");
+        assert_eq!(detect(exe, &env(), Some(&r)), InstallMethod::Installer);
+        let scoop = Path::new(r"\\?\C:\Users\u\scoop\apps\dman\0.1.0\dman.exe");
+        assert_eq!(detect(scoop, &env(), None), InstallMethod::Scoop);
+    }
+
+    #[test]
+    fn detects_pacman_package() {
+        let mut e = env();
+        e.pacman_package = Some("dman-bin".into());
+        let m = detect(Path::new("/usr/bin/dman"), &e, None);
+        assert_eq!(
+            m,
+            InstallMethod::Pacman {
+                package: "dman-bin".into()
+            }
+        );
+        assert_eq!(m.upgrade_command(), "yay -Syu dman-bin");
+        // a pacman database entry does not claim binaries outside system paths
+        assert_eq!(
+            detect(Path::new("/home/u/.cargo/bin/dman"), &e, None),
+            InstallMethod::Cargo
+        );
+        let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            pacman_package(names(&["dmenu-5.3-1", "dman-bin-0.1.0-1"])).as_deref(),
+            Some("dman-bin")
+        );
+        assert_eq!(
+            pacman_package(names(&["dman-0.2.0-3"])).as_deref(),
+            Some("dman")
+        );
+        assert_eq!(
+            pacman_package(names(&["dman-tools-1.0-1", "dman-bin"])),
+            None
+        );
+    }
+
+    #[test]
+    fn package_managers_get_their_own_command() {
+        let cases = [
+            (InstallMethod::Homebrew, "brew upgrade dman"),
+            (InstallMethod::Scoop, "scoop update dman"),
+            (
+                InstallMethod::Winget,
+                "winget upgrade --id rajput-hemant.dman",
+            ),
+            (InstallMethod::Cargo, "cargo install --locked dman"),
+            (
+                InstallMethod::Pacman {
+                    package: "dman".into(),
+                },
+                "sudo pacman -Syu dman",
+            ),
+        ];
+        for (m, cmd) in cases {
+            assert_eq!(m.upgrade_command(), cmd);
+        }
+        // only installer installs update themselves, and nothing else points at
+        // the GitHub release (an unknown install is not sent to the installer)
+        assert_eq!(InstallMethod::Installer.upgrade_command(), "dman update");
+        for m in [InstallMethod::System, InstallMethod::Unknown] {
+            assert!(!m.upgrade_command().contains("github.com"), "{m:?}");
+        }
+        assert_eq!(
+            serde_json::to_value(InstallMethod::Pacman {
+                package: "dman-bin".into()
+            })
+            .unwrap(),
+            "pacman"
+        );
+    }
+
+    #[test]
+    fn archive_selection() {
+        for (target, archive, bin) in [
+            (
+                "x86_64-unknown-linux-musl",
+                "dman-x86_64-unknown-linux-musl.tar.gz",
+                "dman",
+            ),
+            (
+                "aarch64-apple-darwin",
+                "dman-aarch64-apple-darwin.tar.gz",
+                "dman",
+            ),
+            (
+                "x86_64-pc-windows-msvc",
+                "dman-x86_64-pc-windows-msvc.zip",
+                "dman.exe",
+            ),
+        ] {
+            assert_eq!(archive_name(target), archive);
+            assert_eq!(binary_name(target), bin);
+        }
+        if let Some(t) = target_triple() {
+            let want = if cfg!(windows) { ".zip" } else { ".tar.gz" };
+            assert!(archive_name(t).ends_with(want));
+        }
+    }
+
+    #[test]
     fn detects_system_and_unknown() {
         assert_eq!(
             detect(Path::new("/usr/bin/dman"), &env(), None),
@@ -688,13 +1092,19 @@ mod tests {
 
     #[test]
     fn receipt_path_and_parse() {
+        let h = Some(Path::new("/h"));
         assert_eq!(
-            Receipt::path(Some(Path::new("/h")), None).unwrap(),
+            Receipt::path(h, None, None).unwrap(),
             Path::new("/h/.config/dman/dman-receipt.json")
         );
         assert_eq!(
-            Receipt::path(Some(Path::new("/h")), Some(Path::new("/x"))).unwrap(),
+            Receipt::path(h, Some(Path::new("/x")), Some(Path::new("/l"))).unwrap(),
             Path::new("/x/dman/dman-receipt.json")
+        );
+        // Windows: %LOCALAPPDATA%\dman unless XDG_CONFIG_HOME is set
+        assert_eq!(
+            Receipt::path(h, None, Some(Path::new("/l"))).unwrap(),
+            Path::new("/l/dman/dman-receipt.json")
         );
         let json = r#"{"binaries":["dman"],"install_prefix":"/h/.local","install_layout":"flat","version":"0.1.0","source":{"app_name":"dman"}}"#;
         let r: Receipt = serde_json::from_str(json).unwrap();
@@ -744,7 +1154,7 @@ mod tests {
         let new = dir.path().join("fresh");
         std::fs::write(&exe, "old").unwrap();
         std::fs::write(&new, "new").unwrap();
-        replace_binary(&exe, &new).unwrap();
+        assert_eq!(replace_binary(&exe, &new).unwrap(), None);
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "new");
         assert!(!dir.path().join("dman.old").exists());
         assert!(!dir.path().join("dman.new").exists());
@@ -765,6 +1175,34 @@ mod tests {
         std::fs::write(&exe, "old").unwrap();
         assert!(replace_binary(&exe, &dir.path().join("missing")).is_err());
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "old");
+    }
+
+    #[test]
+    fn backups_of_earlier_updates_are_cleaned_up() {
+        assert!(is_backup_name("dman.exe.old", "dman.exe"));
+        assert!(is_backup_name("dman.old.12", "dman"));
+        for other in ["dman.older", "dman.old.", "dman.old.x", "dmanx.old", "dman"] {
+            assert!(!is_backup_name(other, "dman"), "{other}");
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("dman");
+        let new = dir.path().join("fresh");
+        std::fs::write(&exe, "old").unwrap();
+        std::fs::write(&new, "new").unwrap();
+        std::fs::write(dir.path().join("dman.old.3"), "older").unwrap();
+        std::fs::write(dir.path().join("dman.older"), "keep").unwrap();
+        // A backup that cannot be removed (on Windows: still running) is skipped
+        // and the current binary moves to the next free name.
+        std::fs::create_dir(dir.path().join("dman.old")).unwrap();
+        assert_eq!(replace_binary(&exe, &new).unwrap(), None);
+        assert_eq!(std::fs::read_to_string(&exe).unwrap(), "new");
+        assert!(!dir.path().join("dman.old.3").exists());
+        assert!(!dir.path().join("dman.old.1").exists());
+        assert!(dir.path().join("dman.old").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("dman.older")).unwrap(),
+            "keep"
+        );
     }
 
     fn release_json(server: &MockServer, tag: &str) -> serde_json::Value {
@@ -912,9 +1350,10 @@ mod tests {
         let exe = bin_dir.path().join("dman");
         std::fs::write(&exe, "OLDBIN").unwrap();
         let client = http_client(Duration::from_secs(5)).unwrap();
-        install_release(&client, &release, target, &exe)
+        let left = install_release(&client, &release, target, &exe)
             .await
             .unwrap();
+        assert_eq!(left, None);
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "NEWBIN");
 
         // a corrupted checksum must leave the binary alone

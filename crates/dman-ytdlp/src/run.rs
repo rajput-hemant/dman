@@ -4,9 +4,6 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use nix::errno::Errno;
-use nix::sys::signal::{Signal, killpg};
-use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
@@ -99,7 +96,7 @@ impl Drop for Running {
             t.abort();
             if live && let Some(pgid) = self.pgid {
                 // Take the grandchildren (ffmpeg, ...) down too.
-                signal_group(pgid, Signal::SIGKILL);
+                signal_group(pgid, Stop::Force);
             }
         }
     }
@@ -129,8 +126,17 @@ pub fn spawn(spec: &DownloadSpec, tools: &Tools, job_tag: &str) -> Result<Runnin
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .process_group(0);
+        .kill_on_drop(true);
+    // Own process group, so stopping the job also stops yt-dlp's children
+    // (ffmpeg). On Windows the tree is found through the process id instead.
+    #[cfg(unix)]
+    cmd.process_group(0);
+    #[cfg(windows)]
+    {
+        // No console window for the child.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     let mut child = cmd.spawn().map_err(|source| Error::Spawn {
         tool: "yt-dlp",
         source,
@@ -232,31 +238,70 @@ fn push_tail(tail: &Mutex<VecDeque<String>>, line: String) {
     }
 }
 
-/// SIGTERM the process group, SIGKILL after the grace period.
+/// Ask the process tree to stop, force it after the grace period.
 async fn terminate(
     child: &mut Child,
     pid: Option<u32>,
 ) -> std::io::Result<std::process::ExitStatus> {
     if let Some(pid) = pid {
-        signal_group(pid, Signal::SIGTERM);
+        signal_group(pid, Stop::Graceful);
         if let Ok(st) = tokio::time::timeout(KILL_GRACE, child.wait()).await {
             return st;
         }
-        signal_group(pid, Signal::SIGKILL);
+        signal_group(pid, Stop::Force);
     }
     let _ = child.start_kill();
     child.wait().await
 }
 
-/// Send `sig` to the process group led by `pid`. ESRCH (group already gone) is expected and
-/// ignored; any other failure is only logged, matching the previous best-effort behaviour.
-fn signal_group(pid: u32, sig: Signal) {
+/// How to stop a process tree.
+#[derive(Debug, Clone, Copy)]
+enum Stop {
+    /// SIGTERM on Unix; a plain `taskkill /T` on Windows.
+    Graceful,
+    /// SIGKILL on Unix; `taskkill /T /F` on Windows.
+    Force,
+}
+
+/// Stop the process group led by `pid`. A group that is already gone is expected
+/// and ignored; any other failure is only logged (best effort).
+#[cfg(unix)]
+fn signal_group(pid: u32, stop: Stop) {
+    use nix::errno::Errno;
+    use nix::sys::signal::{Signal, killpg};
+    use nix::unistd::Pid;
     let Ok(raw) = i32::try_from(pid) else {
         return;
+    };
+    let sig = match stop {
+        Stop::Graceful => Signal::SIGTERM,
+        Stop::Force => Signal::SIGKILL,
     };
     match killpg(Pid::from_raw(raw), sig) {
         Ok(()) | Err(Errno::ESRCH) => {}
         Err(err) => tracing::debug!(pgid = raw, ?sig, %err, "killpg failed"),
+    }
+}
+
+/// Stop the process `pid` and its children with `taskkill /T`. Windows has no
+/// process groups that can be signalled, so the tree is walked by process id.
+#[cfg(windows)]
+fn signal_group(pid: u32, stop: Stop) {
+    use std::os::windows::process::CommandExt as _;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut cmd = std::process::Command::new("taskkill");
+    cmd.args(["/PID", &pid.to_string(), "/T"]);
+    if matches!(stop, Stop::Force) {
+        cmd.arg("/F");
+    }
+    let result = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(CREATE_NO_WINDOW)
+        .status();
+    if let Err(err) = result {
+        tracing::debug!(pid, ?stop, %err, "taskkill failed");
     }
 }
 
@@ -438,6 +483,7 @@ mod tests {
     }
 
     /// A pid that exists and is not a zombie.
+    #[cfg(target_os = "linux")]
     fn alive(pid: u32) -> bool {
         std::fs::read_to_string(format!("/proc/{pid}/stat"))
             .ok()

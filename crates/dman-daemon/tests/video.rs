@@ -7,6 +7,8 @@
 //!   ffmpeg-generated video on a local Range-capable HTTP server; the mixed
 //!   queue test also needs `DMAN_TEST_ARIA2=1`. Run with
 //!   `DMAN_TEST_ARIA2=1 DMAN_TEST_YTDLP=1 cargo test -p dman-daemon -- --include-ignored --test-threads=1`.
+// The fake engines are shell scripts, so these tests run on Unix only.
+#![cfg(unix)]
 
 use std::collections::HashMap;
 use std::net::SocketAddr;

@@ -18,6 +18,7 @@ queue, so downloads keep running after you close the interface.
 
 ## Requirements
 
+- Linux, macOS or Windows
 - `aria2c` 1.36+
 - Optional: `yt-dlp` and `ffmpeg` for video downloads
 - To build from source: Rust (the pinned toolchain installs automatically via `rustup`)

@@ -229,6 +229,7 @@ mod tests {
         assert_eq!(m.out.as_deref(), Some("a"));
     }
 
+    #[cfg(unix)] // symlinks need extra rights on Windows
     #[test]
     fn cookie_files_only_from_the_config_dir() {
         let t = tempfile::tempdir().unwrap();

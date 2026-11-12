@@ -58,7 +58,11 @@ async fn run(cli: Cli, is_daemon_run: bool) -> Result<i32, CliError> {
     // handler is installed the terminal's default "kill the process" no longer
     // applies. This watcher runs on a worker thread and ends the process if the
     // orderly path did not finish within a moment.
+    #[cfg(unix)]
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .map_err(|e| CliError::general(format!("cannot watch for Ctrl-C: {e}")))?;
+    #[cfg(windows)]
+    let mut sigint = tokio::signal::windows::ctrl_c()
         .map_err(|e| CliError::general(format!("cannot watch for Ctrl-C: {e}")))?;
     tokio::spawn(async move {
         if sigint.recv().await.is_some() {

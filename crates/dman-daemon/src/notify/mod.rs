@@ -12,6 +12,7 @@ mod hook;
 mod webhook;
 
 #[cfg(test)]
+#[cfg(unix)] // the hooks under test are shell scripts
 mod tests;
 
 use std::sync::Arc;

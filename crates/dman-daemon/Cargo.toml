@@ -31,7 +31,6 @@ anyhow.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "sync", "time", "fs", "net", "process"] }
 axum = { version = "0.8", default-features = false, features = ["ws", "tokio", "http1"] }
 subtle = "2.6"
-nix = { version = "0.31", default-features = false, features = ["fs"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "alloc"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -49,6 +48,12 @@ hmac = "0.13"
 sha2 = "0.11"
 notify-rust = { workspace = true, optional = true }
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["fs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
 
 [[test]]
 name = "search"

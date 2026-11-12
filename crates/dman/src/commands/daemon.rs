@@ -77,9 +77,14 @@ pub async fn connect_or_start(ctx: &Ctx) -> Result<Client, CliError> {
 
 async fn run_foreground(ctx: &Ctx, detach: bool) -> Result<i32, CliError> {
     ctx.require_local("`daemon run`")?;
+    // Leave the terminal's session so closing it does not stop the daemon. On
+    // Windows `spawn_daemon` already started it without a console of its own.
+    #[cfg(unix)]
     if detach && let Err(e) = nix::unistd::setsid() {
         tracing::warn!("setsid failed: {e}");
     }
+    #[cfg(not(unix))]
+    let _ = detach;
     let opts = dman_daemon::DaemonOptions {
         paths: ctx.paths.clone(),
         config: ctx.config.clone(),
@@ -117,16 +122,24 @@ fn spawn_daemon(ctx: &Ctx) -> Result<Child, CliError> {
     }
     let out = OpenOptions::new().create(true).append(true).open(&log)?;
     let err = out.try_clone()?;
-    std::process::Command::new(std::env::current_exe()?)
-        .args(["daemon", "run", "--detach", "--profile", &ctx.name])
+    let mut cmd = std::process::Command::new(std::env::current_exe()?);
+    cmd.args(["daemon", "run", "--detach", "--profile", &ctx.name])
         .stdin(Stdio::null())
         .stdout(out)
-        .stderr(err)
-        .spawn()
-        .map_err(|e| {
-            CliError::general(format!("cannot start daemon: {e}"))
-                .with_hint("check that the dman binary is still installed and executable")
-        })
+        .stderr(err);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // A hidden console of its own and a separate process group, so the
+        // daemon has no window and ignores Ctrl-C and closing of this console.
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
+    }
+    cmd.spawn().map_err(|e| {
+        CliError::general(format!("cannot start daemon: {e}"))
+            .with_hint("check that the dman binary is still installed and executable")
+    })
 }
 
 fn log_tail(ctx: &Ctx) -> String {

@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 tokio = { workspace = true, features = ["rt", "sync", "time", "macros", "process", "io-util"] }
-nix = { version = "0.31", default-features = false, features = ["signal", "process"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -22,3 +21,6 @@ tempfile = "3"
 
 [lints]
 workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["signal", "process"] }

@@ -39,6 +39,7 @@ pub mod search;
 #[path = "search_off.rs"]
 pub mod search;
 pub mod server;
+mod signals;
 pub mod tick;
 pub mod tls;
 #[cfg(feature = "video")]
@@ -62,7 +63,6 @@ use dman_aria2::Aria2Settings;
 use dman_config::{Config, DaemonTarget, Paths, Secrets};
 use dman_proto::Limits;
 use dman_store::Store;
-use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::manager::{Manager, ManagerConfig};
@@ -174,9 +174,7 @@ pub async fn run_with_clock(
         );
     }
 
-    let mut sigint = signal(SignalKind::interrupt()).context("cannot install signal handlers")?;
-    let mut sigterm = signal(SignalKind::terminate()).context("cannot install signal handlers")?;
-    let mut sighup = signal(SignalKind::hangup()).context("cannot install signal handlers")?;
+    let mut stop_signals = signals::StopSignals::install()?;
 
     let make_settings: engine::SettingsFn = {
         let paths = paths.clone();
@@ -297,12 +295,10 @@ pub async fn run_with_clock(
     });
 
     let mut server_done = false;
-    while web_error.is_none() {
+    if web_error.is_none() {
         tokio::select! {
-            _ = sigint.recv() => { tracing::info!("SIGINT received"); break; }
-            _ = sigterm.recv() => { tracing::info!("SIGTERM received"); break; }
-            _ = sighup.recv() => tracing::info!("SIGHUP ignored"),
-            _ = request_rx.recv() => break,
+            name = stop_signals.recv() => tracing::info!("{name} received"),
+            _ = request_rx.recv() => {}
             r = &mut server => {
                 server_done = true;
                 match r {
@@ -310,7 +306,6 @@ pub async fn run_with_clock(
                     Ok(Err(e)) => tracing::error!("API server failed: {e}"),
                     Err(e) => tracing::error!("API server task failed: {e}"),
                 }
-                break;
             }
         }
     }

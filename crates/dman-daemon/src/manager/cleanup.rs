@@ -282,6 +282,7 @@ mod tests {
         assert_eq!(got, vec![(PathBuf::from("Album/sub/02.bin"), 3)]);
     }
 
+    #[cfg(unix)] // symlinks need extra rights on Windows
     #[test]
     fn symlinks_are_reported_as_links_not_followed() {
         let t = tempfile::tempdir().unwrap();

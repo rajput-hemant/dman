@@ -118,7 +118,8 @@ commit this file together with the code it describes.
   - `dman config get|set|unset|edit|path|show` (toml_edit, validated before saving, secrets masked, reloads the daemon); a `hint:` next step on errors with did-you-mean for ids/providers/profiles/keys; `dman probe --plan` (daemon `video.plan`)
   - duplicate detection in the daemon add path (exit 9, `--force`; a duplicate torrent gets the new trackers); http(s) .torrent URLs become real torrent jobs; `dman set <ids>` via jobs.set_options; `add --clipboard`; `dman handle` + `dman integrate install|uninstall|status` (Linux .desktop, documented macOS/Windows, docs/browser.md)
   - polish: local dates in `get`/`list`, commands grouped by task in `--help`
-- Not done, open for later: the remaining items of `.plan/cli-improvements.md`; Windows build (main.rs uses unix signals); publishing (owner handles package managers)
+- [x] Windows build: `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` is clean (default and slim). Unix-only pieces are behind `cfg(unix)`: yt-dlp is stopped with `taskkill /T` instead of process groups, the daemon stops on Ctrl-C/Ctrl-Break/console close/shutdown, free space comes from `GetDiskFreeSpaceExW`, `daemon start` launches it with no window in its own process group. Shell-script and symlink tests are Unix-only. Built and linked with MinGW here; never run on a real Windows machine.
+- Not done, open for later: the remaining items of `.plan/cli-improvements.md`; a Windows target in `dist-workspace.toml`; publishing (owner handles package managers)
 
 ### UX pass (requested by the user, 2026-11-09)
 - [x] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording

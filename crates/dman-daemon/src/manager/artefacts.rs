@@ -364,25 +364,29 @@ mod tests {
         assert!(our_torrent_file(&h).is_none());
 
         // A directory or a symlink of that name is not a metadata file.
-        let (_, hash2) = {
-            let info =
-                b"d6:lengthi4e4:name1:b12:piece lengthi16384e6:pieces20:bbbbbbbbbbbbbbbbbbbbe";
-            let mut t = b"d4:info".to_vec();
-            t.extend_from_slice(info);
-            t.push(b'e');
-            (
-                t.clone(),
-                dman_torrent::parse_torrent(&t).unwrap().info_hash,
+        // (Symlinks need extra rights on Windows, so that part is Unix only.)
+        #[cfg(unix)]
+        {
+            let (_, hash2) = {
+                let info =
+                    b"d6:lengthi4e4:name1:b12:piece lengthi16384e6:pieces20:bbbbbbbbbbbbbbbbbbbbe";
+                let mut t = b"d4:info".to_vec();
+                t.extend_from_slice(info);
+                t.push(b'e');
+                (
+                    t.clone(),
+                    dman_torrent::parse_torrent(&t).unwrap().info_hash,
+                )
+            };
+            let mut r3 = rec(d.path(), SourceKind::Torrent);
+            note_torrent_file(&mut r3, Some(hash2.clone()));
+            std::os::unix::fs::symlink(
+                d.path().join(format!("{hash}.torrent")),
+                d.path().join(format!("{hash2}.torrent")),
             )
-        };
-        let mut r3 = rec(d.path(), SourceKind::Torrent);
-        note_torrent_file(&mut r3, Some(hash2.clone()));
-        std::os::unix::fs::symlink(
-            d.path().join(format!("{hash}.torrent")),
-            d.path().join(format!("{hash2}.torrent")),
-        )
-        .unwrap();
-        assert!(our_torrent_file(&r3).is_none());
+            .unwrap();
+            assert!(our_torrent_file(&r3).is_none());
+        }
     }
 
     #[test]

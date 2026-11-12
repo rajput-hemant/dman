@@ -280,7 +280,6 @@ pub fn verify_checksum(data: &[u8], checksum_file: &str, asset_name: &str) -> Re
 /// `<exe>.old`, rename the new one in; the backup is removed on success and
 /// restored on failure.
 pub fn replace_binary(exe: &Path, new_binary: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
     let with_ext = |ext: &str| {
         let mut name = exe.file_name().unwrap_or_default().to_os_string();
         name.push(ext);
@@ -290,7 +289,11 @@ pub fn replace_binary(exe: &Path, new_binary: &Path) -> std::io::Result<()> {
     let backup = with_ext(".old");
     let result = (|| {
         std::fs::copy(new_binary, &staged)?;
-        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
+        }
         let _ = std::fs::remove_file(&backup);
         std::fs::rename(exe, &backup)?;
         if let Err(e) = std::fs::rename(&staged, exe) {
@@ -745,11 +748,14 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&exe).unwrap(), "new");
         assert!(!dir.path().join("dman.old").exists());
         assert!(!dir.path().join("dman.new").exists());
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(
-            std::fs::metadata(&exe).unwrap().permissions().mode() & 0o777,
-            0o755
-        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&exe).unwrap().permissions().mode() & 0o777,
+                0o755
+            );
+        }
     }
 
     #[test]

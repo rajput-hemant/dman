@@ -23,12 +23,32 @@ pub fn space(path: &Path) -> Option<Space> {
         }
         p = p.parent()?;
     }
+    query(p)
+}
+
+#[cfg(unix)]
+fn query(p: &Path) -> Option<Space> {
     let st = nix::sys::statvfs::statvfs(p).ok()?;
     let frsize = st.fragment_size() as u64;
     Some(Space {
         free: (st.blocks_available() as u64).saturating_mul(frsize),
         total: (st.blocks() as u64).saturating_mul(frsize),
     })
+}
+
+// The free-space query is a Win32 call; std has no portable equivalent.
+#[cfg(windows)]
+#[allow(unsafe_code)]
+fn query(p: &Path) -> Option<Space> {
+    use std::os::windows::ffi::OsStrExt as _;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let wide: Vec<u16> = p.as_os_str().encode_wide().chain(Some(0)).collect();
+    let (mut free, mut total) = (0u64, 0u64);
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the call, and
+    // the out-pointers point to live u64s; the last out-parameter may be null.
+    let ok =
+        unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, &mut total, std::ptr::null_mut()) };
+    (ok != 0).then_some(Space { free, total })
 }
 
 /// Whether a job may not run because `space` is below `min_free`. An unknown

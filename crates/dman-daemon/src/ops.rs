@@ -194,6 +194,7 @@ mod tests {
         assert_eq!(r.refused.len(), 2, "{r:?}");
     }
 
+    #[cfg(unix)] // symlinks need extra rights on Windows
     #[test]
     fn refuses_symlinked_parent_escape() {
         let t = tempfile::tempdir().unwrap();
@@ -209,6 +210,7 @@ mod tests {
         assert_eq!(r.refused.len(), 1);
     }
 
+    #[cfg(unix)] // symlinks need extra rights on Windows
     #[test]
     fn symlink_file_is_removed_as_link_only() {
         let t = tempfile::tempdir().unwrap();

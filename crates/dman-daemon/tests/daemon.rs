@@ -706,6 +706,7 @@ async fn lifecycle_with_real_aria2() {
 
 /// Completing an HTTP download fires `JobFinished` and the hook exactly once,
 /// with the documented environment; a daemon restart does not repeat it.
+#[cfg(unix)] // the hook is a shell script
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs aria2c; run with DMAN_TEST_ARIA2=1 and --include-ignored"]
 async fn hook_fires_once_on_completion_with_real_aria2() {

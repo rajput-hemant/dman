@@ -93,8 +93,15 @@ async fn detect_one(explicit: Option<PathBuf>, name: &str, flag: &str) -> Option
 
 fn which(name: &str) -> Option<PathBuf> {
     let paths = std::env::var_os("PATH")?;
+    // `yt-dlp.exe` on Windows; a name that already has the suffix stays as is.
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let file = if suffix.is_empty() || name.ends_with(suffix) {
+        name.to_owned()
+    } else {
+        format!("{name}{suffix}")
+    };
     std::env::split_paths(&paths)
-        .map(|d| d.join(name))
+        .map(|d| d.join(&file))
         .find(|p| Path::new(p).is_file())
 }
 

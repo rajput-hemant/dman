@@ -18,11 +18,19 @@ JSON-RPC-over-WebSocket API.
 
 ## Rules
 
-- Rust only. Workspace crates live in `crates/`. One shipped binary: `dman`.
+- Rust only. Workspace crates live in `crates/` (`dman` binary, `dman-proto`, `dman-config`,
+  `dman-store`, `dman-aria2`, `dman-ytdlp`, `dman-torrent`, `dman-search`, `dman-daemon`,
+  `dman-client`, `dman-tui`, `dman-web`). One shipped binary: `dman`.
 - Keep it small: add a dependency only if it is listed in `PROGRESS.md` or clearly
   justified; prefer minimal feature flags. Permissive licenses only (MIT/Apache/BSD/ISC/Zlib).
-- Every change must pass: `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`,
-  `cargo test --workspace`.
+- Every change must pass (`scripts/check.sh` runs the first five): `cargo fmt --all --check`,
+  `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
+  `cargo clippy -p dman --no-default-features --all-targets -- -D warnings`,
+  `cargo test -p dman --no-default-features`. Platform code also needs
+  `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings`;
+  daemon behaviour changes also `DMAN_TEST_ARIA2=1 DMAN_TEST_YTDLP=1 cargo test -p dman-daemon -- --include-ignored --test-threads=1`.
+- Releases are built by CI (cargo-dist, `dist-workspace.toml`). Do not tag or publish
+  without being asked.
 - Commits: one per coherent unit of work (a crate, a feature, a fix) — not per file,
   not per milestone. Conventional Commits format (`feat:`, `fix:`, `refactor:`,
   `docs:`, `test:`, `chore:`, `perf:`, `ci:`; optional scope), imperative subject

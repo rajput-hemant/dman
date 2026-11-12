@@ -2,38 +2,22 @@
 
 The dman daemon owns all state; the TUI, CLI and web UI are clients of one JSON-RPC API
 (`/api/v1/ws`, WebSocket). By default it listens on `127.0.0.1:6810` and the web UI is off.
-To use a daemon on another machine you have three options, from simplest to most flexible:
+To use a daemon on another machine, pick one of:
 
-1. an SSH tunnel (no dman configuration at all),
+1. an SSH tunnel (no dman configuration),
 2. built-in TLS (`wss://` / `https://`) with your own certificate,
 3. a TLS reverse proxy in front of the web UI.
 
-Every API connection is authenticated with a token. Without TLS or a tunnel the token and all
-traffic cross the network in clear text. The web UI asks for a token only when it is reachable
-from the network (see below).
+Every API connection needs a token. Without TLS or a tunnel the token and all traffic cross
+the network in clear text.
 
 ## The token
 
-The daemon generates an API token on first start and stores it in `secrets.toml`
-(mode 0600) under the profile's `secret_ref` (default `daemon`). Tokens are never logged.
+The daemon generates an API token on first start and stores it in
+`~/.config/dman/secrets.toml` (mode 0600; `DMAN_CONFIG_DIR` moves the whole directory) under
+the profile's `secret_ref` (default `daemon`). Tokens are never logged.
 
-### The web UI token
-
-On its default loopback address (`127.0.0.1` or `::1`) the web UI has **no login**: open
-`http://127.0.0.1:6811/` and you are in, and no web token is created. Other websites still
-cannot drive it through your browser: every state-changing request must come from the page
-itself (`Origin`/`Sec-Fetch-Site` check plus a per-page CSRF token that the page sends on its
-own), and the `Host` header must name loopback, the bind address or an entry of
-`web.allowed_hosts`, which stops DNS-rebinding attacks. Requests relayed by a proxy
-(`X-Forwarded-For`, `Forwarded`, ...) are refused on a login-free loopback UI.
-
-When the web UI is bound to a network address it asks for its own access token (`web` in
-`secrets.toml`, see `web.token_ref`). `dman serve --bind 0.0.0.0` generates it on first use and
-`dman serve --print-token` shows it. Without a token the daemon refuses to serve a network
-address unless `web.allow_unauthenticated = true` (then every page shows a warning banner).
-`web.require_login = true` asks for the token on loopback too.
-
-To reach a daemon from another machine, copy its token into that machine's `secrets.toml`:
+To use a daemon from another machine, copy its token into that machine's `secrets.toml`:
 
 ```toml
 # ~/.config/dman/secrets.toml on the client
@@ -53,6 +37,22 @@ Then `dman --profile work list` (or set `DMAN_PROFILE=work`).
 File paths: `dman add ./x.torrent` against a remote profile reads the file on the machine where
 you run the command and uploads its content, so it works the same as for a local daemon. Plain
 download directories always refer to the daemon's machine.
+
+## The web UI token
+
+Enable it with `dman serve` (add `--persist` to keep it on). On its default loopback address
+(`127.0.0.1` or `::1`) the web UI has **no login**: open `http://127.0.0.1:6811/` and you are
+in. Other websites cannot drive it through your browser: state-changing requests must come
+from the page itself (`Origin`/`Sec-Fetch-Site` check plus a per-page CSRF token), and the
+`Host` header must name loopback, the bind address or an entry of `web.allowed_hosts`, which
+stops DNS rebinding. Requests relayed by a proxy (`X-Forwarded-For`, `Forwarded`, ...) are
+refused on a login-free loopback UI.
+
+When the web UI is bound to a network address it asks for its own access token (`web` in
+`secrets.toml`, see `web.token_ref`). `dman serve --bind 0.0.0.0` generates it on first use and
+`--print-token` shows it. Without a token the daemon refuses to serve a network address unless
+`web.allow_unauthenticated = true` (every page then shows a warning banner).
+`web.require_login = true` asks for the token on loopback too.
 
 ## Option 1: SSH tunnel
 
@@ -94,9 +94,9 @@ port = 6811
 tls = { cert = "/etc/dman/cert.pem", key = "/etc/dman/key.pem" }
 ```
 
-The files are read and checked when the configuration is loaded and when the listener starts;
-the daemon refuses to start on a missing or unusable file. A certificate change needs a
-daemon restart. With TLS on the web listener the session cookie is always `Secure`.
+The files are checked when the configuration is loaded and the daemon refuses to start on a
+missing or unusable one. A certificate change needs a daemon restart. With TLS on the web
+listener the session cookie is always `Secure`.
 
 ### Certificate from a public CA
 
@@ -143,12 +143,10 @@ daemon = { kind = "remote", url = "wss://host:6810", secret_ref = "work", insecu
 This accepts any certificate, including an attacker's, and logs a warning on every connection.
 Use it only for quick tests; prefer `ca`.
 
-### Exposure warnings
+### Plaintext listeners
 
 Binding the API beyond loopback without TLS is allowed (the token still protects it) but the
-daemon logs a warning recommending TLS or an SSH tunnel. A non-loopback web UI additionally
-refuses to start without an access token unless `web.allow_unauthenticated = true`. A loopback
-web UI needs no token at all.
+daemon logs a warning; use TLS or an SSH tunnel.
 
 ## Option 3: reverse proxy for the web UI
 
@@ -179,21 +177,18 @@ location /dman/ {
 ```
 
 `X-Forwarded-Proto: https` makes the session cookie `Secure`. In Caddy,
-`reverse_proxy /dman/* 127.0.0.1:6811` is enough (it sets the header itself). To expose the API (not just the web UI) through a proxy, it must forward
+`reverse_proxy /dman/* 127.0.0.1:6811` is enough. To expose the API too, the proxy must forward
 WebSocket upgrades on `/api/v1/ws`.
 
 ## Security notes
 
-- Treat the token like a password: anyone holding it can add downloads, delete files the user
-  asked to delete, and read the download list. Keep `secrets.toml` at mode 0600 (dman refuses
-  looser permissions).
+- Treat the token like a password: anyone holding it can add, remove and read downloads. Keep
+  `secrets.toml` at mode 0600 (on Unix dman refuses looser permissions).
 - Prefer TLS with a pinned `ca` or an SSH tunnel over plaintext. Never expose the plain
   `ws://` or `http://` listeners to the internet.
 - `insecure_skip_verify` defeats the purpose of TLS.
-- The web UI checks `Origin`, CSRF tokens and (without a login) the `Host` header on every
-  request; with a login it uses `HttpOnly; SameSite=Strict` cookies. It still needs HTTPS when
-  reachable beyond loopback.
+- With a login the web UI uses `HttpOnly; SameSite=Strict` session cookies; it still needs
+  HTTPS when reachable beyond loopback.
 - Rotate a token by editing `secrets.toml` on both sides and restarting the daemon.
-- Reconnection: the TUI and other long-lived clients reconnect automatically with backoff after
-  a network drop or daemon restart, show the state as disconnected, disable actions meanwhile
-  (calls fail immediately, nothing is queued) and re-sync from a fresh snapshot once connected.
+- The TUI reconnects automatically with backoff after a network drop or daemon restart. Actions
+  fail immediately while disconnected (nothing is queued); it re-syncs once connected.

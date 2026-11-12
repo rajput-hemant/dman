@@ -1,5 +1,5 @@
 //! A tiny bencode reader and `.torrent` summary (name, files, info-hash).
-//! Shared by the daemon (magnet preview) and, later, the TUI add preview.
+//! Shared by the daemon (magnet preview, metadata) and the TUI add preview.
 
 use sha1::{Digest, Sha1};
 

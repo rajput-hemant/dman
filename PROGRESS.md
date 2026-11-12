@@ -7,7 +7,7 @@ commit this file together with the code it describes.
 
 ## Current state
 
-- Pushed to github.com/rajput-hemant/dman (main). All milestones and the picked CLI improvements are done. Publishing to package managers is handled by the owner; no release tagged yet. Toolchain: Rust 1.97 stable, musl target.
+- Pushed to github.com/rajput-hemant/dman (main). Release-ready for 0.1.0: all milestones, the picked CLI improvements, the Windows build and the final release review are done. The owner publishes by following docs/releasing.md; no release tagged yet. Toolchain: Rust 1.97 stable, musl target.
 - Engines available in the dev container: aria2c 1.37.0, yt-dlp 2026.10.26, ffmpeg.
 - M1 done: daemon (aria2 supervisor, dman-owned queue, disk guard, reconcile after restart, redb store, WS API with token auth) + CLI (add/list/get/pause/resume/remove/purge/reorder/limit/stats/daemon …). Verified end to end with the real binary.
 - Dev quick start: `cargo build -p dman`, then `DMAN_CONFIG_DIR=/tmp/x target/debug/dman daemon gen-config` (edit listen/rpc_port/download_dir), `dman daemon start`, `dman add <url>`, `dman list`.
@@ -119,7 +119,9 @@ commit this file together with the code it describes.
   - duplicate detection in the daemon add path (exit 9, `--force`; a duplicate torrent gets the new trackers); http(s) .torrent URLs become real torrent jobs; `dman set <ids>` via jobs.set_options; `add --clipboard`; `dman handle` + `dman integrate install|uninstall|status` (Linux .desktop, documented macOS/Windows, docs/browser.md)
   - polish: local dates in `get`/`list`, commands grouped by task in `--help`
 - [x] Windows build: `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` is clean (default and slim). Unix-only pieces are behind `cfg(unix)`: yt-dlp is stopped with `taskkill /T` instead of process groups, the daemon stops on Ctrl-C/Ctrl-Break/console close/shutdown, free space comes from `GetDiskFreeSpaceExW`, `daemon start` launches it with no window in its own process group. Shell-script and symlink tests are Unix-only. Built and linked with MinGW here; never run on a real Windows machine.
-- Not done, open for later: the remaining items of `.plan/cli-improvements.md`; a Windows target in `dist-workspace.toml`; publishing (owner handles package managers)
+- [x] Release review (2026-11-12): docs checked against the code; CLI hardening (control characters stripped from untrusted text, more secrets masked, DoH not applied to proxied providers, real terminal width, examples in every --help); daemon review (seeding limits kept across restarts: aria2 gets the remaining ratio/time; .torrent fetch size cap; Windows taskkill by full path)
+- [x] Release setup: MIT OR Apache-2.0; cargo-dist builds Linux musl x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64 (zip) plus shell and PowerShell installers; Homebrew formula depends on aria2; crates.io metadata for all 12 crates; packaging/ templates for Scoop, winget and AUR with fill.sh; docs/releasing.md
+- Open for later: the remaining items of `.plan/cli-improvements.md`; daemon error messages still say "job" where the CLI says "download"; first real run of release.yml and a test on real Windows
 
 ### UX pass (requested by the user, 2026-11-09)
 - [x] TUI: Enter adds (Add view action line), collapsed advanced options, Enter on search result downloads, empty states, first-run welcome, context-aware footer, plain wording
@@ -139,7 +141,7 @@ commit this file together with the code it describes.
 - [x] Built-in TLS (D24) for the API listener and web listener (rustls, user cert/key paths in config; `wss://`/`https://` in client + remote profiles) + docs for SSH tunnel / reverse proxy
 - [x] Remote profiles end to end (TLS + custom CA pin, reconnect across daemon restart, docs/remote.md): TUI/CLI against a remote daemon (paths are daemon-side; uploads for local .torrent), reconnect hardening tests (kill/restart daemon while TUI attached)
 - [x] CLI robustness: SIGPIPE-safe output, exit codes audit
-- [x] Packaging: cargo-dist config (Linux musl x86_64/aarch64, macOS universal), Homebrew tap formula, install receipt; `dman update` with install-method detection (D22) + `--check`; opt-in update check (D27)
+- [x] Packaging: cargo-dist config (Linux musl x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64), Homebrew tap formula, install receipt; `dman update` with install-method detection (D22) + `--check`; opt-in update check (D27)
 - [x] cargo-deny (licenses permissive only + MPL-2.0 exception — Q8, advisories), CI workflow (GitHub Actions: fmt, clippy, test, gated aria2/yt-dlp jobs, size report)
 - [x] README (concise, root) — `dman --help` polish is part of the CLI review
 - [x] Security review (done in the review pass): secrets never logged (grep logs in tests), path traversal (rename/delete/cleanup), webhook SSRF note, web auth, CSP; fix findings
@@ -179,7 +181,7 @@ commit this file together with the code it describes.
 | D19 | quick-xml for Torznab/RSS/Atom |
 | D20 | notify-rust; when remote, client shows notifications; daemon host optional |
 | D21 | Secrets in `secrets.toml` (0600), referenced by name |
-| D22 | Install: cargo-dist + Homebrew; `dman update` self-replaces only for dman-installer installs; Homebrew → `brew upgrade dman`; other/unknown → print command, refuse (exit 6) |
+| D22 | Install: cargo-dist + Homebrew; `dman update` self-replaces only for dman-installer installs; package-manager installs (Homebrew, Scoop, winget, cargo, AUR, system) → print their upgrade command, never replace; unknown → refuse (exit 6) |
 | D23 | Binary as small as possible without dropping features; size tracked in CI |
 | D24 | Built-in TLS (user cert) + SSH/reverse-proxy docs |
 | D25 | Built-in providers as declarative data where possible |
@@ -193,7 +195,7 @@ commit this file together with the code it describes.
 | Q5 | Settings writes via toml_edit, preserving comments |
 | Q6 | File browser: local FS for uploads, daemon FS for directories |
 | Q7 | aria2c ≥ 1.36; yt-dlp ≤ 12 months old; MSRV = stable at start (1.97) |
-| Q8 | License undecided/proprietary; deps permissive only (cargo-deny) — exception: MPL-2.0 allowed (file-level copyleft; scraper deps, nucleo-matcher), approved 2026-11-09 |
+| Q8 | License MIT OR Apache-2.0 (decided 2026-11-12); deps permissive only (cargo-deny) — exception: MPL-2.0 allowed (file-level copyleft; scraper deps, nucleo-matcher), approved 2026-11-09 |
 | Q9 | CLI output: table + `--json` |
 | U2 | (user) TUI redesign: calm blue-violet default theme; two-line list rows on ≥30-row terminals; undo for remove-from-list (daemon `jobs.restore`, never for deleted files); animations up to 30 fps only while animating (`[ui] animations = false` disables) |
 | U3 | (user) Web UI: no login on loopback (default bind) — opens directly; token login only when bound to the network; invisible same-origin/CSRF/Host checks stay |

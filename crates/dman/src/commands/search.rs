@@ -6,14 +6,15 @@ use dman_proto::method::Event;
 use dman_proto::search::{
     ProviderStatus, SearchResolveParams, SearchResultDto, SearchSnapshot, SearchStartParams,
 };
-use dman_proto::{AddOutcome, AddParams, AddSource, ErrorCode, JobOptions};
+use dman_proto::{AddOutcome, AddParams, AddSource, DuplicateInfo, ErrorCode, JobOptions};
 use serde_json::json;
 use tokio::sync::broadcast::error::RecvError;
 
 use super::print_json;
 use crate::cli::SearchArgs;
+use crate::commands::add::Tally;
 use crate::connect::Ctx;
-use crate::error::{CliError, batch_exit};
+use crate::error::CliError;
 use crate::format;
 
 /// How often the finished flag is polled in case the finishing event was missed.
@@ -83,7 +84,7 @@ pub async fn run(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
     let all_failed = failed.len() == snapshot.providers.len();
     if !ctx.json {
         for (n, e) in &failed {
-            eprintln!("dman: provider {n} failed: {e}");
+            eprintln!("dman: provider {n} failed: {}", format::printable(e));
         }
     }
     if all_failed && snapshot.results.is_empty() {
@@ -143,18 +144,26 @@ pub async fn run(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
         }
         for a in &added {
             match a {
-                Added::Ok { ids, title } => println!("added {} ({title})", ids.join(" ")),
-                Added::Failed { index, error } => eprintln!("dman: failed #{index}: {error}"),
+                Added::Ok { ids, title } => {
+                    println!("added {} ({})", ids.join(" "), format::printable(title));
+                }
+                Added::Existing { index, message, .. } => {
+                    println!("#{index}: {}", format::printable(message));
+                }
+                Added::Failed { index, error } => {
+                    eprintln!("dman: failed #{index}: {}", format::printable(error));
+                }
             }
         }
     }
     Ok(code)
 }
 
-/// The pick prompt appears only when both ends are a terminal.
+/// The pick prompt appears only when the table went to a terminal and the question
+/// (on stderr) can be seen and answered.
 fn interactive() -> bool {
     use std::io::IsTerminal;
-    std::io::stdin().is_terminal() && std::io::stdout().is_terminal()
+    super::can_prompt() && std::io::stdout().is_terminal()
 }
 
 /// Parse a selection such as `1,3`, `2-4` or `1 3-5` into result numbers in the
@@ -215,7 +224,8 @@ fn progress(ctx: &Ctx, provider: &str, status: &ProviderStatus) {
         return;
     }
     match status {
-        ProviderStatus::Running => {}
+        // Failures are reported once, after the search.
+        ProviderStatus::Running | ProviderStatus::Failed { .. } => {}
         ProviderStatus::Done {
             count,
             elapsed_ms,
@@ -224,15 +234,26 @@ fn progress(ctx: &Ctx, provider: &str, status: &ProviderStatus) {
             Some(m) => eprintln!("{provider}: {count} results in {elapsed_ms} ms (via {m})"),
             None => eprintln!("{provider}: {count} results in {elapsed_ms} ms"),
         },
-        ProviderStatus::Failed { error } => eprintln!("{provider}: failed: {error}"),
     }
 }
 
 #[derive(Debug, serde::Serialize)]
 #[serde(untagged)]
 enum Added {
-    Ok { ids: Vec<String>, title: String },
-    Failed { index: usize, error: String },
+    Ok {
+        ids: Vec<String>,
+        title: String,
+    },
+    /// Already in the downloads (a torrent may have received new trackers).
+    Existing {
+        index: usize,
+        existing: String,
+        message: String,
+    },
+    Failed {
+        index: usize,
+        error: String,
+    },
 }
 
 /// Adds the results numbered `picks` (1-based); detail-only results are
@@ -277,10 +298,11 @@ async fn add_results(
             Err(error) => out[slot] = Some(Added::Failed { index: n, error }),
         }
     }
-    let mut first_failure = out
-        .iter()
-        .any(Option::is_some)
-        .then_some(ErrorCode::General);
+    let mut tally = Tally::default();
+    if out.iter().any(Option::is_some) {
+        tally.failed = out.iter().flatten().count();
+        tally.first = Some(ErrorCode::General);
+    }
     if !sources.is_empty() {
         let outcomes = client
             .add(AddParams {
@@ -297,31 +319,41 @@ async fn add_results(
                     ids: outcome.ids().iter().map(ToString::to_string).collect(),
                     title: snap.results[n - 1].title.clone(),
                 },
-                AddOutcome::Failed { error } => {
-                    first_failure.get_or_insert(error.code);
-                    Added::Failed {
-                        index: n,
-                        error: error.message,
+                AddOutcome::Failed { error } => match DuplicateInfo::from_error(&error) {
+                    Some(d) => {
+                        if d.trackers_added > 0 {
+                            tally.merged += 1;
+                        } else {
+                            tally.failed += 1;
+                            tally.duplicates += 1;
+                        }
+                        Added::Existing {
+                            index: n,
+                            existing: d.id.to_string(),
+                            message: error.message,
+                        }
                     }
-                }
+                    None => {
+                        tally.failed += 1;
+                        tally.first.get_or_insert(error.code);
+                        Added::Failed {
+                            index: n,
+                            error: error.message,
+                        }
+                    }
+                },
             });
         }
     }
     let out: Vec<Added> = out.into_iter().flatten().collect();
-    let failed = out
-        .iter()
-        .filter(|a| matches!(a, Added::Failed { .. }))
-        .count();
-    Ok((out, batch_exit(picks.len(), failed, first_failure)))
+    Ok((out, tally.exit(picks.len())))
 }
 
 async fn history(ctx: &Ctx, args: &SearchArgs) -> Result<i32, CliError> {
     let client = ctx.connect().await?;
     if args.clear_history {
         client.search_history_clear().await?;
-        if !ctx.json {
-            println!("search history cleared");
-        }
+        super::say(ctx, "search history cleared", "cleared")?;
         return Ok(0);
     }
     let list = client.search_history().await?;

@@ -10,8 +10,8 @@ use crate::format;
 
 /// How often a non-terminal stderr gets a new line per job.
 const PLAIN_EVERY: Duration = Duration::from_secs(5);
-/// Width assumed when `COLUMNS` is unset: narrow enough that a redrawn line never
-/// wraps (a wrapped line cannot be erased in place).
+/// Width assumed when neither `COLUMNS` nor the terminal tells: narrow enough that
+/// a redrawn line rarely wraps (a wrapped line cannot be erased in place).
 const FALLBACK_WIDTH: usize = 80;
 const BAR_WIDTH: usize = 20;
 
@@ -21,10 +21,8 @@ pub fn color_enabled(is_tty: bool) -> bool {
 }
 
 fn line_width() -> usize {
-    std::env::var("COLUMNS")
-        .ok()
-        .and_then(|c| c.trim().parse().ok())
-        .filter(|w: &usize| *w > 20)
+    format::columns_env()
+        .or_else(dman_tui::terminal_columns)
         .unwrap_or(FALLBACK_WIDTH)
 }
 
@@ -84,20 +82,38 @@ fn percent(job: &Job) -> String {
 }
 
 /// One job as `#12 name  45.2% [██████░░░░░░░░░░░░░░] 3.1 MiB/s  eta 5m03s`,
-/// fitted to `width` columns by shortening the name.
+/// fitted to `width` columns by shortening the name (and, on very narrow
+/// terminals, dropping the bar and cutting the status). The line stays one
+/// column short of `width` so that the terminal never wraps it.
 pub fn line(job: &Job, width: usize, color: bool) -> String {
     let fraction = if job.state == JobState::Complete {
         1.0
     } else {
         job.progress()
     };
-    let bar_width = if width < 70 { BAR_WIDTH / 2 } else { BAR_WIDTH };
+    let width = width.max(20) - 1;
     let id = format!("#{}", job.id);
-    let status = format::truncate(&status(job), width.saturating_sub(40).max(16));
     let pct = format!("{:>6}", percent(job));
+    let status = format::printable(&status(job)).into_owned();
+    let name = format::printable(&job.name).into_owned();
+    let bar_width = match width {
+        0..60 => 0,
+        60..70 => BAR_WIDTH / 2,
+        _ => BAR_WIDTH,
+    };
+    // Room for the status once the id, percentage, bar and a short name fit.
+    let room = width.saturating_sub(id.chars().count() + pct.len() + bar_width + 16);
+    if bar_width == 0 || room < 12 {
+        // `#12 name  45.2% status`, cut to the width.
+        let status = format::truncate(&status, width.saturating_sub(id.len() + 18).max(8));
+        let fixed = id.chars().count() + 1 + 2 + pct.len() + 1 + status.chars().count();
+        let name = format::truncate(&name, width.saturating_sub(fixed).max(4));
+        return format::truncate(&format!("{id} {name}  {pct} {status}"), width);
+    }
+    let status = format::truncate(&status, room.min(width.saturating_sub(40).max(16)));
     let fixed = id.chars().count() + pct.len() + bar_width + 2 + status.chars().count() + 6;
     let name_width = width.saturating_sub(fixed).max(8);
-    let name = format::truncate(&job.name, name_width);
+    let name = format::truncate(&name, name_width);
     let bar = bar(fraction, bar_width);
     let (on, off) = match (color, job.state) {
         (true, JobState::Complete | JobState::Seeding) => ("\x1b[32m", "\x1b[0m"),
@@ -109,13 +125,14 @@ pub fn line(job: &Job, width: usize, color: bool) -> String {
 
 /// A line for logs: no bar, no escapes.
 pub fn plain_line(job: &Job) -> String {
-    format!(
+    let text = format!(
         "#{} {}  {}  {}",
         job.id,
         job.name,
         percent(job),
         status(job)
-    )
+    );
+    format::printable(&text).into_owned()
 }
 
 /// Draws progress for a set of jobs on stderr.
@@ -230,8 +247,14 @@ mod tests {
     #[test]
     fn line_fits_the_width() {
         let j = job(JobState::Active, 1, 100, 1);
-        for w in [60, 80, 120] {
-            assert!(line(&j, w, false).chars().count() <= w, "width {w}");
+        for w in [10, 30, 45, 59, 60, 69, 70, 80, 120] {
+            assert!(line(&j, w, false).chars().count() < w.max(20), "width {w}");
+        }
+        let mut long = job(JobState::Error, 1, 100, 1);
+        long.name = "n".repeat(300);
+        long.error = Some("e".repeat(300));
+        for w in [30, 50, 80] {
+            assert!(line(&long, w, false).chars().count() < w, "width {w}");
         }
     }
 

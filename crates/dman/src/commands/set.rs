@@ -47,7 +47,9 @@ fn explain(id: JobId, e: CliError) -> CliError {
     } else {
         String::new()
     };
-    CliError::new(e.code, format!("{}{hint}", e.message))
+    let mut out = CliError::new(e.code, format!("{}{hint}", e.message));
+    out.hint = e.hint;
+    out
 }
 
 pub async fn run(ctx: &Ctx, args: &SetArgs) -> Result<i32, CliError> {
@@ -86,7 +88,12 @@ pub async fn run(ctx: &Ctx, args: &SetArgs) -> Result<i32, CliError> {
                     });
                     eprintln!("{body}");
                 } else {
-                    eprintln!("dman: job {id}: {}", e.message);
+                    // Daemon messages usually name the job already.
+                    if e.message.starts_with(&format!("job {id} ")) {
+                        eprintln!("dman: {}", e.message);
+                    } else {
+                        eprintln!("dman: job {id}: {}", e.message);
+                    }
                 }
             }
         }

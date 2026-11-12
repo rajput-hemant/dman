@@ -79,9 +79,10 @@ async fn suggestions(client: &Client, missing: &Missing) -> Option<String> {
             let named: Vec<String> = close
                 .iter()
                 .map(|c| {
-                    jobs.iter()
-                        .find(|j| j.id.to_string() == *c)
-                        .map_or_else(|| c.clone(), |j| format!("{c} ({})", j.name))
+                    jobs.iter().find(|j| j.id.to_string() == *c).map_or_else(
+                        || c.clone(),
+                        |j| format!("{c} ({})", crate::format::printable(&j.name)),
+                    )
                 })
                 .collect();
             suggest::did_you_mean(&named)

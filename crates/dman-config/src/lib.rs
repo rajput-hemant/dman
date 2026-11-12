@@ -1,6 +1,6 @@
 //! Configuration, filesystem layout and secrets for dman.
 //!
-//! * [`Paths`] - where files live (XDG layout on Linux and macOS).
+//! * [`Paths`] - where files live (the XDG layout, on every platform).
 //! * [`Config`] - the typed `config.toml`, with load and validation.
 //! * [`ConfigDoc`] - comment-preserving edits.
 //! * [`Secrets`] - `secrets.toml` with permission enforcement.

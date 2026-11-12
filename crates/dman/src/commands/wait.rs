@@ -237,11 +237,18 @@ pub fn conclude(ctx: &Ctx, tracked: &Tracked, timeout: Option<Duration>) -> Resu
         return Ok(code);
     }
     for j in &tracked.jobs {
-        println!("{}  {}  {}", j.id, format::state(j.state), j.name);
+        println!(
+            "{}  {}  {}",
+            j.id,
+            format::state(j.state),
+            format::printable(&j.name)
+        );
     }
     if tracked.timed_out {
         let left = tracked.jobs.iter().filter(|j| !is_final(j.state)).count();
-        let after = timeout.map_or_else(String::new, |t| format!(" after {}s", t.as_secs()));
+        let after = timeout.map_or_else(String::new, |t| {
+            format!(" after {}", format::eta(Some(t.as_secs())))
+        });
         eprintln!(
             "dman: timed out{after}; {left} download(s) still unfinished (they keep running)"
         );
@@ -250,7 +257,7 @@ pub fn conclude(ctx: &Ctx, tracked: &Tracked, timeout: Option<Duration>) -> Resu
         eprintln!(
             "dman: #{} failed: {}",
             j.id,
-            j.error.as_deref().unwrap_or("unknown error")
+            format::printable(j.error.as_deref().unwrap_or("unknown error"))
         );
     }
     Ok(code)

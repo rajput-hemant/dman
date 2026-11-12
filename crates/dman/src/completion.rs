@@ -453,8 +453,7 @@ pub fn install(
         Ok(existing) if existing == script => InstallAction::Unchanged,
         Ok(_) if !force => {
             return Err(CliError::refused(format!(
-                "{} already exists with different content; not overwriting it \
-                 (rerun with --force to replace it)",
+                "{} already exists with different content; not overwriting it",
                 path.display()
             ))
             .with_hint("rerun with --force to replace it"));
@@ -690,7 +689,7 @@ mod tests {
         );
         std::fs::write(&first.path, "# mine\n").unwrap();
         let err = install(&env, None, false).unwrap_err();
-        assert!(err.message.contains("--force"), "{}", err.message);
+        assert!(err.hint.unwrap().contains("--force"));
         assert_eq!(std::fs::read_to_string(&first.path).unwrap(), "# mine\n");
         let r = install(&env, None, true).unwrap();
         assert_eq!(r.action, InstallAction::Replaced);

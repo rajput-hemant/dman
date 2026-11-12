@@ -247,3 +247,12 @@ impl TuiOptions {
 pub async fn run(client: ReconnectingClient, opts: TuiOptions) -> anyhow::Result<()> {
     runtime::run_loop(client, opts.initial_state()).await
 }
+
+/// Width of the controlling terminal in columns, if there is one. The CLI uses it
+/// for tables and progress lines, since `COLUMNS` is rarely exported to programs.
+pub fn terminal_columns() -> Option<usize> {
+    crossterm::terminal::size()
+        .ok()
+        .map(|(w, _)| usize::from(w))
+        .filter(|w| *w > 0)
+}

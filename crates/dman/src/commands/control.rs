@@ -24,7 +24,11 @@ async fn report(
         }
         // Failures are diagnostics: stderr keeps stdout clean for pipes.
         for f in &res.failed {
-            eprintln!("dman: failed {}: {}", f.id, f.error.message);
+            eprintln!(
+                "dman: failed {}: {}",
+                f.id,
+                crate::format::printable(&f.error.message)
+            );
         }
         if let Some(hint) = batch_hint(client, res).await {
             eprintln!("hint: {hint}");
@@ -105,7 +109,11 @@ pub async fn cleanup(ctx: &Ctx, id: JobId, yes: bool) -> Result<i32, CliError> {
     }
     if !ctx.json {
         for f in &found.files {
-            println!("{:>10}  {}", crate::format::size(f.bytes), f.path);
+            println!(
+                "{:>10}  {}",
+                crate::format::size(f.bytes),
+                crate::format::printable(&f.path)
+            );
         }
     }
     // Needs a terminal or --yes, like every destructive command.
@@ -163,7 +171,7 @@ fn is_yes(answer: &str) -> bool {
     matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
-/// Confirm a destructive action. Must run before connecting.
+/// Confirm a destructive action (a terminal answers it; elsewhere `--yes` is needed).
 fn confirm(question: &str, yes: bool) -> Result<(), CliError> {
     if yes {
         return Ok(());
@@ -182,9 +190,12 @@ fn confirm(question: &str, yes: bool) -> Result<(), CliError> {
 
 pub async fn remove(ctx: &Ctx, a: &RemoveArgs) -> Result<i32, CliError> {
     let what = if a.delete_files {
-        format!("Remove {} job(s) and delete their files?", a.ids.len())
+        format!("Remove {} download(s) and delete their files?", a.ids.len())
     } else {
-        format!("Remove {} job(s)?", a.ids.len())
+        format!(
+            "Remove {} download(s)? (`dman restore` brings them back)",
+            a.ids.len()
+        )
     };
     confirm(&what, a.yes)?;
     let params = dman_proto::method::RemoveParams {
@@ -205,9 +216,9 @@ pub async fn restore(ctx: &Ctx, a: &RestoreArgs) -> Result<i32, CliError> {
 
 pub async fn purge(ctx: &Ctx, a: &PurgeArgs) -> Result<i32, CliError> {
     let question = if a.ids.is_empty() {
-        "Purge all stopped jobs?".to_owned()
+        "Purge all finished, failed and removed downloads from the history?".to_owned()
     } else {
-        format!("Purge {} job(s)?", a.ids.len())
+        format!("Purge {} download(s) from the history?", a.ids.len())
     };
     confirm(&question, a.yes)?;
     let client = ctx.connect().await?;

@@ -180,6 +180,13 @@ async fn spawn_and_wait(ctx: &Ctx) -> Result<Client, CliError> {
     }
 }
 
+fn stop_timeout(ctx: &Ctx) -> CliError {
+    CliError::general("daemon did not stop within 15 s").with_hint(format!(
+        "check `dman daemon status` and the log at {}",
+        ctx.paths.log_file().display()
+    ))
+}
+
 async fn stop(ctx: &Ctx) -> Result<i32, CliError> {
     let client = match ctx.connect().await {
         Ok(c) => c,
@@ -199,11 +206,7 @@ async fn stop(ctx: &Ctx) -> Result<i32, CliError> {
     let deadline = Instant::now() + WAIT_LIMIT;
     while ctx.connect().await.is_ok() {
         if Instant::now() >= deadline {
-            return Err(
-                CliError::general("daemon did not stop within 15 s").with_hint(
-                    "check `dman daemon status`; see the log at `dman daemon status` if it hangs",
-                ),
-            );
+            return Err(stop_timeout(ctx));
         }
         tokio::time::sleep(POLL).await;
     }
@@ -212,8 +215,7 @@ async fn stop(ctx: &Ctx) -> Result<i32, CliError> {
     if ctx.is_local() {
         while lock_held(&ctx.paths.lock_file(&ctx.name)) {
             if Instant::now() >= deadline {
-                return Err(CliError::general("daemon did not stop within 15 s")
-                .with_hint("check `dman daemon status`; see the log at `dman daemon status` if it hangs"));
+                return Err(stop_timeout(ctx));
             }
             tokio::time::sleep(POLL).await;
         }

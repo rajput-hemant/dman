@@ -12,13 +12,38 @@ const DEFAULT_WIDTH: usize = 120;
 const MIN_NAME_WIDTH: usize = 10;
 const COLUMN_GAP: &str = "  ";
 
-/// Terminal width from `COLUMNS`, default 120.
+/// Width for tables on stdout: `COLUMNS`, else the terminal's width when stdout is
+/// one, else 120.
 pub fn terminal_width() -> usize {
+    columns_env()
+        .or_else(|| {
+            std::io::IsTerminal::is_terminal(&std::io::stdout())
+                .then(dman_tui::terminal_columns)
+                .flatten()
+        })
+        .unwrap_or(DEFAULT_WIDTH)
+}
+
+/// `COLUMNS`, when it is set to a width.
+pub fn columns_env() -> Option<usize> {
     std::env::var("COLUMNS")
         .ok()
         .and_then(|c| c.trim().parse().ok())
         .filter(|w| *w > 0)
-        .unwrap_or(DEFAULT_WIDTH)
+}
+
+/// `s` safe to print on a terminal: control characters (escape sequences in a
+/// torrent name or a search result title could rewrite the screen) become U+FFFD.
+/// Every character maps to one, so widths computed before stay right.
+pub fn printable(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.chars().any(char::is_control) {
+        s.chars()
+            .map(|c| if c.is_control() { '\u{fffd}' } else { c })
+            .collect::<String>()
+            .into()
+    } else {
+        s.into()
+    }
 }
 
 /// `1.2 MiB`.
@@ -223,9 +248,10 @@ fn table_dyn(headers: &[&str], rows: &[Vec<String>], left: &[usize]) -> String {
         let mut out = String::new();
         for (i, cell) in cells.iter().enumerate() {
             let w = widths[i];
+            let cell = printable(cell);
             if i + 1 == n {
                 // The last column is never padded, so lines carry no trailing blanks.
-                out.push_str(cell);
+                out.push_str(&cell);
             } else {
                 if left.contains(&i) {
                     out.push_str(&format!("{cell:<w$}"));
@@ -258,8 +284,9 @@ fn table<const N: usize>(headers: [&str; N], rows: &[[String; N]], left: &[usize
         let mut out = String::new();
         for (i, cell) in cells.iter().enumerate() {
             let w = widths[i];
+            let cell = printable(cell);
             if i + 1 == N {
-                out.push_str(cell);
+                out.push_str(&cell);
             } else {
                 if left.contains(&i) {
                     out.push_str(&format!("{cell:<w$}"));
@@ -573,7 +600,7 @@ pub fn key_values(pairs: &[(&str, String)]) -> String {
     let w = pairs.iter().map(|(k, _)| k.len() + 1).max().unwrap_or(0);
     pairs
         .iter()
-        .map(|(k, v)| format!("{:<w$}  {v}\n", format!("{k}:")))
+        .map(|(k, v)| format!("{:<w$}  {}\n", format!("{k}:"), printable(v)))
         .collect()
 }
 
@@ -772,6 +799,14 @@ mod tests {
         assert_eq!(eta(Some(45)), "45s");
         assert_eq!(eta(Some(303)), "5m03s");
         assert_eq!(eta(Some(3720)), "1h02m");
+    }
+
+    #[test]
+    fn control_characters_are_not_printed() {
+        assert_eq!(printable("plain"), "plain");
+        assert_eq!(printable("a\x1b[2Jb\nc"), "a\u{fffd}[2Jb\u{fffd}c");
+        let t = table(["A", "B"], &[["x\x1b]0;t\x07".into(), "y".into()]], &[0]);
+        assert!(!t.contains('\x1b') && !t.contains('\x07'), "{t:?}");
     }
 
     #[test]

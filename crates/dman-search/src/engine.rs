@@ -220,17 +220,23 @@ fn build_client(
         .user_agent(user_agent)
         .connect_timeout(Duration::from_secs(10))
         .redirect(reqwest::redirect::Policy::limited(5));
-    match proxy {
-        Some(p) if p.is_direct() => b = b.no_proxy(),
+    let proxied = match proxy {
+        Some(p) if p.is_direct() => {
+            b = b.no_proxy();
+            false
+        }
         Some(p) => {
             p.validate().map_err(ProviderError::Definition)?;
             b = b.proxy(reqwest::Proxy::all(p.as_str().trim()).map_err(|e| {
                 ProviderError::Definition(format!("bad proxy `{p}`: {}", e.without_url()))
             })?);
+            true
         }
-        None => {}
-    }
-    if let Some(r) = resolver {
+        None => false,
+    };
+    // Through a proxy, names are the proxy's business; the proxy's own host
+    // (often `localhost`) must still resolve the ordinary way.
+    if let Some(r) = resolver.filter(|_| !proxied) {
         b = b.dns_resolver(Arc::clone(r));
     }
     b.build().map_err(map_reqwest)

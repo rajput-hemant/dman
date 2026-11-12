@@ -10,7 +10,7 @@ pub const ENV_CONFIG_DIR: &str = "DMAN_CONFIG_DIR";
 
 /// Resolved filesystem locations used by dman.
 ///
-/// By default the XDG layout is used on both Linux and macOS:
+/// By default the XDG layout is used on every platform, Windows included:
 /// `$XDG_CONFIG_HOME/dman`, `$XDG_DATA_HOME/dman`, `$XDG_STATE_HOME/dman`
 /// (falling back to `~/.config`, `~/.local/share`, `~/.local/state`).
 #[derive(Debug, Clone, PartialEq, Eq)]

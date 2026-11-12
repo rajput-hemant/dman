@@ -16,6 +16,9 @@ Examples:
   dman serve                              open the browser UI on http://127.0.0.1:6811
   dman completions install                enable tab completion for your shell";
 
+/// Heading of the options every command accepts.
+const GLOBAL: &str = "Global options";
+
 /// What `dman --help` says beyond the one-line summary, including the exit codes.
 pub const LONG_ABOUT: &str = "\
 dman: a terminal-first download manager.
@@ -52,13 +55,13 @@ Exit codes:
 #[command(name = "dman", version, propagate_version = true, long_about = LONG_ABOUT, after_help = EXAMPLES)]
 pub struct Cli {
     /// Daemon profile to use.
-    #[arg(long, global = true, env = "DMAN_PROFILE", value_name = "NAME", add = comp::profiles())]
+    #[arg(long, global = true, env = "DMAN_PROFILE", value_name = "NAME", add = comp::profiles(), help_heading = GLOBAL)]
     pub profile: Option<String>,
     /// Machine-readable output (JSON), also for errors.
-    #[arg(long, global = true)]
+    #[arg(long, global = true, help_heading = GLOBAL)]
     pub json: bool,
     /// Increase log verbosity (-v info, -vv debug, -vvv trace).
-    #[arg(short, long, global = true, action = ArgAction::Count)]
+    #[arg(short, long, global = true, action = ArgAction::Count, help_heading = GLOBAL)]
     pub verbose: u8,
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -75,6 +78,11 @@ pub fn command() -> clap::Command {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Manage the background daemon.
+    #[command(after_help = "\
+Examples:
+  dman daemon start
+  dman daemon status
+  dman daemon restart")]
     #[command(display_order = 25)]
     Daemon {
         #[command(subcommand)]
@@ -96,8 +104,8 @@ Examples:
   dman add https://example.org/big.iso --wait      show progress, exit when it is done
 
 Adding a URL or torrent that is already in the list (same URL or info hash) is
-refused with exit code 9 and the existing job's ID; a known torrent gets the new
-link's trackers instead.")]
+refused with exit code 9 and the existing download's ID; a known torrent gets the
+new link's trackers instead.")]
     #[command(display_order = 1)]
     Add(Box<AddArgs>),
     /// Change options of existing downloads (limits, folder, files, seeding, headers).
@@ -110,7 +118,7 @@ Examples:
   dman set 12 --dir ~/iso                     only while waiting or paused
   dman set 12 --header 'Cookie: a=b' --connections 4
   dman set 12 --position 0                    move to the front of the queue
-  dman set 12 --seed-ratio 1 --json           print the updated job
+  dman set 12 --seed-ratio 1 --json           print the updated download as JSON
 
 Options that need a stopped transfer (folder, files, headers, connections) are
 refused while the download runs: pause it first (`dman pause 12`).")]
@@ -163,9 +171,9 @@ Examples:
   dman add https://example.org/big.iso --wait && ./next-step.sh
 
 A torrent counts as finished once it completes (seeding does not delay the
-exit). Exit codes: 0 all completed, 1 every job failed, 8 some failed,
-124 the timeout expired (jobs keep running), 130 Ctrl-C. Waiting never
-changes the jobs.")]
+exit). Exit codes: 0 all completed, 1 every download failed, 8 some failed,
+124 the timeout expired (the downloads keep running), 130 Ctrl-C. Waiting
+never changes the downloads.")]
     #[command(display_order = 4)]
     Wait(WaitArgs),
     /// Show details of one download.
@@ -176,7 +184,7 @@ Examples:
   dman get 12 --watch            live progress bar until the download ends")]
     #[command(display_order = 3)]
     Get {
-        /// Job ID.
+        /// Download ID.
         #[arg(add = comp::job_ids_any())]
         id: JobId,
         /// Redraw a progress bar (speed, ETA, peers) until the download ends; plain
@@ -191,9 +199,14 @@ Examples:
         peers: bool,
     },
     /// Rename a download (waiting/paused: new output name; complete: move on disk).
+    #[command(after_help = "\
+Examples:
+  dman rename 12 ubuntu.iso
+  dman rename 12 season-1             a finished multi-file torrent: its folder
+  dman rename 12 --file 3 notes.txt   one file of a multi-file download")]
     #[command(display_order = 10)]
     Rename {
-        /// Job ID.
+        /// Download ID.
         #[arg(add = comp::job_ids_any())]
         id: JobId,
         /// New file name (no `/`); for a completed multi-file torrent without
@@ -204,9 +217,13 @@ Examples:
         file: Option<u32>,
     },
     /// Delete the partial files of a finished torrent's deselected files (asks first).
+    #[command(after_help = "\
+Examples:
+  dman cleanup 12          list the files, then ask
+  dman cleanup 12 --yes    delete without asking (scripts)")]
     #[command(display_order = 12)]
     Cleanup {
-        /// Job ID.
+        /// Download ID.
         #[arg(add = comp::job_ids_finished())]
         id: JobId,
         /// Do not ask for confirmation.
@@ -214,12 +231,21 @@ Examples:
         yes: bool,
     },
     /// Show or change settings (get, set, edit, show, path, reload).
+    #[command(after_help = "\
+Examples:
+  dman config get limits.download
+  dman config set limits.download 5MiB
+  dman config edit")]
     #[command(display_order = 23)]
     Config {
         #[command(subcommand)]
         cmd: ConfigCmd,
     },
     /// Video quality picker defaults (`dman video prefs`).
+    #[command(after_help = "\
+Examples:
+  dman video prefs
+  dman video prefs --quality 1080p --ask false")]
     #[command(display_order = 24)]
     Video {
         #[command(subcommand)]
@@ -253,6 +279,11 @@ Examples:
         plan_args: PlanArgs,
     },
     /// Show the files of a magnet link (or http(s) .torrent URL) without downloading it.
+    #[command(after_help = "\
+Examples:
+  dman preview 'magnet:?xt=urn:btih:...'
+  dman preview https://example.org/ubuntu.torrent
+  dman preview 'magnet:?xt=urn:btih:...' --timeout 30 --json")]
     #[command(display_order = 14)]
     Preview {
         /// Magnet link, or the http(s) URL of a .torrent file.
@@ -262,36 +293,82 @@ Examples:
         timeout: Option<u32>,
     },
     /// Pause downloads.
+    #[command(after_help = "\
+Examples:
+  dman pause 12
+  dman pause 12 13 14
+  dman pause --all")]
     #[command(display_order = 5)]
     Pause(TargetArgs),
     /// Resume downloads.
+    #[command(after_help = "\
+Examples:
+  dman resume 12
+  dman resume --all")]
     #[command(display_order = 6)]
     Resume(TargetArgs),
     /// Remove downloads (files are kept unless --delete-files).
+    #[command(after_help = "\
+Examples:
+  dman remove 12                       asks first; `dman restore 12` undoes it
+  dman remove 12 13 --yes              without asking (scripts)
+  dman remove 12 --delete-files        also delete the downloaded files (cannot be undone)")]
     #[command(display_order = 8)]
     Remove(RemoveArgs),
     /// Undo a remove: bring removed downloads back (not possible after --delete-files).
+    #[command(after_help = "\
+Examples:
+  dman restore 12
+  dman list --state removed      see what can be restored")]
     #[command(display_order = 9)]
     Restore(RestoreArgs),
-    /// Drop finished jobs from the history.
+    /// Drop finished, failed and removed downloads from the history (files are kept).
+    #[command(after_help = "\
+Examples:
+  dman purge             every finished, failed and removed download (asks first)
+  dman purge 12 13 -y    these two, without asking")]
     #[command(display_order = 13)]
     Purge(PurgeArgs),
-    /// Change a job's queue position.
+    /// Change a download's queue position.
+    #[command(after_help = "\
+Examples:
+  dman reorder 12 --top
+  dman reorder 12 --to 3
+  dman reorder 12 --down")]
     #[command(display_order = 11)]
     Reorder(ReorderArgs),
     /// Show or set the global speed limits.
+    #[command(after_help = "\
+Examples:
+  dman limit                            show the limits in force
+  dman limit --download 5MiB
+  dman limit --download 0 --upload 0    remove both limits")]
     #[command(display_order = 19)]
     Limit(LimitArgs),
     /// Show or set the number of concurrent downloads.
+    #[command(after_help = "\
+Examples:
+  dman max-concurrent
+  dman max-concurrent 5")]
     #[command(display_order = 20)]
     MaxConcurrent {
         /// New limit; omit to print the current one.
         n: Option<u32>,
     },
     /// Show the schedule windows, the active one and the next change.
+    #[command(after_help = "\
+Examples:
+  dman schedule
+  dman schedule --json
+
+Windows are set in the [[schedule]] tables of config.toml (`dman config edit`).")]
     #[command(display_order = 21)]
     Schedule,
     /// Show global statistics.
+    #[command(after_help = "\
+Examples:
+  dman stats
+  dman stats --json")]
     #[command(display_order = 22)]
     Stats,
     /// Print a shell completion script, or install it (`completions install`).
@@ -316,12 +393,20 @@ question \"Add which?\"; answer with numbers such as 1,3 or 2-4, Enter skips.")]
     #[command(display_order = 16)]
     Search(Box<SearchArgs>),
     /// Manage search providers (enable, disable, test, import, export).
+    #[command(after_help = "\
+Examples:
+  dman providers list
+  dman providers enable YTS Nyaa
+  dman providers test YTS")]
     #[command(display_order = 17)]
     Providers {
         #[command(subcommand)]
         cmd: ProvidersCmd,
     },
     /// Public tracker list status.
+    #[command(after_help = "\
+Examples:
+  dman trackers status")]
     #[command(display_order = 18)]
     Trackers {
         #[command(subcommand)]
@@ -337,6 +422,10 @@ Examples:
     #[command(display_order = 26)]
     Serve(ServeArgs),
     /// Update dman (installer installs only) or show the right command for your install.
+    #[command(after_help = "\
+Examples:
+  dman update --check     show the installed and the latest version
+  dman update             update (asks first)")]
     #[command(display_order = 30)]
     Update(UpdateArgs),
 }
@@ -353,6 +442,10 @@ pub struct CompletionsArgs {
 #[derive(Subcommand, Debug)]
 pub enum CompletionsCmd {
     /// Write the completion script where your shell loads it and say what else to do.
+    #[command(after_help = "\
+Examples:
+  dman completions install
+  dman completions install --shell zsh")]
     Install {
         /// Shell to install for (default: detected from $SHELL).
         #[arg(long, value_enum)]
@@ -392,7 +485,7 @@ pub struct UpdateArgs {
     /// Only report the installed and latest version; change nothing.
     #[arg(long)]
     pub check: bool,
-    /// Do not ask: run the package manager / restart the daemon.
+    /// Do not ask: restart a running daemon after the update.
     #[arg(long, short = 'y')]
     pub yes: bool,
 }
@@ -436,38 +529,63 @@ fn parse_index(s: &str) -> Result<usize, String> {
 #[derive(Subcommand, Debug)]
 pub enum ProvidersCmd {
     /// List providers with their state.
+    #[command(after_help = "\
+Examples:
+  dman providers list
+  dman providers list --json")]
     List,
     /// Enable providers (nothing is searched until one is enabled).
+    #[command(after_help = "\
+Examples:
+  dman providers enable YTS
+  dman providers enable YTS Nyaa")]
     Enable {
         /// Provider names.
         #[arg(required = true, add = comp::providers_disabled())]
         names: Vec<String>,
     },
     /// Disable providers.
+    #[command(after_help = "\
+Examples:
+  dman providers disable YTS")]
     Disable {
         /// Provider names.
         #[arg(required = true, add = comp::providers_enabled())]
         names: Vec<String>,
     },
-    /// Probe a provider and show what it returns.
+    /// Probe a provider with a test query and show what it returns (works while disabled).
+    #[command(after_help = "\
+Examples:
+  dman providers test YTS")]
     Test {
         /// Provider name.
         #[arg(add = comp::providers_any())]
         name: String,
     },
     /// Add or replace custom providers from a TOML file (`-` = stdin).
+    #[command(after_help = "\
+Examples:
+  dman providers import my-providers.toml
+  dman providers export Mine | dman providers import -")]
     Import {
         /// File of `[[provider]]` tables.
         #[arg(add = comp::any_file())]
         file: String,
     },
     /// Print providers as TOML (default: the custom ones).
+    #[command(after_help = "\
+Examples:
+  dman providers export > my-providers.toml
+  dman providers export YTS")]
     Export {
         /// Provider names.
         #[arg(add = comp::providers_any())]
         names: Vec<String>,
     },
     /// Remove a custom provider (built-ins can only be disabled).
+    #[command(after_help = "\
+Examples:
+  dman providers remove Mine")]
     Remove {
         /// Provider name.
         #[arg(add = comp::providers_custom())]
@@ -478,12 +596,20 @@ pub enum ProvidersCmd {
 #[derive(Subcommand, Debug)]
 pub enum TrackersCmd {
     /// Show whether the tracker list is enabled, how many trackers are loaded and when.
+    #[command(after_help = "\
+Examples:
+  dman trackers status
+  dman trackers status --json")]
     Status,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum DaemonCmd {
-    /// Run the daemon in the foreground.
+    /// Run the daemon in the foreground (for systemd units, containers and debugging).
+    #[command(after_help = "\
+Examples:
+  dman daemon run          logs go to stderr; Ctrl-C stops it
+  dman daemon run -v       more detail in the log")]
     Run {
         /// Detach from the controlling terminal (used internally).
         #[arg(long, hide = true)]
@@ -497,14 +623,30 @@ Examples:
   dman daemon gen-config   write a commented config.toml to edit first")]
     Start,
     /// Stop the daemon.
+    #[command(after_help = "\
+Examples:
+  dman daemon stop")]
     Stop,
     /// Stop and start the daemon.
+    #[command(after_help = "\
+Examples:
+  dman daemon restart      e.g. after changing a setting that needs a restart")]
     Restart,
     /// Show daemon, engine and transfer status.
+    #[command(after_help = "\
+Examples:
+  dman daemon status
+  dman daemon status --json")]
     Status,
     /// Start (or cleanly restart) the aria2 engine, e.g. after installing it.
+    #[command(after_help = "\
+Examples:
+  dman daemon engine-restart")]
     EngineRestart,
     /// Write the default config file if none exists.
+    #[command(after_help = "\
+Examples:
+  dman daemon gen-config   then `dman config edit` to change it")]
     GenConfig,
 }
 
@@ -554,10 +696,10 @@ pub struct AddArgs {
     /// Add paused.
     #[arg(long)]
     pub paused: bool,
-    /// Download speed limit for this job, e.g. 2MiB.
+    /// Download speed limit for this download, e.g. 2MiB.
     #[arg(long, value_name = "SIZE", value_parser = parse_size)]
     pub max_download_limit: Option<u64>,
-    /// Upload speed limit for this job, e.g. 500K.
+    /// Upload speed limit for this download, e.g. 500K.
     #[arg(long, value_name = "SIZE", value_parser = parse_size)]
     pub max_upload_limit: Option<u64>,
     /// Files to download (1-based), e.g. 1,3-5.
@@ -612,7 +754,7 @@ pub struct AddArgs {
     /// if all completed, 124 on --timeout).
     #[arg(long, conflicts_with = "paused")]
     pub wait: bool,
-    /// With --wait: give up after this long, e.g. 90s, 15m, 2h (jobs keep running).
+    /// With --wait: give up after this long, e.g. 90s, 15m, 2h (the downloads keep running).
     #[arg(long, requires = "wait", value_name = "DURATION", value_parser = crate::commands::wait::parse_duration)]
     pub timeout: Option<std::time::Duration>,
     #[command(flatten)]
@@ -621,9 +763,10 @@ pub struct AddArgs {
 
 /// `dman set`: the options to change; unset ones stay as they are.
 #[derive(Args, Debug, Default)]
+#[command(override_usage = "dman set [OPTIONS] <IDS>... <--OPTION VALUE>...")]
 #[command(group(clap::ArgGroup::new("change").required(true).multiple(true)))]
 pub struct SetArgs {
-    /// Job IDs.
+    /// Download IDs.
     #[arg(required = true, add = comp::job_ids_unfinished())]
     pub ids: Vec<JobId>,
     /// Download speed limit, e.g. 2MiB (0 = unlimited).
@@ -650,7 +793,7 @@ pub struct SetArgs {
     /// Stop seeding after this many minutes.
     #[arg(long, value_name = "MINUTES", group = "change")]
     pub seed_time: Option<u64>,
-    /// HTTP header (repeatable; replaces the job's headers), e.g. "Cookie: a=b".
+    /// HTTP header (repeatable; replaces the download's headers), e.g. "Cookie: a=b".
     #[arg(long, value_name = "HEADER", group = "change")]
     pub header: Vec<String>,
     /// User-Agent header.
@@ -689,10 +832,20 @@ pub struct HandleArgs {
 #[derive(Subcommand, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntegrateCmd {
     /// Register dman for magnet links and .torrent files and make it the default.
+    #[command(after_help = "\
+Examples:
+  dman integrate install")]
     Install,
     /// Remove the registration `install` wrote (only files and keys dman created).
+    #[command(after_help = "\
+Examples:
+  dman integrate uninstall")]
     Uninstall,
     /// Show the current handler of magnet links and .torrent files.
+    #[command(after_help = "\
+Examples:
+  dman integrate status
+  dman integrate status --json")]
     Status,
 }
 
@@ -849,10 +1002,10 @@ pub struct ListArgs {
     /// Only these states (comma-separated).
     #[arg(long, value_enum, value_delimiter = ',')]
     pub state: Vec<StateArg>,
-    /// Only jobs whose name contains this text (case-insensitive).
+    /// Only downloads whose name contains this text (case-insensitive).
     #[arg(long, value_name = "TEXT")]
     pub name: Option<String>,
-    /// Only jobs of this engine.
+    /// Only downloads of this engine.
     #[arg(long, value_enum, value_name = "ENGINE")]
     pub engine: Option<EngineArg>,
     /// Sort by this key (speed, size, progress, added: highest/newest first; eta:
@@ -862,7 +1015,7 @@ pub struct ListArgs {
     /// Reverse the sort order.
     #[arg(long)]
     pub reverse: bool,
-    /// Show at most this many jobs (after filtering and sorting).
+    /// Show at most this many downloads (after filtering and sorting).
     #[arg(long, value_name = "N")]
     pub limit: Option<usize>,
     /// Columns of the table (comma-separated); ignored with --json.
@@ -893,20 +1046,20 @@ pub enum SortKey {
 
 #[derive(Args, Debug)]
 pub struct WaitArgs {
-    /// Job IDs to wait for.
+    /// Download IDs to wait for.
     #[arg(required = true, add = comp::job_ids_running())]
     pub ids: Vec<JobId>,
-    /// Give up after this long, e.g. 90s, 15m, 2h, 1h30m (exit 124; jobs keep running).
+    /// Give up after this long, e.g. 90s, 15m, 2h, 1h30m (exit 124; the downloads keep running).
     #[arg(long, value_name = "DURATION", value_parser = crate::commands::wait::parse_duration)]
     pub timeout: Option<std::time::Duration>,
 }
 
 #[derive(Args, Debug)]
 pub struct TargetArgs {
-    /// Job IDs.
+    /// Download IDs.
     #[arg(required_unless_present = "all", add = comp::job_ids_running())]
     pub ids: Vec<JobId>,
-    /// Apply to every job.
+    /// Apply to every download.
     #[arg(long, conflicts_with = "ids")]
     pub all: bool,
 }
@@ -915,6 +1068,9 @@ pub struct TargetArgs {
 pub enum ConfigCmd {
     /// Re-read config.toml in the running daemon and apply what can change live
     /// (limits, schedule, notifications, search, torrents, video defaults).
+    #[command(after_help = "\
+Examples:
+  dman config reload       after editing config.toml by hand")]
     Reload,
     /// Print one setting (or a whole section) of the effective configuration.
     #[command(after_help = "\
@@ -976,6 +1132,9 @@ whether to open the editor again; declining discards the edit and keeps the file
         no_reload: bool,
     },
     /// Print the path of config.toml.
+    #[command(after_help = "\
+Examples:
+  dman config path")]
     Path,
     /// Print the effective configuration (file plus defaults) with secrets redacted.
     #[command(after_help = "\
@@ -1015,7 +1174,7 @@ pub struct PrefsArgs {
 
 #[derive(Args, Debug)]
 pub struct RemoveArgs {
-    /// Job IDs.
+    /// Download IDs.
     #[arg(required = true, add = comp::job_ids_any())]
     pub ids: Vec<JobId>,
     /// Also delete the downloaded files (asks once; non-interactive use needs --yes).
@@ -1031,14 +1190,14 @@ pub struct RemoveArgs {
 
 #[derive(Args, Debug)]
 pub struct RestoreArgs {
-    /// IDs of removed jobs.
+    /// IDs of removed downloads.
     #[arg(required = true, add = comp::job_ids_removed())]
     pub ids: Vec<JobId>,
 }
 
 #[derive(Args, Debug)]
 pub struct PurgeArgs {
-    /// Job IDs; none = all stopped jobs.
+    /// Download IDs; none = every finished, failed and removed download.
     #[arg(add = comp::job_ids_stopped())]
     pub ids: Vec<JobId>,
     /// Do not ask for confirmation.
@@ -1048,8 +1207,9 @@ pub struct PurgeArgs {
 
 #[derive(Args, Debug)]
 #[command(group(clap::ArgGroup::new("move").required(true).multiple(false)))]
+#[command(override_usage = "dman reorder [OPTIONS] <ID> <--to <N>|--up|--down|--top|--bottom>")]
 pub struct ReorderArgs {
-    /// Job ID.
+    /// Download ID.
     #[arg(add = comp::job_ids_any())]
     pub id: JobId,
     /// Move to this absolute position (0 = first).

@@ -286,8 +286,8 @@ pub struct Tally {
     pub duplicates: usize,
     /// Duplicate torrents that received new trackers (not failures).
     pub merged: usize,
-    /// The first failure: its code, and whether it was a duplicate.
-    pub first: Option<(dman_proto::ErrorCode, bool)>,
+    /// The code of the first failure that was not a duplicate.
+    pub first: Option<dman_proto::ErrorCode>,
 }
 
 impl Tally {
@@ -299,10 +299,13 @@ impl Tally {
             };
             match dman_proto::DuplicateInfo::from_error(error) {
                 Some(d) if d.trackers_added > 0 => t.merged += 1,
-                dup => {
+                Some(_) => {
                     t.failed += 1;
-                    t.duplicates += usize::from(dup.is_some());
-                    t.first.get_or_insert((error.code, dup.is_some()));
+                    t.duplicates += 1;
+                }
+                None => {
+                    t.failed += 1;
+                    t.first.get_or_insert(error.code);
                 }
             }
         }
@@ -310,13 +313,16 @@ impl Tally {
     }
 
     /// Process exit code: 0 when nothing failed, the duplicate code when every
-    /// source failed and the first failure was a duplicate, otherwise as for
-    /// any batch.
+    /// source was a refused duplicate, otherwise as for any batch (a failure other
+    /// than a duplicate decides the code when everything failed).
     pub fn exit(&self, total: usize) -> i32 {
-        match self.first {
-            Some((_, true)) if self.failed >= total => EXIT_DUPLICATE,
-            first => batch_exit(total, self.failed, first.map(|f| f.0)),
+        if self.failed > 0 && self.failed == self.duplicates && self.failed >= total {
+            return EXIT_DUPLICATE;
         }
+        let first = self
+            .first
+            .or_else(|| (self.duplicates > 0).then_some(dman_proto::ErrorCode::Refused));
+        batch_exit(total, self.failed, first)
     }
 }
 
@@ -715,14 +721,22 @@ pub async fn probe(
 pub async fn preview(ctx: &Ctx, magnet: &str, timeout: Option<u32>) -> Result<i32, CliError> {
     let client = ctx.connect().await?;
     if !ctx.json {
-        eprintln!("fetching metadata (this needs peers; Ctrl-C to cancel)...");
+        if magnet
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("magnet:")
+        {
+            eprintln!("fetching metadata (this needs peers; Ctrl-C to cancel)...");
+        } else {
+            eprintln!("fetching the torrent file...");
+        }
     }
     let p = client.preview_magnet(magnet, timeout).await?;
     if ctx.json {
         super::print_json(&p)?;
         return Ok(0);
     }
-    println!("name:       {}", p.name);
+    println!("name:       {}", crate::format::printable(&p.name));
     println!("info hash:  {}", p.info_hash);
     println!(
         "size:       {} in {} file(s)",
@@ -913,7 +927,8 @@ mod tests {
         assert_eq!(exit(&[dup(3)]), 0);
         assert_eq!(exit(&[ok.clone(), dup(0)]), 8);
         assert_eq!(exit(std::slice::from_ref(&bad)), 5);
-        assert_eq!(exit(&[bad, dup(0)]), 5);
+        assert_eq!(exit(&[bad.clone(), dup(0)]), 5);
+        assert_eq!(exit(&[dup(0), bad]), 5, "the order does not matter");
         let t = Tally::of(&[ok, dup(0), dup(2)]);
         assert_eq!((t.failed, t.duplicates, t.merged), (1, 1, 1));
     }

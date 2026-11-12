@@ -148,17 +148,50 @@ fn redact_url_string(s: &str) -> String {
     if changed { u.to_string() } else { s.to_owned() }
 }
 
-/// `--flag=value` arguments of an engine command line: the value of a
-/// credential-like flag (`--http-passwd=...`) or of a proxy flag is masked.
-fn redact_flag(arg: &str) -> String {
-    match arg.split_once('=') {
-        Some((flag, _)) if flag.starts_with('-') && sensitive_key(flag) => {
-            format!("{flag}={REDACTED}")
+/// A proxy value: a URL, or aria2's scheme-less `user:password@host:port`.
+fn redact_proxy_value(value: &str) -> String {
+    if !value.contains("://")
+        && let Some((_, host)) = value.rsplit_once('@')
+    {
+        return format!("{REDACTED}@{host}");
+    }
+    redact_url_string(value)
+}
+
+/// The value given to `flag` (a credential or a proxy) with its secret masked.
+fn redact_flag_value(flag: &str, value: &str) -> String {
+    if sensitive_key(flag) {
+        REDACTED.to_owned()
+    } else if flag.contains("proxy") {
+        redact_proxy_value(value)
+    } else {
+        redact_url_string(value)
+    }
+}
+
+/// Mask the arguments of an engine command line: the value of a credential-like
+/// flag (`--http-passwd=...` or `--http-passwd ...`), the user info of proxy
+/// flags, and credentials in any URL.
+fn redact_args(args: &mut [Value]) {
+    let mut pending_flag: Option<String> = None;
+    for item in args {
+        let Value::String(s) = item else {
+            pending_flag = None;
+            continue;
+        };
+        if let Some(flag) = pending_flag.take()
+            && !s.starts_with('-')
+        {
+            *s = redact_flag_value(&flag, s);
+            continue;
         }
-        Some((flag, value)) if flag.starts_with('-') && flag.contains("proxy") => {
-            format!("{flag}={}", redact_url_string(value))
+        match s.split_once('=') {
+            Some((flag, value)) if flag.starts_with('-') => {
+                *s = format!("{flag}={}", redact_flag_value(flag, value));
+            }
+            _ if s.starts_with('-') => pending_flag = Some(s.clone()),
+            _ => *s = redact_url_string(s),
         }
-        _ => redact_url_string(arg),
     }
 }
 
@@ -183,11 +216,11 @@ fn redact_node(v: &mut Value, key: Option<&str>, parent: Option<&str>) {
             }
         }
         Value::Array(a) => {
-            let flags = key == Some("extra_args") || key == Some("command");
-            for item in a {
-                match item {
-                    Value::String(s) if flags => *s = redact_flag(s),
-                    other => redact_node(other, key, parent),
+            if key == Some("extra_args") || key == Some("command") {
+                redact_args(a);
+            } else {
+                for item in a {
+                    redact_node(item, key, parent);
                 }
             }
         }
@@ -196,6 +229,8 @@ fn redact_node(v: &mut Value, key: Option<&str>, parent: Option<&str>) {
                 *s = REDACTED.to_owned();
             } else if key == Some("url") && parent == Some("webhook") {
                 *s = redact_webhook_url(s);
+            } else if key.is_some_and(|k| k.contains("proxy")) {
+                *s = redact_proxy_value(s);
             } else {
                 *s = redact_url_string(s);
             }
@@ -277,12 +312,14 @@ headers = { Authorization = "Bearer abc", X-A = "b" }
 url = "https://hooks.example/services/T000/B000/XXXX"
 secret_ref = "hook"
 [aria2]
-extra_args = ["--all-proxy=http://u:pw@p.example:3128", "--http-passwd=zzz", "--max-tries=5"]
+extra_args = ["--all-proxy=http://u:pw@p.example:3128", "--http-passwd=zzz", "--max-tries=5", "--ftp-passwd", "yyy", "--https-proxy=me:qqq@p.example:3128", "--http-proxy", "me:vvv@p.example:3128"]
 "#;
         let mut v = effective_value(&cfg(text)).unwrap();
         redact_config(&mut v);
         let out = toml::to_string(&v).unwrap();
-        for leaked in ["hunter2", "abc123", "Bearer", "XXXX", "pw@", "zzz"] {
+        for leaked in [
+            "hunter2", "abc123", "Bearer", "XXXX", "pw@", "zzz", "yyy", "qqq", "vvv",
+        ] {
             assert!(!out.contains(leaked), "{leaked} leaked:\n{out}");
         }
         assert!(out.contains("proxy.example:8080"), "{out}");

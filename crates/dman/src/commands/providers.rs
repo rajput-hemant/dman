@@ -57,7 +57,7 @@ pub async fn run(ctx: &Ctx, cmd: &ProvidersCmd) -> Result<i32, CliError> {
                     println!("answered by mirror: {m}");
                 }
                 if let Some(s) = &r.sample {
-                    println!("sample: {}", s.title);
+                    println!("sample: {}", crate::format::printable(&s.title));
                 }
                 if r.results == 0 {
                     println!("(the provider answered but returned no results for its test query)");
@@ -98,9 +98,7 @@ pub async fn run(ctx: &Ctx, cmd: &ProvidersCmd) -> Result<i32, CliError> {
         }
         ProvidersCmd::Remove { name } => {
             client.providers_remove(name).await?;
-            if !ctx.json {
-                println!("removed {name}");
-            }
+            super::say(ctx, &format!("removed {name}"), "removed")?;
             Ok(0)
         }
     }

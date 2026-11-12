@@ -234,6 +234,10 @@ fn brief(e: ConfigError, key: &str, config: &Config) -> CliError {
             };
             CliError::invalid(text).with_hint(hint)
         }
+        ConfigError::Invalid(message) => {
+            CliError::invalid(format!("invalid configuration: {message}"))
+                .with_hint("nothing was saved")
+        }
         other => CliError::from(other),
     }
 }

@@ -202,7 +202,12 @@ pub async fn get(
         println!();
         println!("renames:");
         for r in &d.renames {
-            println!("  {} -> {}  (at {})", r.from, r.to, r.at);
+            println!(
+                "  {} -> {}  ({})",
+                format::printable(&r.from),
+                format::printable(&r.to),
+                format::local_time(r.at)
+            );
         }
     }
     if files {

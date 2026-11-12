@@ -14,7 +14,7 @@ pub fn parse_bytes(s: &str) -> Result<u64, String> {
     }
     s.parse::<bytesize::ByteSize>()
         .map(|b| b.as_u64())
-        .map_err(|e| format!("invalid size `{s}`: {e}"))
+        .map_err(|_| format!("invalid size `{s}` (examples: 500K, 2MiB, 1.5GB)"))
 }
 
 /// Format bytes with the largest binary unit that divides the value exactly,

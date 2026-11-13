@@ -8,7 +8,6 @@ edition = "2024"
 rust-version = "1.97"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/rajput-hemant/dman"
-homepage = "https://github.com/rajput-hemant/dman"
 readme = "README.md"
 publish = true
 

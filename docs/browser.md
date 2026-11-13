@@ -1,7 +1,17 @@
 # Sending links from the browser to dman
 
-There are three ways to get a magnet link, a `.torrent` file or a download URL from the
-browser into dman. None of them weakens the web UI's protection against other websites.
+**TL;DR:** there are three ways to get a magnet link, a `.torrent` file or a download URL from
+the browser into dman. None of them weakens the web UI's protection against other websites.
+Fastest path: run `dman integrate install` (Linux, Windows) so magnet links open in dman.
+
+## Contents
+
+- [Handler for magnet links and .torrent files](#handler-for-magnet-links-and-torrent-files)
+- [Bookmarklet and userscript](#bookmarklet-and-userscript-web-ui)
+- [Clipboard](#clipboard)
+- [Duplicates](#duplicates)
+
+## Comparison
 
 | Way | Needs | Confirms before adding |
 | --- | --- | --- |
@@ -9,7 +19,7 @@ browser into dman. None of them weakens the web UI's protection against other we
 | Bookmarklet or userscript that opens the web UI's add page | the web UI (`dman serve`) on this computer | yes, you press **Add** |
 | Copy the link, then run `dman add` | a clipboard tool | yes, in the terminal |
 
-## 1. dman as the handler of magnet links and .torrent files
+## Handler for magnet links and .torrent files
 
 ```sh
 dman integrate install      # register dman and make it the default
@@ -21,6 +31,14 @@ The browser (or file manager) then runs `dman handle <link-or-file>`. It starts 
 when needed, adds the link with your default options and shows a desktop notification with
 the result, because there is usually no terminal to print to. A link that is already in your
 downloads is not added again; for a torrent its new trackers are added to the existing job.
+
+Per platform:
+
+| Platform | Mechanism |
+| --- | --- |
+| Linux | A `.desktop` file plus `xdg-mime default` |
+| Windows | Registry keys under `HKEY_CURRENT_USER\Software\Classes` |
+| macOS | Manual: `install` prints the steps |
 
 - **Linux**: `install` writes `~/.local/share/applications/dman-handler.desktop`
   (`$XDG_DATA_HOME` is honoured) for `x-scheme-handler/magnet` and
@@ -39,7 +57,7 @@ downloads is not added again; for a torrent its new trackers are added to the ex
   `CFBundleURLTypes` (`magnet`) and `CFBundleDocumentTypes` (`torrent`) in its
   `Info.plist`, made the default with a tool such as `duti`.
 
-## 2. Bookmarklet and userscript (web UI)
+## Bookmarklet and userscript (web UI)
 
 The web UI refuses state-changing requests from other websites: they must come from its own
 pages (`Origin`/`Sec-Fetch-Site` check) and carry the per-page CSRF token. A bookmarklet runs
@@ -50,6 +68,8 @@ CSRF token. Nothing is added without that click.
 
 This works as is for the default, login-free web UI on `http://127.0.0.1:6811`. Adjust the
 address if you changed `[web]` (port, `--base-path`).
+
+Both are used with the web UI on this computer; they only prefill the add form.
 
 ### Bookmarklet
 
@@ -95,19 +115,24 @@ magnet and `.torrent` link; clicking it opens dman's add page with that link.
 
 When the web UI requires a login (`require_login`, or a network address), its session
 cookie is `SameSite=Strict`, so the browser does not send it on a page opened from another
-site: you land on the login page and the link is not carried over. Use the handler from
-section 1 or the clipboard (section 3) in that case, or open the add page yourself and paste.
+site: you land on the login page and the link is not carried over. Use the handler
+([above](#handler-for-magnet-links-and-torrent-files)) or the [clipboard](#clipboard) in that case, or open the add page yourself and paste.
 
-## 3. Clipboard
+## Clipboard
 
 ```sh
 dman add --clipboard     # add the link(s) in the clipboard
 dman add                 # in a terminal without arguments: offers the clipboard's link
 ```
 
-The clipboard is read with `wl-paste` (Wayland), `xclip` or `xsel` (X11), `pbpaste` (macOS)
-or PowerShell's `Get-Clipboard` (Windows); install one of them if dman says it cannot read
-the clipboard. Only text that consists of URLs or magnet links (one per line) is taken.
+| Platform | Clipboard tool |
+| --- | --- |
+| Wayland | `wl-paste` |
+| X11 | `xclip` or `xsel` |
+| macOS | `pbpaste` |
+| Windows | PowerShell `Get-Clipboard` |
+
+Install one of them if dman says it cannot read the clipboard. Only text that consists of URLs or magnet links (one per line) is taken.
 
 ## Duplicates
 

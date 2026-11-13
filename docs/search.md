@@ -1,7 +1,20 @@
 # Search providers
 
-dman searches torrent sites through *providers*: declarative definitions (a URL plus how to
-read the answer). Every built-in provider is off until you enable it:
+**TL;DR:** dman searches torrent sites through *providers*: declarative definitions (a URL plus
+how to read the answer). Every built-in provider is off until you enable it. Fastest path:
+`dman providers enable nyaa`, then `dman search "your words"`.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Built-in providers](#built-in-providers)
+- [Mirrors](#mirrors)
+- [Proxy](#proxy)
+- [DNS over HTTPS](#dns-over-https)
+- [Cloudflare-protected sites (1337x)](#cloudflare-protected-sites-1337x)
+- [Custom providers](#custom-providers)
+
+## Quick start
 
 ```bash
 dman providers list                 # state, verified/unverified, mirrors, proxy
@@ -13,7 +26,7 @@ dman search "big buck bunny"
 `verified` means the definition was checked against the live site and a real response is
 kept as a test fixture. `unverified` means it was written from the public format only; try
 `dman providers test NAME` before relying on it. Sites move and change their markup: when a
-provider breaks, adjust it in `config.toml` (see "Custom providers").
+provider breaks, adjust it in `config.toml` (see [Custom providers](#custom-providers)).
 
 ## Built-in providers
 
@@ -30,9 +43,9 @@ provider breaks, adjust it in `config.toml` (see "Custom providers").
 | Academic Torrents | RSS (newest 30) | verified; data sets and course material; filtered by your words (the site asks scrapers to use its XML files, and the full database file is too large) |
 | LinuxTracker | HTML, hash from the link | verified |
 | LimeTorrents | HTML, magnet from the detail page | unverified: its search page did not answer from the test machine; selectors come from the real "latest" and detail pages. Mirror limetorrents.lol |
-| SolidTorrents | JSON API | unverified: bitsearch.to (where solidtorrents.to now points) answered 500 or timed out; format from the API's earlier documentation |
-| 1337x | HTML | unverified: Cloudflare challenge, see below |
-| Torznab | Prowlarr / Jackett | template, see below |
+| SolidTorrents | JSON API | unverified: bitsearch.to (where solidtorrents.to now points) answered 500 or timed out; format from the API's earlier documentation. Mirrors solidtorrents.to, solidtorrents.net |
+| 1337x | HTML | unverified: Cloudflare challenge, see [below](#cloudflare-protected-sites-1337x); mirrors 1337x.st, 1337xx.to, x1337x.ws |
+| Torznab | Prowlarr / Jackett | unverified template, see [below](#cloudflare-protected-sites-1337x) |
 
 ## Mirrors
 
@@ -73,8 +86,13 @@ name = "Knaben"
 proxy = "none"                      # this provider connects directly
 ```
 
-Schemes: `http`, `https`, `socks5`, `socks5h` (use `socks5h` to resolve names on the proxy,
-which also gets around DNS blocks) and the word `none`. A provider's own `proxy` wins over
+| Scheme | Notes |
+| --- | --- |
+| `http`, `https`, `socks5` | Standard proxy URLs |
+| `socks5h` | Resolves names on the proxy, which also gets around DNS blocks |
+| `none` | Connect directly (per provider) |
+
+A provider's own `proxy` wins over
 `[search] proxy`. Credentials in a proxy URL are hidden in `dman providers list`, in error
 messages and in debug output, and `dman providers export` leaves the proxy out of the file.
 Search proxies do not affect aria2; give aria2 its own proxy in the per-download options.
@@ -88,6 +106,13 @@ tracker-list host names through DNS over HTTPS instead of the system resolver:
 [search]
 dns = "doh:cloudflare"              # or "doh:quad9", "doh:https://dns.example/dns-query", "system"
 ```
+
+| Value | Resolver |
+| --- | --- |
+| `system` | The system resolver (default behavior) |
+| `doh:cloudflare` | 1.1.1.1 / 1.0.0.1 |
+| `doh:quad9` | 9.9.9.9 / 149.112.112.112 |
+| `doh:https://host/dns-query` | A custom endpoint |
 
 `doh:cloudflare` and `doh:quad9` use fixed IP addresses (1.1.1.1 / 1.0.0.1 and 9.9.9.9 /
 149.112.112.112), so no system lookup is needed to reach them. A custom `doh:https://host/...`
@@ -136,7 +161,15 @@ answers, with the mirrors 1337x.st, 1337xx.to and x1337x.ws.
 ## Custom providers
 
 Add a complete `[[search.provider]]` table with a new name (a built-in needs only the keys you
-change). The kinds:
+change).
+
+| `kind` | Source | Fields |
+| --- | --- | --- |
+| `feed` | RSS / Atom | `url` (`{query}` optional) |
+| `json` | JSON API | `url`, `items`, `title`, `size`, `seeders`, `leechers`, `info_hash` (JSON pointers) |
+| `html` | HTML page | `search_url`, `row`, `title`, `detail_link`, `info_hash`, `size`, `seeders`, `leechers` (CSS selectors) |
+
+Examples:
 
 ```toml
 # RSS / Atom, e.g. a tracker's search feed ({query} is optional)

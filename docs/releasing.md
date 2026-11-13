@@ -1,10 +1,26 @@
 # Releasing dman
 
-Pushing a tag `vX.Y.Z` runs `.github/workflows/release.yml` (cargo-dist). It builds
-the archives for Linux (musl, x86_64 and aarch64), macOS (x86_64 and aarch64) and
-Windows (x86_64), the shell and PowerShell installers, publishes the GitHub release
-and pushes the Homebrew formula to the tap. crates.io, Scoop, winget and the AUR are
-updated by hand from the published release, as below.
+**TL;DR:** bump the version, run the checks, then tag `vX.Y.Z` and push the tag. That runs
+`.github/workflows/release.yml` (cargo-dist), which builds the archives and installers,
+publishes the GitHub release and pushes the Homebrew formula to the tap. crates.io, Scoop,
+winget and the AUR are updated by hand from the published release.
+
+## Contents
+
+- [What CI publishes](#what-ci-publishes)
+- [One-time setup](#one-time-setup)
+- [Every release](#every-release)
+- [Verify](#verify)
+- [Building for all platforms locally](#building-for-all-platforms-locally)
+
+## What CI publishes
+
+| Output | Channel |
+| --- | --- |
+| Archives: Linux (musl, x86_64 and aarch64), macOS (x86_64 and aarch64), Windows (x86_64) | GitHub release |
+| Shell and PowerShell installers | GitHub release |
+| Homebrew formula | Tap `rajput-hemant/homebrew-tap` (automatic) |
+| crates.io, Scoop, winget, AUR | By hand, steps 6 to 10 below |
 
 ## One-time setup
 
@@ -113,3 +129,26 @@ Run the commands from the repository root unless a step says otherwise.
       builds.
 - [ ] On a package-manager install, `dman update` prints that manager's command and
       changes nothing.
+
+## Building for all platforms locally
+
+Local builds are for testing. Official release artifacts come only from the CI tag workflow
+(cargo-dist). All five release targets were built this way on macOS arm64. Apple targets are
+built on macOS.
+
+One-time setup (macOS):
+
+```bash
+brew install zig llvm
+cargo install --locked cargo-zigbuild cargo-xwin
+rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl \
+  x86_64-apple-darwin aarch64-apple-darwin x86_64-pc-windows-msvc
+```
+
+| Target | Command | Output |
+| --- | --- | --- |
+| `x86_64-unknown-linux-musl` | `cargo zigbuild --release -p dman --target x86_64-unknown-linux-musl` | `target/x86_64-unknown-linux-musl/release/dman` |
+| `aarch64-unknown-linux-musl` | `cargo zigbuild --release -p dman --target aarch64-unknown-linux-musl` | `target/aarch64-unknown-linux-musl/release/dman` |
+| `x86_64-apple-darwin` | `cargo zigbuild --release -p dman --target x86_64-apple-darwin` | `target/x86_64-apple-darwin/release/dman` |
+| `aarch64-apple-darwin` | `cargo zigbuild --release -p dman --target aarch64-apple-darwin` | `target/aarch64-apple-darwin/release/dman` |
+| `x86_64-pc-windows-msvc` | `cargo xwin build --release -p dman --target x86_64-pc-windows-msvc` | `target/x86_64-pc-windows-msvc/release/dman.exe` |

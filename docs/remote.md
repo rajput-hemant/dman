@@ -1,15 +1,31 @@
 # Remote operation
 
-The dman daemon owns all state; the TUI, CLI and web UI are clients of one JSON-RPC API
+**TL;DR:** the daemon owns all state; the TUI, CLI and web UI are clients of one JSON-RPC API
 (`/api/v1/ws`, WebSocket). By default it listens on `127.0.0.1:6810` and the web UI is off.
-To use a daemon on another machine, pick one of:
+To use a daemon on another machine, copy its API token into the client's `secrets.toml`, add a
+`kind = "remote"` profile, and reach the daemon through an SSH tunnel (simplest), built-in TLS
+or a reverse proxy. Without TLS or a tunnel the token and all traffic cross the network in
+clear text.
 
-1. an SSH tunnel (no dman configuration),
-2. built-in TLS (`wss://` / `https://`) with your own certificate,
-3. a TLS reverse proxy in front of the web UI.
+## Contents
 
-Every API connection needs a token. Without TLS or a tunnel the token and all traffic cross
-the network in clear text.
+- [Choosing an option](#choosing-an-option)
+- [The token](#the-token)
+- [The web UI token](#the-web-ui-token)
+- [Option 1: SSH tunnel](#option-1-ssh-tunnel)
+- [Option 2: built-in TLS](#option-2-built-in-tls)
+- [Option 3: reverse proxy for the web UI](#option-3-reverse-proxy-for-the-web-ui)
+- [Security notes](#security-notes)
+
+## Choosing an option
+
+Every API connection needs a token.
+
+| Option | Needs | Encryption | Best for |
+| --- | --- | --- | --- |
+| [SSH tunnel](#option-1-ssh-tunnel) | SSH access, no dman configuration | SSH | Quick personal access |
+| [Built-in TLS](#option-2-built-in-tls) | Certificate and key (public CA or self-signed) | `wss://` / `https://` | A daemon on a LAN or server |
+| [Reverse proxy](#option-3-reverse-proxy-for-the-web-ui) | A TLS proxy (nginx, Caddy) in front of the web UI | Proxy | Web UI under an existing domain |
 
 ## The token
 
@@ -53,6 +69,14 @@ When the web UI is bound to a network address it asks for its own access token (
 `--print-token` shows it. Without a token the daemon refuses to serve a network address unless
 `web.allow_unauthenticated = true` (every page then shows a warning banner).
 `web.require_login = true` asks for the token on loopback too.
+
+| `[web]` key | Effect |
+| --- | --- |
+| `token_ref` | Name of the `secrets.toml` entry holding the access token (default `web`) |
+| `allowed_hosts` | Extra `Host` header names accepted on a login-free UI (DNS-rebinding defence) |
+| `allow_unauthenticated` | Serve a network address without a token (default `false`) |
+| `require_login` | Ask for the token on loopback too (default `false`) |
+| `base_path` | Mount point behind a reverse proxy (default `/`) |
 
 ## Option 1: SSH tunnel
 

@@ -1,9 +1,10 @@
 # Releasing dman
 
 **TL;DR:** bump the version, run the checks, then tag `vX.Y.Z` and push the tag. That runs
-`.github/workflows/release.yml` (cargo-dist), which builds the archives and installers,
-publishes the GitHub release and pushes the Homebrew formula to the tap. crates.io, Scoop,
-winget and the AUR are updated by hand from the published release.
+`.github/workflows/release.yml` (cargo-dist) as a dry run: it builds the archives and
+installers but publishes nothing. Publishing is a manual dispatch on that tag with
+`publish=true`, which creates the GitHub release and pushes the Homebrew formula.
+crates.io, Scoop, winget and the AUR are updated by hand from the published release.
 
 ## Contents
 
@@ -15,11 +16,14 @@ winget and the AUR are updated by hand from the published release.
 
 ## What CI publishes
 
+Nothing on a tag push: that is a dry run. The release itself is the manual dispatch from
+step 5.
+
 | Output | Channel |
 | --- | --- |
 | Archives: Linux (musl, x86_64 and aarch64), macOS (x86_64 and aarch64), Windows (x86_64) | GitHub release |
 | Shell and PowerShell installers | GitHub release |
-| Homebrew formula | Tap `rajput-hemant/homebrew-tap` (automatic) |
+| Homebrew formula | Tap `rajput-hemant/homebrew-tap` (by the dispatch) |
 | crates.io, Scoop, winget, AUR | By hand, steps 6 to 10 below |
 
 ## One-time setup
@@ -63,8 +67,17 @@ Run the commands from the repository root unless a step says otherwise.
    git push origin main vX.Y.Z
    ```
 
-5. **Wait for release.yml** (`gh run watch`, or the Actions tab). It must finish
-   green, including the `publish-homebrew` job.
+5. **Dry run**: the tag push runs release.yml, which builds and uploads artifacts but
+   publishes nothing. Wait for it to finish green (the `build-local` jobs are the
+   build check), then publish:
+
+   ```bash
+   gh workflow run release.yml --ref vX.Y.Z -f publish=true
+   gh run watch
+   ```
+
+   The dispatch must run on the tag, and it must finish green including the
+   `publish-homebrew` job. `publish=false` (or a plain tag push) never releases.
 6. **crates.io**: `cargo publish --workspace` publishes all crates in dependency
    order. crates.io limits how fast *new* crates can be created; if it stops with
    HTTP 429, wait the time it names and publish the rest with `cargo publish -p <name>`

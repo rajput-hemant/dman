@@ -1,6 +1,9 @@
 # Release pipeline, structured like the one `dist generate` emits (cargo-dist 0.34).
-# Hand-maintained (allow-dirty = ["ci"] in dist-workspace.toml). Trigger: push a tag `vX.Y.Z`.
-# Needs the HOMEBREW_TAP_TOKEN secret for the Homebrew formula job. See docs/releasing.md.
+# Hand-maintained (allow-dirty = ["ci"] in dist-workspace.toml).
+# Pushing a tag `vX.Y.Z` only builds and uploads artifacts as a dry run: nothing is
+# published. Publishing needs a manual "Run workflow" dispatch on that tag with
+# `publish` enabled. Needs the HOMEBREW_TAP_TOKEN secret for the Homebrew job.
+# See docs/releasing.md.
 name: Release
 
 on:
@@ -8,6 +11,12 @@ on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish the GitHub release and the Homebrew formula (run this on a vX.Y.Z tag)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -22,9 +31,10 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      tag: ${{ !github.event.pull_request && github.ref_name || '' }}
-      tag-flag: ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '' }}
-      publishing: ${{ !github.event.pull_request }}
+      tag: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+      tag-flag: ${{ startsWith(github.ref, 'refs/tags/') && format('--tag={0}', github.ref_name) || '' }}
+      # Only a manual dispatch on a tag publishes; a tag push is a dry run.
+      publishing: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && startsWith(github.ref, 'refs/tags/') }}
     steps:
       - uses: actions/checkout@v4.2.2
       - name: Install dist
@@ -32,7 +42,7 @@ jobs:
       - name: Plan
         id: plan
         run: |
-          dist plan ${{ !github.event.pull_request && format('--tag={0}', github.ref_name) || '--allow-dirty' }} --output-format=json > plan-dist-manifest.json
+          dist plan ${{ startsWith(github.ref, 'refs/tags/') && format('--tag={0}', github.ref_name) || (github.event_name == 'pull_request' && '--allow-dirty' || '') }} --output-format=json > plan-dist-manifest.json
           echo "manifest=$(jq -c . plan-dist-manifest.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4.6.2
         with:
@@ -41,7 +51,8 @@ jobs:
 
   build-local:
     needs: plan
-    if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
+    # PRs only validate the plan (pr-run-mode = "plan"); tag pushes and dispatches build.
+    if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (github.event_name != 'pull_request' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix }}
@@ -54,8 +65,8 @@ jobs:
       - name: Install toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
       - name: Install dist
-        # sh on Linux/macOS, pwsh on Windows (the plan picks the installer per runner).
-        shell: ${{ matrix.install_dist.shell }}
+        # No `shell:` key: GitHub rejects `matrix` there, and the runner default
+        # (bash on Linux/macOS, pwsh on Windows) runs the plan's installer command.
         run: ${{ matrix.install_dist.run }}
       # Same step as .github/build-setup.yml; Windows (MSVC) needs no extra setup.
       - name: Install musl toolchain

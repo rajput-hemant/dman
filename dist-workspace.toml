@@ -1,7 +1,8 @@
 # cargo-dist configuration (https://axodotdev.github.io/cargo-dist/).
-# Release flow (docs/releasing.md): bump the version, tag `vX.Y.Z`, push the tag;
-# .github/workflows/release.yml builds the five archives, the shell and PowerShell
-# installers and the Homebrew formula, and publishes a GitHub release.
+# Release flow (docs/releasing.md): bump the version, tag `vX.Y.Z`, push the tag.
+# .github/workflows/release.yml then builds the five archives, the shell and PowerShell
+# installers and the Homebrew formula as a dry run; publishing a GitHub release is a
+# manual workflow dispatch with `publish=true` on that tag.
 
 [workspace]
 members = ["cargo:."]

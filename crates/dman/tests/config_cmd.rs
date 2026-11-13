@@ -213,7 +213,11 @@ fn edit_validates_then_replaces_the_file() {
         std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
         p
     };
-    let good = script("good", "sed -i 's/1MiB/9MiB/' \"$1\"");
+    // POSIX sed only: BSD sed (macOS) needs an argument after -i.
+    let good = script(
+        "good",
+        "sed 's/1MiB/9MiB/' \"$1\" > \"$1.tmp\" && mv \"$1.tmp\" \"$1\"",
+    );
     dman(&dir)
         .env("EDITOR", &good)
         .args(["config", "edit", "--no-reload"])
@@ -238,7 +242,10 @@ fn edit_validates_then_replaces_the_file() {
     assert_eq!(file(&dir), before);
 
     // A value that parses but is not a valid configuration is rejected too.
-    let wrong = script("wrong", "sed -i 's/9MiB/lots/' \"$1\"");
+    let wrong = script(
+        "wrong",
+        "sed 's/9MiB/lots/' \"$1\" > \"$1.tmp\" && mv \"$1.tmp\" \"$1\"",
+    );
     dman(&dir)
         .env("VISUAL", &wrong)
         .args(["config", "edit"])

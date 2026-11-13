@@ -804,7 +804,10 @@ async fn hook_fires_once_on_completion_with_real_aria2() {
 fn aria2_pids(root: &Path) -> Vec<u32> {
     let needle = root.display().to_string();
     let mut out = Vec::new();
-    for entry in std::fs::read_dir("/proc").unwrap().flatten() {
+    let Ok(proc_dir) = std::fs::read_dir("/proc") else {
+        return out;
+    };
+    for entry in proc_dir.flatten() {
         let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
             continue;
         };

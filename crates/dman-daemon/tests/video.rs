@@ -278,10 +278,14 @@ fn files_in(dir: &Path) -> Vec<String> {
 }
 
 /// Live (non-zombie) processes whose command line contains `what` and `root`.
+/// /proc is Linux-only, so elsewhere the leak checks degrade to no-ops.
 fn pids(what: &str, root: &Path) -> Vec<u32> {
     let needle = root.display().to_string();
     let mut out = Vec::new();
-    for entry in std::fs::read_dir("/proc").unwrap().flatten() {
+    let Ok(proc_dir) = std::fs::read_dir("/proc") else {
+        return out;
+    };
+    for entry in proc_dir.flatten() {
         let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
             continue;
         };
@@ -343,7 +347,7 @@ esac
 steps=5; delay=0.02
 case "$name" in slow*) steps=60; delay=0.05;; long*) steps=600; delay=0.05;; esac
 part="$path.part"
-have=0; [ -f "$part" ] && have=$(stat -c %s "$part")
+have=0; [ -f "$part" ] && have=$(wc -c < "$part" | tr -d ' ')
 total=$((steps*1000))
 while [ "$have" -lt "$total" ]; do
   head -c 1000 /dev/zero >> "$part"

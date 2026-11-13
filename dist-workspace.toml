@@ -45,8 +45,10 @@ global = "ubuntu-24.04"
 x86_64-unknown-linux-musl = "ubuntu-24.04"
 # Native arm64 runner: no cross toolchain needed.
 aarch64-unknown-linux-musl = "ubuntu-24.04-arm"
-x86_64-apple-darwin = "macos-13"
-aarch64-apple-darwin = "macos-14"
+# macOS 13 and 14 images are retired (2025-12-08 and 2026-11-02): macos-15-intel
+# is the last x86_64 image, macos-15 is arm64.
+x86_64-apple-darwin = "macos-15-intel"
+aarch64-apple-darwin = "macos-15"
 x86_64-pc-windows-msvc = "windows-2022"
 
 # Runtime dependency of the Homebrew formula (`depends_on "aria2"`). yt-dlp and

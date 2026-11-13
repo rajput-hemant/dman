@@ -27,7 +27,6 @@ dman-web = { version = "0.1.0", path = "crates/dman-web" }
 
 # runtime and data
 tokio = { version = "1.54", default-features = false }
-tokio-util = { version = "0.7", default-features = false }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = { version = "1.2", default-features = false, features = ["parse", "display", "serde"] }

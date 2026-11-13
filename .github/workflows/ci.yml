@@ -1,10 +1,16 @@
 name: CI
 
+# Two tiers. The fast tier (fmt, clippy, test, deny) runs on every PR push and is the
+# required set for merging into main. The slow tier (macOS test, real engines, release
+# size) runs only when the PR carries the `ci:full` label, or on a manual dispatch.
+# Nothing runs on a push to main: with the PR rule below, main only ever holds code
+# that a PR already tested.
+
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,11 +44,19 @@ jobs:
       - run: cargo clippy -p dman --no-default-features --all-targets -- -D warnings
 
   test:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-24.04, macos-15]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Install toolchain (from rust-toolchain.toml)
+        run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.7.7
+      - run: cargo test --workspace
+      - run: cargo test -p dman --no-default-features
+
+  # Slow tier: macOS minutes bill at 10x, so this runs only with the `ci:full` label.
+  test-macos:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4.2.2
       - name: Install toolchain (from rust-toolchain.toml)
@@ -53,6 +67,7 @@ jobs:
 
   # Tests that need the real engines (skipped locally unless the variables are set).
   engines:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4.2.2
@@ -90,6 +105,7 @@ jobs:
 
   # Release binary size: musl, stripped, exactly as shipped.
   size:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4.2.2

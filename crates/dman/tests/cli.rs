@@ -486,6 +486,10 @@ fn prompts_are_never_shown_without_a_terminal() {
 fn ctrl_c_ends_a_blocked_command_with_130() {
     use std::io::Write as _;
     let dir = config_dir();
+    // The first exec of the binary from a fresh process can take most of a second on
+    // macOS (code-signing checks) before dman's main even runs. Pay that here, so
+    // the pause below only has to cover dman's own few milliseconds of startup.
+    dman(&dir).arg("--version").assert().success();
     // Reading the provider file from stdin blocks the main thread.
     let mut child = std::process::Command::new(assert_cmd::cargo::cargo_bin("dman"))
         .env("DMAN_CONFIG_DIR", dir.path())

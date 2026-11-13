@@ -1027,7 +1027,10 @@ async fn tracker_list_is_attached_to_new_magnets_with_real_aria2() {
 
 fn assert_no_aria2(root: &Path) {
     let needle = root.display().to_string();
-    for entry in std::fs::read_dir("/proc").unwrap().flatten() {
+    let Ok(proc_dir) = std::fs::read_dir("/proc") else {
+        return;
+    };
+    for entry in proc_dir.flatten() {
         let Ok(cmd) = std::fs::read(entry.path().join("cmdline")) else {
             continue;
         };

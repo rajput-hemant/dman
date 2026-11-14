@@ -98,6 +98,7 @@ All four are on by default.
 dman                                       # start the daemon if needed and open the TUI
 dman add "magnet:?xt=urn:btih:..."         # add from the command line
 dman add https://example.org/f.iso --wait  # show progress, exit when done
+dman add "https://drive.google.com/drive/folders/<id>" # expand and download a Google Drive folder
 dman list --sort speed                     # show downloads (--json for scripts)
 dman providers enable nyaa                 # search providers start disabled
 dman search ubuntu                         # search, then pick results to add

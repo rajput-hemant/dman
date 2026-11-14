@@ -103,6 +103,26 @@ impl Manager {
             let Some(client) = &client else {
                 continue; // unreachable: checked above
             };
+            if let Some(folder_id) = crate::gdrive::parse_folder_id_from_source(&src) {
+                let r = self
+                    .add_gdrive_folder(
+                        client,
+                        &folder_id,
+                        &aopts,
+                        &options,
+                        &dir_s,
+                        (p.paused, p.force),
+                    )
+                    .await;
+                out.push(match r {
+                    Ok(mut ids) => {
+                        let id = ids.remove(0);
+                        AddOutcome::Added { id, extra_ids: ids }
+                    }
+                    Err(error) => AddOutcome::Failed { error },
+                });
+                continue;
+            }
             let (a, o) = match &with_trackers {
                 Some(t) if is_bittorrent(&src) => t,
                 _ => &(aopts.clone(), options.clone()),
@@ -324,6 +344,60 @@ impl Manager {
             e.counters = Some(Counters::fresh(&gid));
             self.gids.insert(gid, e.rec.id);
             self.jobs.insert(e.rec.id, e);
+        }
+        Ok(ids)
+    }
+
+    async fn add_gdrive_folder(
+        &mut self,
+        client: &Aria2Client,
+        folder_id: &str,
+        base_aopts: &Options,
+        base_options: &JobOptions,
+        target_dir: &str,
+        (paused, force): (bool, bool),
+    ) -> Result<Vec<JobId>, RpcError> {
+        let gdrive = crate::gdrive::GdriveClient::new();
+        let files = gdrive
+            .expand_folder(folder_id)
+            .await
+            .map_err(RpcError::from)?;
+        let mut ids = Vec::with_capacity(files.len());
+        for file in files {
+            let file_dir = std::path::Path::new(target_dir).join(&file.rel_dir);
+            tokio::fs::create_dir_all(&file_dir).await.map_err(|e| {
+                RpcError::new(
+                    ErrorCode::General,
+                    format!("cannot create {}: {e}", file_dir.display()),
+                )
+            })?;
+            let file_dir_s = file_dir.display().to_string();
+
+            let mut file_opts = base_options.clone();
+            file_opts.dir = Some(file_dir_s.clone());
+            file_opts.out = Some(file.file_name.clone());
+
+            let mut file_aopts = base_aopts.clone();
+            file_aopts.set("dir", file_dir_s.clone());
+            file_aopts.set("out", file.file_name);
+
+            let file_src = AddSource::Uris {
+                uris: vec![file.download_url],
+            };
+            if !force {
+                self.check_duplicate(&file_src).await?;
+            }
+            let file_ids = self
+                .add_one(
+                    client,
+                    file_src,
+                    &file_aopts,
+                    &file_opts,
+                    &file_dir_s,
+                    paused,
+                )
+                .await?;
+            ids.extend(file_ids);
         }
         Ok(ids)
     }

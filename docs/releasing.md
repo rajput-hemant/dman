@@ -36,9 +36,10 @@ step 5.
   token with the `publish-new` and `publish-update` scopes, then run `cargo login`.
 - **Scoop**: create the public repo `rajput-hemant/scoop-bucket` with a `bucket/`
   directory.
-- **winget** (on Windows): `winget install Microsoft.WingetCreate`. Create a classic
-  GitHub token with the `public_repo` scope; wingetcreate forks
-  `microsoft/winget-pkgs` and opens the pull request with it.
+- **winget** (any OS): install
+  [komac](https://github.com/russellbanks/Komac), then create a classic GitHub token
+  with the `public_repo` scope. Komac forks `microsoft/winget-pkgs` and opens the
+  pull request with it.
 - **AUR**: create an account on aur.archlinux.org and add an SSH public key under
   *My Account*. Add to `~/.ssh/config`:
 
@@ -84,10 +85,11 @@ Run the commands from the repository root unless a step says otherwise.
    ```bash
    git tag -f vX.Y.Z && git push --force origin vX.Y.Z
    ```
-6. **crates.io**: `cargo publish --workspace` publishes all crates in dependency
-   order. crates.io limits how fast *new* crates can be created; if it stops with
-   HTTP 429, wait the time it names and publish the rest with `cargo publish -p <name>`
-   in this order:
+6. **crates.io**: crates.io allows a burst of 5 new crates, then 1 per 10 minutes,
+   so the 12 crates take about 70 minutes. Do not use `cargo publish --workspace`:
+   after a partial run it retries the whole set and fails on the first crate that
+   already exists. Publish one at a time with `cargo publish -p <name>`, in this
+   order (every crate's `dman-*` dependencies come before it):
 
    `dman-proto`, `dman-torrent`, `dman-ytdlp`, `dman-search`, `dman-aria2`,
    `dman-store`, `dman-client`, `dman-config`, `dman-web`, `dman-tui`,
@@ -107,22 +109,25 @@ Run the commands from the repository root unless a step says otherwise.
    git commit -m "dman: Update to version X.Y.Z" && git push
    ```
 
-9. **winget** (Windows, PowerShell, in the repo; run step 7 there with Git Bash's `sh`).
-   First release:
+9. **winget** (any OS, with [komac](https://github.com/russellbanks/Komac); a
+   GitHub token with `public_repo` is enough). The first release needs a fork of
+   `microsoft/winget-pkgs`:
 
-   ```powershell
-   winget validate --manifest .\target\packaging\X.Y.Z\winget
-   wingetcreate submit --token $env:WINGET_TOKEN .\target\packaging\X.Y.Z\winget
+   ```bash
+   gh repo fork microsoft/winget-pkgs --clone=false
+   GITHUB_TOKEN=$(gh auth token) komac submit target/packaging/X.Y.Z/winget -y
    ```
 
-   Later releases (wingetcreate downloads the zip and computes the hash itself):
+   Later releases, once the package exists:
 
-   ```powershell
-   wingetcreate update rajput-hemant.dman --version X.Y.Z --token $env:WINGET_TOKEN --submit `
-     --urls https://github.com/rajput-hemant/dman/releases/download/vX.Y.Z/dman-x86_64-pc-windows-msvc.zip
+   ```bash
+   GITHUB_TOKEN=$(gh auth token) komac update rajput-hemant.dman --version X.Y.Z \
+     --urls https://github.com/rajput-hemant/dman/releases/download/vX.Y.Z/dman-x86_64-pc-windows-msvc.zip --submit
    ```
 
-   The package goes live when the winget-pkgs pull request is merged.
+   `komac submit --dry-run` validates nothing, so compare `InstallerSha256` with
+   the release zip yourself before submitting. The package goes live when the
+   winget-pkgs pull request is merged.
 
 10. **AUR** (on Arch, as a normal user; makepkg refuses to run as root):
 

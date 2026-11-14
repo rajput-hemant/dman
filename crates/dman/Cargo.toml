@@ -44,7 +44,7 @@ url.workspace = true
 bytesize.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-base64 = "0.22"
+base64 = "0.23"
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }

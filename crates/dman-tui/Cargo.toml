@@ -38,7 +38,7 @@ anyhow.workspace = true
 tracing.workspace = true
 toml.workspace = true
 arboard = { version = "3.7", default-features = false }
-base64 = "0.22"
+base64 = "0.23"
 notify-rust = { workspace = true, optional = true }
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
 

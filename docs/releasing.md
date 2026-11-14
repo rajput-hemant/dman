@@ -77,7 +77,13 @@ Run the commands from the repository root unless a step says otherwise.
    ```
 
    The dispatch must run on the tag, and it must finish green including the
-   `publish-homebrew` job. `publish=false` (or a plain tag push) never releases.
+   `publish-homebrew-formula` job. `publish=false` (or a plain tag push) never releases.
+   The run uses the workflow file *at that tag*, so move the tag if the workflow changed
+   after it was created:
+
+   ```bash
+   git tag -f vX.Y.Z && git push --force origin vX.Y.Z
+   ```
 6. **crates.io**: `cargo publish --workspace` publishes all crates in dependency
    order. crates.io limits how fast *new* crates can be created; if it stops with
    HTTP 429, wait the time it names and publish the rest with `cargo publish -p <name>`

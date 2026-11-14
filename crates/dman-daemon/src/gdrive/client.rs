@@ -23,6 +23,7 @@ pub struct GdriveFileDownload {
 /// Client for discovering and expanding Google Drive folders.
 pub struct GdriveClient {
     http: reqwest::Client,
+    no_redirect_http: reqwest::Client,
     base_url: Option<String>,
 }
 
@@ -40,8 +41,13 @@ impl GdriveClient {
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
+        let no_redirect_http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
             http,
+            no_redirect_http,
             base_url: None,
         }
     }
@@ -86,7 +92,7 @@ impl GdriveClient {
     pub async fn resolve_file_download_url(&self, file_id: &str) -> Result<String, GdriveError> {
         let url = format!("{}/uc?id={file_id}&export=download", self.base());
         let resp = self
-            .http
+            .no_redirect_http
             .get(&url)
             .header(reqwest::header::USER_AGENT, BROWSER_UA)
             .send()
@@ -101,6 +107,22 @@ impl GdriveClient {
                 .is_some_and(|d| d.starts_with("accounts.google."))
         {
             return Err(GdriveError::AuthUnsupported);
+        }
+
+        // Direct file downloads redirect to drive.usercontent.google.com with 302/303.
+        // Return the Location header immediately to avoid downloading file bodies here.
+        if resp.status().is_redirection() {
+            if let Some(loc_str) = resp
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|l| l.to_str().ok())
+            {
+                if loc_str.starts_with("https://accounts.google.") {
+                    return Err(GdriveError::AuthUnsupported);
+                }
+                return Ok(loc_str.to_string());
+            }
+            return Ok(url);
         }
 
         let headers = resp.headers();
@@ -157,15 +179,20 @@ impl GdriveClient {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), GdriveError>> + Send + 'a>>
     {
         Box::pin(async move {
-            for file in listing.files {
-                let file_name = sanitize_name(&file.name);
-                let download_url = self.resolve_file_download_url(&file.id).await?;
-                out.push(GdriveFileDownload {
-                    rel_dir: current_dir.clone(),
-                    file_name,
-                    download_url,
-                });
-            }
+            let file_futs = listing.files.into_iter().map(|file| {
+                let current_dir = current_dir.clone();
+                async move {
+                    let file_name = sanitize_name(&file.name);
+                    let download_url = self.resolve_file_download_url(&file.id).await?;
+                    Ok::<_, GdriveError>(GdriveFileDownload {
+                        rel_dir: current_dir,
+                        file_name,
+                        download_url,
+                    })
+                }
+            });
+            let resolved_files = futures_util::future::try_join_all(file_futs).await?;
+            out.extend(resolved_files);
 
             for subfolder in listing.subfolders {
                 if !visited.insert(subfolder.id.clone()) {

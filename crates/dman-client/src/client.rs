@@ -338,7 +338,14 @@ macro_rules! typed_api {
                         if uris.len() == 1 && dman_proto::is_torrent_url(&uris[0]))
                 })
                 .count() as u64;
-            let wait = 15 + 30 * fetches;
+            let is_gdrive = params.sources.iter().any(|s| match s {
+                dman_proto::AddSource::Uris { uris } => uris.iter().any(|u| {
+                    u.contains("drive.google.com/drive/folders/")
+                        || u.contains("drive.google.com/drive/u/")
+                }),
+                _ => false,
+            });
+            let wait = 15 + 30 * fetches + if is_gdrive { 45 } else { 0 };
             self.call_with_timeout(method::JOBS_ADD, params, Duration::from_secs(wait))
                 .await
         }

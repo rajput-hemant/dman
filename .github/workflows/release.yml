@@ -1,9 +1,6 @@
-# Release pipeline, in the shape `dist generate` emits for cargo-dist 0.34.0.
-# Hand-maintained (allow-dirty = ["ci"] in dist-workspace.toml): regenerating drops the
-# publishing gate below, so diff carefully.
-# A tag push `vX.Y.Z` only builds and uploads workflow artifacts (dry run): no release,
-# no formula. Publishing needs a "Run workflow" dispatch on that tag with `publish`
-# enabled. Needs the HOMEBREW_TAP_TOKEN secret for the Homebrew job. See docs/releasing.md.
+# Hand-maintained copy of the cargo-dist 0.34 pipeline (allow-dirty = ["ci"] in
+# dist-workspace.toml): `dist generate` would drop the publish gate below. A tag push
+# only dry-runs; a dispatch on that tag with `publish` releases. See docs/releasing.md.
 name: Release
 
 on:
@@ -25,12 +22,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Run 'dist plan' (dry run) or 'dist host --steps=create' (publish) to decide the work.
   plan:
     runs-on: ubuntu-24.04
     outputs:
       val: ${{ steps.plan.outputs.manifest }}
-      # A tag ref builds artifacts on every event; only a dispatch on a tag publishes.
+      # A tag builds artifacts; only a dispatch on a tag publishes.
       building: ${{ github.ref_type == 'tag' }}
       publishing: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && github.ref_type == 'tag' }}
       tag: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
@@ -43,7 +39,7 @@ jobs:
           persist-credentials: false
           submodules: recursive
       - name: Install dist
-        # bash gives pipefail, so a failing curl fails the step
+        # bash for pipefail, so a failed curl fails the step
         shell: bash
         run: "curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.34.0/cargo-dist-installer.sh | sh"
       - name: Cache dist
@@ -51,7 +47,7 @@ jobs:
         with:
           name: cargo-dist-cache
           path: ~/.cargo/bin/dist
-      # PRs validate the plan; tag pushes plan a dry run; a publish dispatch creates hosting.
+      # PRs only validate the plan.
       - id: plan
         run: |
           dist ${{ (github.event_name == 'workflow_dispatch' && inputs.publish && github.ref_type == 'tag' && format('host --steps=create --tag={0}', github.ref_name)) || (github.ref_type == 'tag' && format('plan --tag={0}', github.ref_name)) || 'plan' }} --output-format=json > plan-dist-manifest.json
@@ -64,12 +60,11 @@ jobs:
           name: artifacts-plan-dist-manifest
           path: plan-dist-manifest.json
 
-  # Build and package the platform-specific archives.
   build-local:
     name: build-local (${{ join(matrix.targets, ', ') }})
     needs:
       - plan
-    # PRs only validate the plan (pr-run-mode = "plan"); tag pushes and dispatches build.
+    # pr-run-mode = "plan": tag pushes and dispatches build, PRs only plan.
     if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.building == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
     strategy:
       fail-fast: false
@@ -93,7 +88,7 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           fi
-      # Same step as .github/build-setup.yml, which dist reads when generating this file.
+      # Mirrors .github/build-setup.yml, which `dist generate` reads.
       - name: Install musl toolchain
         if: runner.os == 'Linux'
         run: |
@@ -102,8 +97,7 @@ jobs:
           echo "CC_x86_64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
           echo "CC_aarch64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
       - name: Install dist
-        # No `shell:` key: GitHub rejects expressions there, and the runner default
-        # (bash on Linux/macOS, pwsh on Windows) runs the plan's installer command.
+        # No `shell:` here: GitHub rejects expressions in it; the runner default runs it.
         run: ${{ matrix.install_dist.run }}
       - name: Install dependencies
         run: ${{ matrix.packages_install }}
@@ -111,7 +105,7 @@ jobs:
         run: dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
       - id: cargo-dist
         name: Post-build
-        # bash so the same script runs on every runner, powershell included
+        # bash so one script runs on every runner, PowerShell included.
         shell: bash
         run: |
           {
@@ -128,7 +122,6 @@ jobs:
             ${{ steps.cargo-dist.outputs.paths }}
             ${{ env.BUILD_MANIFEST_NAME }}
 
-  # Installer scripts, Homebrew formula, source tarball, combined checksums.
   build-global:
     needs:
       - plan
@@ -137,7 +130,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # Every upload path stays under target/distrib, so the artifact layout is flat.
+      # All upload paths stay under target/distrib, which keeps the artifact flat.
       BUILD_MANIFEST_NAME: target/distrib/global-dist-manifest.json
     steps:
       - uses: actions/checkout@v7.0.1
@@ -175,7 +168,7 @@ jobs:
             ${{ steps.cargo-dist.outputs.paths }}
             ${{ env.BUILD_MANIFEST_NAME }}
 
-  # Publish: upload every artifact to the GitHub release and create it.
+  # Upload the artifacts and create the GitHub release.
   host:
     needs:
       - plan
@@ -228,15 +221,14 @@ jobs:
           ANNOUNCEMENT_BODY: "${{ fromJson(needs.plan.outputs.val).announcement_github_body }}"
           RELEASE_COMMIT: "${{ github.sha }}"
         run: |
-          # Keep the release to real assets: drop the per-target and host manifests, including
-          # one left by an earlier attempt of this job.
+          # Only real assets: drop the manifests, including one left by a retried job.
           rm -f artifacts/*-dist-manifest.json artifacts/dist-manifest.json
           echo "$ANNOUNCEMENT_BODY" > "$RUNNER_TEMP/notes.txt"
           # shellcheck disable=SC2086 # PRERELEASE_FLAG is deliberately unquoted: empty or --prerelease
           gh release create "${{ needs.plan.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG \
             --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
-  # The formula references the release assets, so it publishes after the release exists.
+  # Needs the release assets to exist first.
   publish-homebrew-formula:
     needs:
       - plan

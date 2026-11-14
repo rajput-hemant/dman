@@ -238,8 +238,7 @@ pub fn unescape_js_string(s: &str) -> String {
             bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
         }
     }
-    String::from_utf8(bytes.clone())
-        .unwrap_or_else(|_| String::from_utf8_lossy(&bytes).into_owned())
+    String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 /// Checks HTML content for Google Drive error responses.

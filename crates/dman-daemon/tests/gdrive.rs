@@ -207,15 +207,14 @@ async fn recursive_expansion_with_wiremock() {
         .mount(&server)
         .await;
 
-    // Root file: direct download (200 with Content-Disposition)
+    // Root file: direct download redirects with 303 to usercontent
     Mock::given(method("GET"))
         .and(path("/uc"))
         .and(query_param("id", "file_root"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .insert_header("Content-Disposition", "attachment; filename=\"README.md\"")
-                .insert_header("Content-Type", "text/plain"),
-        )
+        .respond_with(ResponseTemplate::new(303).insert_header(
+            "Location",
+            "https://drive.usercontent.google.com/download?id=file_root&export=download",
+        ))
         .mount(&server)
         .await;
 
@@ -238,10 +237,13 @@ async fn recursive_expansion_with_wiremock() {
 
     assert_eq!(files.len(), 2);
 
-    // First file: README.md in "Nested Project"
+    // First file: README.md in "Nested Project" with resolved redirect Location
     assert_eq!(files[0].file_name, "README.md");
     assert_eq!(files[0].rel_dir, Path::new("Nested Project"));
-    assert!(files[0].download_url.contains("/uc?id=file_root"));
+    assert_eq!(
+        files[0].download_url,
+        "https://drive.usercontent.google.com/download?id=file_root&export=download"
+    );
 
     // Second file: report.docx in "Nested Project/Documents"
     assert_eq!(files[1].file_name, "report.docx");

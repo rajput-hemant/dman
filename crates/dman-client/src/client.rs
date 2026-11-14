@@ -340,8 +340,8 @@ macro_rules! typed_api {
                 .count() as u64;
             let is_gdrive = params.sources.iter().any(|s| match s {
                 dman_proto::AddSource::Uris { uris } => uris.iter().any(|u| {
-                    u.contains("drive.google.com/drive/folders/")
-                        || u.contains("drive.google.com/drive/u/")
+                    (u.contains("drive.google.com") || u.contains("docs.google.com"))
+                        && (u.contains("/drive/folders/") || u.contains("/folders/"))
                 }),
                 _ => false,
             });

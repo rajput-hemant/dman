@@ -115,10 +115,13 @@ impl Manager {
                     )
                     .await;
                 out.push(match r {
-                    Ok(mut ids) => {
+                    Ok(mut ids) if !ids.is_empty() => {
                         let id = ids.remove(0);
                         AddOutcome::Added { id, extra_ids: ids }
                     }
+                    Ok(_) => AddOutcome::Failed {
+                        error: RpcError::new(ErrorCode::General, "no jobs created from folder"),
+                    },
                     Err(error) => AddOutcome::Failed { error },
                 });
                 continue;

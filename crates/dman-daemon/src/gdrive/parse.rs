@@ -244,11 +244,10 @@ pub fn unescape_js_string(s: &str) -> String {
 
 /// Checks HTML content for Google Drive error responses.
 pub fn check_page_errors(html: &str) -> Result<(), GdriveError> {
-    if html.contains("accounts.google.com/signin")
-        || html.contains("accounts.google.com/ServiceLogin")
-        || html.contains("ServiceLogin?service=wise")
-        || html.contains("Google Drive - Access Denied")
+    if html.contains("Google Drive - Access Denied")
         || html.contains("Google Drive \u{2013} Access Denied")
+        || html.contains("Sign in - Google Accounts")
+        || html.contains("Sign in \u{2013} Google Accounts")
         || html.contains("You need permission")
         || html.contains("You need access")
         || html.contains("Sorry, the owner hasn't given you permission to download this file")

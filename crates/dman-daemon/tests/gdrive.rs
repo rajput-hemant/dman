@@ -304,3 +304,27 @@ async fn recursive_cycle_guard_terminates() {
     assert_eq!(files[0].file_name, "leaf.txt");
     assert_eq!(files[0].rel_dir, Path::new("Cycle Root").join("Sub1"));
 }
+
+#[tokio::test]
+#[ignore]
+async fn live_public_folder_expansion() {
+    if std::env::var("DMAN_TEST_LIVE_GDRIVE").is_err() {
+        eprintln!("skipping live test; set DMAN_TEST_LIVE_GDRIVE=1 to run");
+        return;
+    }
+    let folder_url = "https://drive.google.com/drive/folders/0Bx8RePQCi0zsdTJHekFzMVB5Zzg?resourcekey=0-6JmqCQiqGowKBuLOMg1reQ";
+    let folder_id = parse_folder_id(folder_url).expect("failed to parse folder id");
+    assert_eq!(folder_id, "0Bx8RePQCi0zsdTJHekFzMVB5Zzg");
+
+    let client = GdriveClient::new();
+    let files = client
+        .expand_folder(&folder_id)
+        .await
+        .expect("expand_folder failed");
+
+    println!("Found {} files:", files.len());
+    for f in &files {
+        println!(" - {} in {:?}", f.file_name, f.rel_dir);
+    }
+    assert!(!files.is_empty());
+}

@@ -69,6 +69,10 @@ impl GdriveClient {
 
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED
             || resp.status() == reqwest::StatusCode::FORBIDDEN
+            || resp
+                .url()
+                .domain()
+                .is_some_and(|d| d.starts_with("accounts.google."))
         {
             return Err(GdriveError::AuthUnsupported);
         }
@@ -91,6 +95,10 @@ impl GdriveClient {
 
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED
             || resp.status() == reqwest::StatusCode::FORBIDDEN
+            || resp
+                .url()
+                .domain()
+                .is_some_and(|d| d.starts_with("accounts.google."))
         {
             return Err(GdriveError::AuthUnsupported);
         }

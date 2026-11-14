@@ -24,8 +24,8 @@ serde.workspace = true
 serde_json.workspace = true
 secrecy.workspace = true
 subtle = "2.6"
-base64 = "0.22"
-getrandom = "0.3"
+base64 = "0.23"
+getrandom = "0.4"
 url.workspace = true
 
 [dev-dependencies]

@@ -1,10 +1,8 @@
 name: CI
 
-# Two tiers. The fast tier (fmt, clippy, test, deny) runs on every PR push and is the
-# required set for merging into main. The slow tier (macOS test, real engines, release
-# size) runs only when the PR carries the `ci:full` label, or on a manual dispatch.
-# Nothing runs on a push to main: with the PR rule below, main only ever holds code
-# that a PR already tested.
+# Fast tier runs on every PR and is required to merge. The slow tier (macOS tests,
+# real engines, release size) needs the `ci:full` label. Nothing runs on a push to main:
+# main only ever gets code a PR already tested.
 
 on:
   pull_request:
@@ -28,7 +26,7 @@ jobs:
   fmt:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.1
       - name: Install toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
       - run: cargo fmt --all --check
@@ -36,44 +34,44 @@ jobs:
   clippy:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.1
       - name: Install toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2.7.7
+      - uses: Swatinem/rust-cache@v2.9.3
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy -p dman --no-default-features --all-targets -- -D warnings
 
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.1
       - name: Install toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2.7.7
+      - uses: Swatinem/rust-cache@v2.9.3
       - run: cargo test --workspace
       - run: cargo test -p dman --no-default-features
 
-  # Slow tier: macOS minutes bill at 10x, so this runs only with the `ci:full` label.
+  # macOS minutes bill at 10x.
   test-macos:
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.1
       - name: Install toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2.7.7
+      - uses: Swatinem/rust-cache@v2.9.3
       - run: cargo test --workspace
       - run: cargo test -p dman --no-default-features
 
-  # Tests that need the real engines (skipped locally unless the variables are set).
+  # Engine tests are #[ignore]d, so --ignored is what runs them.
   engines:
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.1
       - name: Install toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2.7.7
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: Install aria2 and ffmpeg
         run: |
           sudo apt-get update
@@ -90,28 +88,27 @@ jobs:
         env:
           DMAN_TEST_ARIA2: "1"
           DMAN_TEST_YTDLP: "1"
-        run: cargo test --workspace -- --test-threads=1
+        run: cargo test -p dman-aria2 -p dman-daemon -p dman-ytdlp -- --ignored --test-threads=1
 
   deny:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4.2.2
-      # Same cargo-deny release that deny.toml is written for; the bundled
-      # version in cargo-deny-action is older and rejects its schema.
+      - uses: actions/checkout@v7.0.1
+      # deny.toml targets this release; the one cargo-deny-action bundles rejects its schema.
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny@0.20.2
       - run: cargo deny --all-features check
 
-  # Release binary size: musl, stripped, exactly as shipped.
+  # Release size, musl and stripped as shipped.
   size:
     if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:full') }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v7.0.1
       - name: Install toolchain (from rust-toolchain.toml)
         run: rustup toolchain install
-      - uses: Swatinem/rust-cache@v2.7.7
+      - uses: Swatinem/rust-cache@v2.9.3
       - name: Install musl toolchain
         run: |
           sudo apt-get update

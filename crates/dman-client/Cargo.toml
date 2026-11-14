@@ -14,7 +14,7 @@ categories = ["api-bindings", "network-programming"]
 [dependencies]
 dman-proto.workspace = true
 tokio = { workspace = true, features = ["rt", "net", "sync", "time", "macros"] }
-tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 serde.workspace = true
 serde_json.workspace = true

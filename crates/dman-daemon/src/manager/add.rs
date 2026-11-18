@@ -5,10 +5,9 @@ use std::collections::HashMap;
 use base64::Engine as _;
 use dman_aria2::{Aria2Client, DownloadStatus, Options, job_options_to_aria2};
 use dman_proto::{
-    AddOutcome, AddParams, AddSource, Engine, ErrorCode, JobId, JobOptions, JobState, RpcError,
-    SourceKind,
+    AddOutcome, AddParams, AddSource, Engine, ErrorCode, JobId, JobOptions, RpcError, SourceKind,
 };
-use dman_store::{Desired, JobRecord};
+use dman_store::JobRecord;
 use serde_json::json;
 
 use crate::gdrive::GdriveFileDownload;
@@ -216,39 +215,16 @@ impl Manager {
 
         // Persist first (the store is authoritative): a crash after this point
         // leaves a record without gid, which reconciliation re-adds.
-        let (id, key) = self
-            .db(|s| Ok((s.next_job_id()?, s.next_queue_key()?)))
-            .await?;
+        let (id, key) = self.next_ids().await?;
         let mut rec = JobRecord {
-            id,
-            engine: Engine::Aria2,
-            kind,
             name,
             dir: dir.to_owned(),
             source,
             options: options.clone(),
-            desired: if paused {
-                Desired::Paused
-            } else {
-                Desired::Queued
-            },
-            state: if paused {
-                JobState::Paused
-            } else {
-                JobState::Waiting
-            },
-            gid: None,
-            info_hash: None,
-            total_bytes: 0,
-            completed_bytes: 0,
-            uploaded_base: 0,
-            uploaded_session: 0,
             added_at: now(),
-            completed_at: None,
             queue_key: key,
-            error: None,
             has_blob: blob.is_some(),
-            extra: serde_json::Map::new(),
+            ..JobRecord::new(id, Engine::Aria2, kind, paused)
         };
         if uris.len() > 1 {
             rec.extra.insert("uris".into(), json!(uris));
@@ -259,7 +235,7 @@ impl Manager {
             (Some(b), SourceKind::Torrent) => {
                 dman_torrent::parse_torrent(b).ok().map(|m| m.info_hash)
             }
-            (None, SourceKind::Magnet) => super::artefacts::magnet_hash(&rec.source),
+            (None, SourceKind::Magnet) => super::dedupe::magnet_btih(&rec.source),
             _ => None,
         };
         super::artefacts::note_torrent_file(&mut rec, hash);
@@ -315,9 +291,7 @@ impl Manager {
         for (i, gid) in gids.iter().enumerate() {
             let mut r = rec.clone();
             if i > 0 {
-                let (nid, nkey) = self
-                    .db(|s| Ok((s.next_job_id()?, s.next_queue_key()?)))
-                    .await?;
+                let (nid, nkey) = self.next_ids().await?;
                 r.id = nid;
                 r.queue_key = nkey;
             }

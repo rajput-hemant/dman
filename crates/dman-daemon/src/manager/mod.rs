@@ -49,6 +49,7 @@ use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::Instant;
 
+use control::BatchOp;
 use timetable::Timetable;
 
 use crate::tick::Counters;
@@ -389,6 +390,12 @@ impl Manager {
             .map_err(store_err)
     }
 
+    /// A fresh job id and a queue key behind every waiting job.
+    pub(crate) async fn next_ids(&self) -> Result<(JobId, u64), RpcError> {
+        self.db(|s| Ok((s.next_job_id()?, s.next_queue_key()?)))
+            .await
+    }
+
     pub(crate) fn emit(&self, e: Event) {
         let _ = self.events.send(e);
     }
@@ -612,23 +619,27 @@ impl Manager {
             }
             Request::Detail(id) => to_value(self.detail(id).await?),
             Request::Pause(ids) => {
-                let r = self.pause(&ids).await;
+                let r = self.batch(&ids, BatchOp::Pause).await;
                 self.emit_changes();
                 to_value(r)
             }
             Request::Resume(ids) => {
-                let r = self.resume(&ids).await;
+                let r = self.batch(&ids, BatchOp::Resume).await;
                 self.tick().await;
                 to_value(r)
             }
             Request::Remove(p) => {
-                let r = self.remove(p).await;
+                let op = BatchOp::Remove {
+                    delete_files: p.delete_files,
+                    force: p.force,
+                };
+                let r = self.batch(&p.ids, op).await;
                 self.emit_changes();
                 to_value(r)
             }
             Request::Purge(ids) => to_value(self.purge(ids).await),
             Request::Restore(ids) => {
-                let r = self.restore(&ids).await;
+                let r = self.batch(&ids, BatchOp::Restore).await;
                 self.tick().await;
                 self.emit_changes();
                 to_value(r)
@@ -655,7 +666,7 @@ impl Manager {
                     .filter(|e| !e.rec.state.is_stopped() && e.rec.desired != Desired::Paused)
                     .map(|e| e.rec.id)
                     .collect();
-                let r = self.pause(&ids).await;
+                let r = self.batch(&ids, BatchOp::Pause).await;
                 self.emit_changes();
                 batch_to_unit(r)
             }
@@ -666,7 +677,7 @@ impl Manager {
                     .filter(|e| !e.rec.state.is_stopped() && e.rec.desired == Desired::Paused)
                     .map(|e| e.rec.id)
                     .collect();
-                let r = self.resume(&ids).await;
+                let r = self.batch(&ids, BatchOp::Resume).await;
                 self.tick().await;
                 batch_to_unit(r)
             }

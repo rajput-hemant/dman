@@ -413,34 +413,24 @@ fn bump(tx: &redb::WriteTransaction, key: &str, first: u64) -> Result<u64> {
 mod tests {
     use std::time::Instant;
 
-    use dman_proto::{Engine, JobId, JobOptions, JobState, SourceKind};
+    use dman_proto::{Engine, JobId, SourceKind};
 
     use super::*;
     use crate::{Desired, LiveFigures};
 
     fn rec(id: u64, queue_key: u64) -> JobRecord {
         JobRecord {
-            id: JobId(id),
-            engine: Engine::Aria2,
-            kind: SourceKind::Http,
             name: format!("file{id}"),
             dir: "/tmp".into(),
             source: format!("http://example.com/{id}"),
-            options: JobOptions::default(),
-            desired: Desired::Queued,
-            state: JobState::Waiting,
             gid: Some("abcd".into()),
-            info_hash: None,
             total_bytes: 1000,
             completed_bytes: 10,
             uploaded_base: 100,
             uploaded_session: 20,
             added_at: 1,
-            completed_at: None,
             queue_key,
-            error: None,
-            has_blob: false,
-            extra: Default::default(),
+            ..JobRecord::new(JobId(id), Engine::Aria2, SourceKind::Http, false)
         }
     }
 

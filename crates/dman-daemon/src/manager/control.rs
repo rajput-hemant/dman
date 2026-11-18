@@ -10,16 +10,32 @@ use crate::queue;
 use super::util::{engine_err, merge_options, pause_gid, resolve_dir, unavailable};
 use super::{Entry, Manager};
 
+/// A per-job operation of a batch request.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum BatchOp {
+    Pause,
+    Resume,
+    Restore,
+    Remove { delete_files: bool, force: bool },
+}
+
 impl Manager {
     // ----- pause / resume ----------------------------------------------------
 
-    pub(super) async fn pause(&mut self, ids: &[JobId]) -> BatchResult {
-        let mut res = BatchResult {
-            ok: Vec::new(),
-            failed: Vec::new(),
-        };
+    /// Applies `op` to each job, collecting per-job outcomes, then persists.
+    pub(super) async fn batch(&mut self, ids: &[JobId], op: BatchOp) -> BatchResult {
+        let mut res = BatchResult::default();
         for &id in ids {
-            match self.pause_one(id).await {
+            let r = match op {
+                BatchOp::Pause => self.pause_one(id).await,
+                BatchOp::Resume => self.resume_one(id).await,
+                BatchOp::Restore => self.restore_one(id).await,
+                BatchOp::Remove {
+                    delete_files,
+                    force,
+                } => self.remove_one(id, delete_files, force).await,
+            };
+            match r {
                 Ok(()) => res.ok.push(id),
                 Err(error) => res.failed.push(BatchFailure { id, error }),
             }
@@ -65,21 +81,6 @@ impl Manager {
             e.rec.state = JobState::Paused;
         }
         Ok(())
-    }
-
-    pub(super) async fn resume(&mut self, ids: &[JobId]) -> BatchResult {
-        let mut res = BatchResult {
-            ok: Vec::new(),
-            failed: Vec::new(),
-        };
-        for &id in ids {
-            match self.resume_one(id).await {
-                Ok(()) => res.ok.push(id),
-                Err(error) => res.failed.push(BatchFailure { id, error }),
-            }
-        }
-        self.flush(true).await;
-        res
     }
 
     pub(super) async fn resume_one(&mut self, id: JobId) -> Result<(), RpcError> {

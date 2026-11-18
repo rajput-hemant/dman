@@ -40,12 +40,6 @@ pub(super) const KEY: &str = "torrent_file";
 /// writing its control file when it reports the download as complete.
 pub(crate) const SETTLE_TICKS: u8 = 2;
 
-/// The info hash (40 hex digits, lower case) of a `magnet:` link, from its
-/// hex or base32 `btih`; aria2 names the metadata copy after the hex form.
-pub(crate) fn magnet_hash(uri: &str) -> Option<String> {
-    super::dedupe::magnet_btih(uri)
-}
-
 /// Paths aria2 may save the metadata of `hash` under inside `dir`.
 fn torrent_paths(dir: &Path, hash: &str) -> [PathBuf; 2] {
     [
@@ -255,7 +249,7 @@ impl Manager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dman_proto::{Engine, JobOptions};
+    use dman_proto::Engine;
     use dman_store::Desired;
 
     fn torrent() -> (Vec<u8>, String) {
@@ -269,39 +263,14 @@ mod tests {
 
     fn rec(dir: &Path, kind: SourceKind) -> JobRecord {
         JobRecord {
-            id: JobId(1),
-            engine: Engine::Aria2,
-            kind,
             name: "Album".into(),
             dir: dir.display().to_string(),
-            source: String::new(),
-            options: JobOptions::default(),
             desired: Desired::Stopped,
             state: JobState::Complete,
-            gid: None,
-            info_hash: None,
-            total_bytes: 0,
-            completed_bytes: 0,
-            uploaded_base: 0,
-            uploaded_session: 0,
-            added_at: 0,
             completed_at: Some(1),
-            queue_key: 0,
-            error: None,
             has_blob: true,
-            extra: Default::default(),
+            ..JobRecord::new(JobId(1), Engine::Aria2, kind, false)
         }
-    }
-
-    #[test]
-    fn magnet_hash_needs_a_full_btih() {
-        let h = "0123456789abcdef0123456789ABCDEF01234567";
-        assert_eq!(
-            magnet_hash(&format!("magnet:?dn=x&xt=urn:btih:{h}&tr=y")),
-            Some(h.to_ascii_lowercase())
-        );
-        assert_eq!(magnet_hash("magnet:?xt=urn:btih:SHORT"), None);
-        assert_eq!(magnet_hash("http://x/?xt=urn:btih:{h}"), None);
     }
 
     #[test]

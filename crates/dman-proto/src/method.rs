@@ -229,7 +229,7 @@ pub struct ReloadResult {
 }
 
 /// Per-item outcome of batch operations such as pause/resume/remove.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct BatchResult {
     pub ok: Vec<JobId>,
     pub failed: Vec<BatchFailure>,

@@ -108,9 +108,6 @@ fn record(id: u64, dir: &Path, files: &[&Path]) -> JobRecord {
     );
     extra.insert("details_final".into(), true.into());
     JobRecord {
-        id: JobId(id),
-        engine: Engine::Aria2,
-        kind: SourceKind::Torrent,
         name: "Album".into(),
         dir: dir.display().to_string(),
         source: "Album.torrent".into(),
@@ -120,18 +117,13 @@ fn record(id: u64, dir: &Path, files: &[&Path]) -> JobRecord {
         },
         desired: Desired::Stopped,
         state: JobState::Complete,
-        gid: None,
-        info_hash: None,
         total_bytes: 10,
         completed_bytes: 10,
-        uploaded_base: 0,
-        uploaded_session: 0,
         added_at: 1,
         completed_at: Some(2),
         queue_key: id,
-        error: None,
-        has_blob: false,
         extra,
+        ..JobRecord::new(JobId(id), Engine::Aria2, SourceKind::Torrent, false)
     }
 }
 

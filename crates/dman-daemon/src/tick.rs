@@ -182,7 +182,7 @@ pub fn name_of_uri(uri: &str) -> String {
 mod tests {
     use super::*;
     use dman_aria2::{BitTorrent, BtInfo, File};
-    use dman_proto::{Engine, JobId, JobOptions};
+    use dman_proto::{Engine, JobId};
 
     #[test]
     fn status_mapping() {
@@ -242,27 +242,10 @@ mod tests {
 
     fn record() -> JobRecord {
         JobRecord {
-            id: JobId(1),
-            engine: Engine::Aria2,
-            kind: SourceKind::Torrent,
-            name: String::new(),
             dir: "/tmp".into(),
             source: "x".into(),
-            options: JobOptions::default(),
-            desired: Desired::Queued,
             state: JobState::Seeding,
-            gid: None,
-            info_hash: None,
-            total_bytes: 0,
-            completed_bytes: 0,
-            uploaded_base: 0,
-            uploaded_session: 0,
-            added_at: 0,
-            completed_at: None,
-            queue_key: 0,
-            error: None,
-            has_blob: false,
-            extra: Default::default(),
+            ..JobRecord::new(JobId(1), Engine::Aria2, SourceKind::Torrent, false)
         }
     }
 

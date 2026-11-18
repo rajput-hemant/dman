@@ -276,16 +276,19 @@ pub async fn fail(
     if is_htmx(headers) {
         return toast("error", msg);
     }
-    let mut r = full_page(
-        st,
-        ctx,
-        Nav::None,
-        "Error",
-        "",
-        Vec::new(),
-        views::error_page(&st.base, msg),
-    )
-    .await;
+    error_response(st, ctx, status, "Error", msg).await
+}
+
+/// A full error page with `status`.
+async fn error_response(
+    st: &AppState,
+    ctx: &Ctx,
+    status: StatusCode,
+    title: &str,
+    msg: &str,
+) -> Response {
+    let content = views::error_page(&st.base, msg);
+    let mut r = full_page(st, ctx, Nav::None, title, "", Vec::new(), content).await;
     *r.status_mut() = status;
     r
 }
@@ -327,16 +330,6 @@ pub fn flash(p: &Pairs) -> Vec<Markup> {
 }
 
 pub async fn not_found(State(st): St, Extension(ctx): Extension<Ctx>) -> Response {
-    let mut r = full_page(
-        &st,
-        &ctx,
-        Nav::None,
-        "Not found",
-        "",
-        Vec::new(),
-        views::error_page(&st.base, "This page does not exist."),
-    )
-    .await;
-    *r.status_mut() = StatusCode::NOT_FOUND;
-    r
+    let msg = "This page does not exist.";
+    error_response(&st, &ctx, StatusCode::NOT_FOUND, "Not found", msg).await
 }

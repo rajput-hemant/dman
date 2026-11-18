@@ -4,7 +4,9 @@ use axum::Extension;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
-use dman_proto::method::{self, IdParams, IdsParams, ListParams, Reorder, ReorderParams};
+use dman_proto::method::{
+    self, BatchResult, IdParams, IdsParams, ListParams, Reorder, ReorderParams,
+};
 use dman_proto::{Job, JobId, RpcError};
 use maud::html;
 
@@ -136,14 +138,8 @@ pub(super) async fn table_with(
 }
 
 /// First failure message of a batch result.
-pub(super) fn batch_failure(v: &serde_json::Value) -> Option<String> {
-    let f = v.get("failed")?.as_array()?.first()?;
-    Some(
-        f.pointer("/error/message")
-            .and_then(|m| m.as_str())
-            .unwrap_or("action failed")
-            .to_string(),
-    )
+pub(super) fn batch_failure(r: &BatchResult) -> Option<&str> {
+    r.failed.first().map(|f| f.error.message.as_str())
 }
 
 /// Runs a batch method for one job and answers according to who asked: the table
@@ -162,7 +158,7 @@ async fn job_action(
         .await
         .map(|j| views::display_name(&j).to_string())
         .unwrap_or_else(|_| format!("download {id}"));
-    let r: Result<serde_json::Value, RpcError> = st
+    let r: Result<BatchResult, RpcError> = st
         .call(
             method_name,
             IdsParams {
@@ -170,9 +166,9 @@ async fn job_action(
             },
         )
         .await;
-    let msg = match r {
-        Ok(v) => batch_failure(&v).map_or(Ok(()), Err),
-        Err(e) => Err(e.message),
+    let msg = match &r {
+        Ok(v) => batch_failure(v).map_or(Ok(()), Err),
+        Err(e) => Err(e.message.as_str()),
     };
     if let Err(m) = msg {
         let text = format!("Could not {} {}: {m}", done.0, quoted(&name));
@@ -326,23 +322,20 @@ pub async fn bulk(State(st): St, Extension(c): Extension<Ctx>, h: HeaderMap, p: 
         .await;
     }
     let n = ids.len();
-    let v: serde_json::Value = match st.call(m, IdsParams { ids }).await {
+    let v: BatchResult = match st.call(m, IdsParams { ids }).await {
         Ok(v) => v,
         Err(e) => return fail_rpc(&st, &c, &h, &e).await,
     };
-    let failed = v
-        .get("failed")
-        .and_then(|f| f.as_array())
-        .map_or(0, Vec::len);
+    let failed = v.failed.len();
     if !is_htmx(&h) {
         return redirect(&format!("{}/?done={code}", st.base));
     }
+    let done = n.saturating_sub(failed);
     let mut toasts = vec![views::toast(
         "ok",
         &format!(
-            "{verb} {} download{}.",
-            n - failed,
-            if n - failed == 1 { "" } else { "s" }
+            "{verb} {done} download{}.",
+            if done == 1 { "" } else { "s" }
         ),
     )];
     if let Some(f) = batch_failure(&v) {

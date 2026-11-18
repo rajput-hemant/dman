@@ -316,7 +316,7 @@ pub(super) async fn add_sources(
     paused: bool,
 ) -> Result<(Vec<u64>, Vec<(String, String)>), RpcError> {
     let (labels, sources): (Vec<String>, Vec<AddSource>) = sources.into_iter().unzip();
-    let v: serde_json::Value = st
+    let outcomes: Vec<AddOutcome> = st
         .call(
             method::JOBS_ADD,
             AddParams {
@@ -327,9 +327,6 @@ pub(super) async fn add_sources(
             },
         )
         .await?;
-    let outcomes = serde_json::from_value::<Vec<AddOutcome>>(v.clone())
-        .or_else(|_| serde_json::from_value::<AddOutcome>(v).map(|o| vec![o]))
-        .unwrap_or_default();
     let (mut ok, mut bad) = (Vec::new(), Vec::new());
     for (i, o) in outcomes.into_iter().enumerate() {
         match o {

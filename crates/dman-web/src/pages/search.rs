@@ -147,13 +147,10 @@ pub async fn search_add(
         paused: false,
         force: false,
     };
-    let v: serde_json::Value = match st.call(method::JOBS_ADD, params).await {
-        Ok(v) => v,
+    let outcome = match st.call::<Vec<AddOutcome>>(method::JOBS_ADD, params).await {
+        Ok(v) => v.into_iter().next(),
         Err(e) => return fail(&st, &c, &h, StatusCode::BAD_GATEWAY, &failed(e.message)).await,
     };
-    let outcome = serde_json::from_value::<Vec<AddOutcome>>(v)
-        .ok()
-        .and_then(|o| o.into_iter().next());
     let id = match outcome {
         Some(AddOutcome::Added { id, .. }) => id,
         Some(AddOutcome::Failed { error }) => {

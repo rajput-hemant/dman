@@ -23,12 +23,8 @@ use url::Url;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn aria2_enabled() -> bool {
-    std::env::var("DMAN_TEST_ARIA2").as_deref() == Ok("1")
-}
-
 mod support;
-use support::free_port;
+use support::{aria2_enabled, free_port};
 
 const HASH_A: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const HASH_B: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";

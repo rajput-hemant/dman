@@ -9,33 +9,19 @@
 #![allow(dead_code)]
 
 use std::io::{BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dman_client::{Client, ClientError};
-use dman_config::{Config, DaemonTarget, DiskThreshold, Paths, Secrets};
-use dman_daemon::{DaemonOptions, run};
-use dman_proto::method::{Event, ListParams, Outcome};
-use dman_proto::{AddOutcome, AddParams, AddSource, Job, JobId, JobOptions, JobState};
-use secrecy::SecretString;
-use tokio::task::JoinHandle;
-use url::Url;
-
-fn aria2_enabled() -> bool {
-    std::env::var("DMAN_TEST_ARIA2").as_deref() == Ok("1")
-}
+use dman_client::Client;
+use dman_config::{Config, DaemonTarget, DiskThreshold};
+use dman_proto::method::{Event, Outcome};
+use dman_proto::{AddParams, AddSource, Job, JobId, JobOptions, JobState};
 
 mod support;
-use support::free_port;
+use support::{Daemon, added, aria2_enabled, assert_no_aria2, free_port, job, wait_jobs};
 
 // ----- daemon harness ---------------------------------------------------------
-
-struct Daemon {
-    paths: Paths,
-    url: Url,
-    task: JoinHandle<anyhow::Result<()>>,
-}
 
 fn config(root: &Path, aria2_path: &str, min_free: DiskThreshold) -> Config {
     let mut c = Config::default();
@@ -53,92 +39,6 @@ fn config(root: &Path, aria2_path: &str, min_free: DiskThreshold) -> Config {
     c.aria2.tick_ms = 200;
     c.limits.max_concurrent = 1;
     c
-}
-
-impl Daemon {
-    async fn start(root: &Path, config: Config) -> Self {
-        let paths = Paths::with_root(root);
-        let DaemonTarget::Local { listen, .. } = &config.profiles["local"].daemon else {
-            unreachable!()
-        };
-        let url = Url::parse(&format!("ws://{listen}/api/v1/ws")).unwrap();
-        let task = tokio::spawn(run(DaemonOptions {
-            paths: paths.clone(),
-            config,
-            profile: "local".into(),
-        }));
-        let d = Self { paths, url, task };
-        // Wait until it accepts authenticated connections.
-        for _ in 0..200 {
-            if d.task.is_finished() {
-                break;
-            }
-            if d.try_connect().await.is_ok() {
-                return d;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        let r = d.task.await;
-        panic!("daemon did not come up: {r:?}");
-    }
-
-    fn token(&self) -> SecretString {
-        Secrets::load(&self.paths)
-            .ok()
-            .and_then(|s| s.get("daemon"))
-            .unwrap_or_else(|| SecretString::from(String::new()))
-    }
-
-    async fn try_connect(&self) -> Result<Client, ClientError> {
-        Client::connect(&self.url, self.token(), "dman-test").await
-    }
-
-    async fn client(&self) -> Client {
-        self.try_connect().await.expect("connect")
-    }
-
-    async fn stop(self, client: &Client) {
-        client.shutdown().await.expect("shutdown call");
-        tokio::time::timeout(Duration::from_secs(30), self.task)
-            .await
-            .expect("daemon did not stop")
-            .expect("join")
-            .expect("daemon result");
-    }
-}
-
-async fn wait_jobs(c: &Client, secs: u64, what: &str, f: impl Fn(&[Job]) -> bool) -> Vec<Job> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(secs);
-    loop {
-        let jobs = c.list(ListParams::default()).await.expect("list");
-        if f(&jobs) {
-            return jobs;
-        }
-        if tokio::time::Instant::now() > deadline {
-            panic!("timed out waiting for {what}: {jobs:#?}");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
-fn job(jobs: &[Job], id: JobId) -> &Job {
-    jobs.iter()
-        .find(|j| j.id == id)
-        .unwrap_or_else(|| panic!("job {id} missing"))
-}
-
-fn count(jobs: &[Job], s: JobState) -> usize {
-    jobs.iter().filter(|j| j.state == s).count()
-}
-
-fn added(outcomes: &[AddOutcome]) -> Vec<JobId> {
-    outcomes
-        .iter()
-        .map(|o| match o {
-            AddOutcome::Added { id, .. } => *id,
-            AddOutcome::Failed { error } => panic!("add failed: {error}"),
-        })
-        .collect()
 }
 
 /// The python fixture: local tracker + aria2c seeder (+ optional leecher).
@@ -491,32 +391,4 @@ async fn magnet_job_survives_a_restart_from_its_stored_metadata() {
     d.stop(&c).await;
     drop(seeder);
     assert_no_aria2(root.path());
-}
-
-/// Live (non-zombie) aria2c processes whose command line mentions `root`.
-fn aria2_pids(root: &Path) -> Vec<u32> {
-    let needle = root.display().to_string();
-    let mut out = Vec::new();
-    let Ok(proc_dir) = std::fs::read_dir("/proc") else {
-        return out;
-    };
-    for entry in proc_dir.flatten() {
-        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let cmd: PathBuf = entry.path().join("cmdline");
-        let stat = std::fs::read_to_string(entry.path().join("stat")).unwrap_or_default();
-        if let Ok(c) = std::fs::read(&cmd) {
-            let c = String::from_utf8_lossy(&c);
-            if c.contains("aria2c") && c.contains(&needle) && !stat.contains(") Z ") {
-                out.push(pid);
-            }
-        }
-    }
-    out
-}
-
-fn assert_no_aria2(root: &Path) {
-    let pids = aria2_pids(root);
-    assert!(pids.is_empty(), "aria2c still running: {pids:?}");
 }

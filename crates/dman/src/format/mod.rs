@@ -235,18 +235,19 @@ pub fn job_table_with(jobs: &[Job], width: usize, columns: &[Column]) -> String 
     table_dyn(&headers, &rows, &left)
 }
 
-/// Like [`table`] for a column count known only at run time.
-fn table_dyn(headers: &[&str], rows: &[Vec<String>], left: &[usize]) -> String {
+/// A table whose column count is known only at run time; `left` lists the
+/// left-aligned columns (the last column is never padded).
+fn table_dyn<R: AsRef<[String]>>(headers: &[&str], rows: &[R], left: &[usize]) -> String {
     let n = headers.len();
     let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
     for row in rows {
-        for (w, cell) in widths.iter_mut().zip(row) {
+        for (w, cell) in widths.iter_mut().zip(row.as_ref()) {
             *w = (*w).max(cell.chars().count());
         }
     }
-    let line = |cells: Vec<&str>| {
+    let line = |cells: &mut dyn Iterator<Item = &str>| {
         let mut out = String::new();
-        for (i, cell) in cells.iter().enumerate() {
+        for (i, cell) in cells.enumerate() {
             let w = widths[i];
             let cell = printable(cell);
             if i + 1 == n {
@@ -264,46 +265,16 @@ fn table_dyn(headers: &[&str], rows: &[Vec<String>], left: &[usize]) -> String {
         out.push('\n');
         out
     };
-    let mut out = line(headers.to_vec());
+    let mut out = line(&mut headers.iter().copied());
     for row in rows {
-        out.push_str(&line(row.iter().map(String::as_str).collect()));
+        out.push_str(&line(&mut row.as_ref().iter().map(String::as_str)));
     }
     out
 }
 
-/// Generic table: `left` lists the columns that are left-aligned (the last
-/// column is never padded).
+/// Generic table with a fixed number of columns, see [`table_dyn`].
 fn table<const N: usize>(headers: [&str; N], rows: &[[String; N]], left: &[usize]) -> String {
-    let mut widths = headers.map(|h| h.chars().count());
-    for row in rows {
-        for (w, cell) in widths.iter_mut().zip(row) {
-            *w = (*w).max(cell.chars().count());
-        }
-    }
-    let line = |cells: Vec<&str>| {
-        let mut out = String::new();
-        for (i, cell) in cells.iter().enumerate() {
-            let w = widths[i];
-            let cell = printable(cell);
-            if i + 1 == N {
-                out.push_str(&cell);
-            } else {
-                if left.contains(&i) {
-                    out.push_str(&format!("{cell:<w$}"));
-                } else {
-                    out.push_str(&format!("{cell:>w$}"));
-                }
-                out.push_str(COLUMN_GAP);
-            }
-        }
-        out.push('\n');
-        out
-    };
-    let mut out = line(headers.to_vec());
-    for row in rows {
-        out.push_str(&line(row.iter().map(String::as_str).collect()));
-    }
-    out
+    table_dyn(&headers, rows, left)
 }
 
 /// `video.probe` format table: `ID  EXT  KIND  RES  FPS  SIZE  CODECS  NOTE`.
@@ -479,7 +450,7 @@ pub fn local_time(secs: i64) -> String {
 
 /// `2026-11-11 09:35 (5m ago)` for a past unix time, relative to `now`.
 pub fn local_time_ago(secs: i64, now: i64) -> String {
-    let ago = match (now - secs).max(0) {
+    let ago = match now.saturating_sub(secs).max(0) {
         0..=59 => "just now".to_owned(),
         s @ 60..=3599 => format!("{}m ago", s / 60),
         s @ 3600..=86_399 => format!("{}h ago", s / 3600),

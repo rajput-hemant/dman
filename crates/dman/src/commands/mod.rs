@@ -51,6 +51,41 @@ pub fn can_prompt() -> bool {
     std::io::stdin().is_terminal() && std::io::stderr().is_terminal()
 }
 
+/// `y` / `yes` in any case is yes, an empty answer is `default`, anything else is no.
+pub fn is_yes(answer: &str, default: bool) -> bool {
+    match answer.trim().to_ascii_lowercase().as_str() {
+        "" => default,
+        a => matches!(a, "y" | "yes"),
+    }
+}
+
+/// Ask a yes/no question on stderr and read the answer from stdin; Enter means
+/// `default`. The end of input (Ctrl-D, a closed stdin) is always no.
+pub fn ask_yes(question: &str, default: bool) -> std::io::Result<bool> {
+    ask_yes_with(
+        question,
+        default,
+        &mut std::io::stdin().lock(),
+        &mut std::io::stderr(),
+    )
+}
+
+fn ask_yes_with(
+    question: &str,
+    default: bool,
+    input: &mut impl std::io::BufRead,
+    out: &mut impl std::io::Write,
+) -> std::io::Result<bool> {
+    let choices = if default { "[Y/n]" } else { "[y/N]" };
+    write!(out, "{question} {choices} ")?;
+    out.flush()?;
+    let mut line = String::new();
+    if input.read_line(&mut line)? == 0 {
+        return Ok(false);
+    }
+    Ok(is_yes(&line, default))
+}
+
 /// Run the selected command and return the process exit code. A "not found" failure
 /// gets did-you-mean suggestions from what the daemon actually has.
 pub async fn dispatch(cli: Cli) -> Result<i32, CliError> {
@@ -150,5 +185,30 @@ async fn dispatch_command(cli: Cli) -> Result<i32, CliError> {
         Command::MaxConcurrent { n } => misc::max_concurrent(&Ctx::load(&cli)?, *n).await,
         Command::Schedule => misc::schedule(&Ctx::load(&cli)?).await,
         Command::Stats => misc::stats(&Ctx::load(&cli)?).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn yes_answers() {
+        assert!(is_yes("y", false) && is_yes(" YES\n", false));
+        assert!(!is_yes("n", true) && !is_yes("sure", true));
+        assert!(is_yes("", true) && !is_yes("\n", false));
+    }
+
+    #[test]
+    fn end_of_input_is_no_even_when_enter_means_yes() {
+        let ask = |input: &str, default| {
+            let mut out = Vec::new();
+            let yes = ask_yes_with("Go?", default, &mut input.as_bytes(), &mut out).unwrap();
+            (yes, String::from_utf8(out).unwrap())
+        };
+        assert_eq!(ask("\n", true), (true, "Go? [Y/n] ".to_owned()));
+        assert_eq!(ask("", true), (false, "Go? [Y/n] ".to_owned()));
+        assert_eq!(ask("y\n", false), (true, "Go? [y/N] ".to_owned()));
+        assert!(!ask("\n", false).0);
     }
 }

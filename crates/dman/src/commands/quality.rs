@@ -207,11 +207,6 @@ pub fn parse_pick(answer: &str, len: usize, default: usize) -> Result<usize, Str
     }
 }
 
-/// `y` / `yes` (anything else is no).
-pub fn is_yes(answer: &str) -> bool {
-    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
-}
-
 fn read_line(input: &mut impl BufRead) -> Result<String, CliError> {
     let mut line = String::new();
     if input.read_line(&mut line)? == 0 {
@@ -333,10 +328,10 @@ pub fn run_picker(
     })?;
     write!(out, "Use as default? [y/N] ")?;
     out.flush()?;
-    let use_default = is_yes(&read_line(input)?);
+    let use_default = super::is_yes(&read_line(input)?, false);
     write!(out, "Never ask again? [y/N] ")?;
     out.flush()?;
-    let never_ask = is_yes(&read_line(input)?);
+    let never_ask = super::is_yes(&read_line(input)?, false);
     let update = prefs_update(&picked, use_default, never_ask);
     Ok(Answers {
         picked,
@@ -599,7 +594,6 @@ mod tests {
         assert!(parse_pick("0", 3, 1).is_err());
         assert!(parse_pick("4", 3, 1).is_err());
         assert!(parse_pick("x", 3, 1).is_err());
-        assert!(is_yes("Y") && is_yes("yes") && !is_yes("") && !is_yes("n"));
     }
 
     #[test]

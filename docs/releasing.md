@@ -58,14 +58,16 @@ Run the commands from the repository root unless a step says otherwise.
    equal). Then run `cargo check` to update `Cargo.lock`.
 2. **Changelog**: if `CHANGELOG.md` exists, add the release; cargo-dist uses its
    section as the release notes.
-3. **Check**: `cargo fmt --all --check`,
-   `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`.
-4. **Tag and push**:
+3. **Check**: `./scripts/check.sh` (fmt, clippy with `-D warnings` and the tests, with and
+   without default features).
+4. **Merge and tag**: `main` takes pull requests only. Commit the bump on a branch, open a
+   pull request and merge it, then tag the merged commit and push the tag:
 
    ```bash
-   git commit -am "chore: release vX.Y.Z"
+   git commit -am "chore: release vX.Y.Z"      # on a branch; open and merge the PR
+   git switch main && git pull
    git tag vX.Y.Z
-   git push origin main vX.Y.Z
+   git push origin vX.Y.Z
    ```
 
 5. **Dry run**: the tag push runs release.yml, which builds and uploads artifacts but
@@ -74,11 +76,13 @@ Run the commands from the repository root unless a step says otherwise.
 
    ```bash
    gh workflow run release.yml --ref vX.Y.Z -f publish=true
-   gh run watch
+   id=$(gh run list --workflow Release --limit 1 --json databaseId -q '.[0].databaseId')
+   gh run watch "$id"
    ```
 
-   The dispatch must run on the tag, and it must finish green including the
-   `publish-homebrew-formula` job. `publish=false` (or a plain tag push) never releases.
+   Pass the run id: a bare `gh run watch` can attach to the dry-run run, which has no
+   `publish-homebrew-formula` job. The dispatch must run on the tag, and it must finish
+   green including that job. `publish=false` (or a plain tag push) never releases.
    The run uses the workflow file *at that tag*, so move the tag if the workflow changed
    after it was created:
 

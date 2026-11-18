@@ -1,5 +1,7 @@
 //! Adding jobs.
 
+use std::collections::HashMap;
+
 use base64::Engine as _;
 use dman_aria2::{Aria2Client, DownloadStatus, Options, job_options_to_aria2};
 use dman_proto::{
@@ -9,6 +11,7 @@ use dman_proto::{
 use dman_store::{Desired, JobRecord};
 use serde_json::json;
 
+use crate::gdrive::GdriveFileDownload;
 use crate::tick::{self, Counters};
 
 use super::util::{engine_err, now, resolve_dir, unavailable};
@@ -28,7 +31,11 @@ fn is_bittorrent(src: &AddSource) -> bool {
 impl Manager {
     // ----- add ---------------------------------------------------------------
 
-    pub(super) async fn add(&mut self, mut p: AddParams) -> Result<Vec<AddOutcome>, RpcError> {
+    pub(super) async fn add(
+        &mut self,
+        mut p: AddParams,
+        mut drive: HashMap<usize, Vec<GdriveFileDownload>>,
+    ) -> Result<Vec<AddOutcome>, RpcError> {
         super::util::check_cookie_file(&mut p.options, self.config_dir.as_deref())?;
         if p.sources.is_empty() {
             return Err(RpcError::invalid("no sources given"));
@@ -82,7 +89,7 @@ impl Manager {
             Some(make(&o)?)
         };
         let mut out = Vec::with_capacity(p.sources.len());
-        for src in p.sources {
+        for (i, src) in p.sources.into_iter().enumerate() {
             if !p.force
                 && let Err(error) = self.check_duplicate(&src).await
             {
@@ -103,16 +110,9 @@ impl Manager {
             let Some(client) = &client else {
                 continue; // unreachable: checked above
             };
-            if let Some(folder_id) = crate::gdrive::parse_folder_id_from_source(&src) {
+            if let Some(files) = drive.remove(&i) {
                 let r = self
-                    .add_gdrive_folder(
-                        client,
-                        &folder_id,
-                        &aopts,
-                        &options,
-                        &dir_s,
-                        (p.paused, p.force),
-                    )
+                    .add_drive_files(client, files, &aopts, &options, &dir_s, (p.paused, p.force))
                     .await;
                 out.push(match r {
                     Ok(mut ids) if !ids.is_empty() => {
@@ -354,20 +354,17 @@ impl Manager {
         Ok(ids)
     }
 
-    async fn add_gdrive_folder(
+    /// Adds one job per file of an expanded Google Drive folder, each in its
+    /// subdirectory of `target_dir`.
+    async fn add_drive_files(
         &mut self,
         client: &Aria2Client,
-        folder_id: &str,
+        files: Vec<GdriveFileDownload>,
         base_aopts: &Options,
         base_options: &JobOptions,
         target_dir: &str,
         (paused, force): (bool, bool),
     ) -> Result<Vec<JobId>, RpcError> {
-        let gdrive = crate::gdrive::GdriveClient::new();
-        let files = gdrive
-            .expand_folder(folder_id)
-            .await
-            .map_err(RpcError::from)?;
         let mut ids = Vec::with_capacity(files.len());
         for file in files {
             let file_dir = std::path::Path::new(target_dir).join(&file.rel_dir);
@@ -418,11 +415,18 @@ impl Manager {
         Ok(ids)
     }
 
-    /// Jobs created earlier in a failed folder add are removed, so a retry
-    /// starts from a clean state instead of hitting duplicates.
+    /// Jobs created earlier in a failed folder add are removed and purged, so
+    /// a retry starts from a clean state instead of hitting duplicates. They
+    /// were added paused and never ran, so no file of theirs exists: the paths
+    /// aria2 reports for them may be files of the user's with the same name,
+    /// which must not be deleted.
     async fn rollback_created(&mut self, ids: &mut Vec<JobId>) {
-        for id in ids.drain(..) {
-            let _ = self.remove_one(id, true, true).await;
+        if ids.is_empty() {
+            return; // an empty purge list would mean every finished job
         }
+        for &id in ids.iter() {
+            let _ = self.remove_one(id, false, true).await;
+        }
+        self.purge(std::mem::take(ids)).await;
     }
 }

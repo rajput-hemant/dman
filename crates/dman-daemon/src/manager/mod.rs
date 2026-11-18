@@ -56,8 +56,15 @@ use crate::tick::Counters;
 /// A request from an API handler.
 #[derive(Debug)]
 pub enum Request {
-    /// `jobs.add`
-    Add(AddParams),
+    /// `jobs.add`. Google Drive folder links arrive already expanded into
+    /// their files, keyed by source index: the listing is fetched before the
+    /// request reaches the actor, so nothing else waits on Drive.
+    Add {
+        /// The request as the client sent it.
+        params: AddParams,
+        /// The files of each Drive folder source.
+        drive: HashMap<usize, Vec<crate::gdrive::GdriveFileDownload>>,
+    },
     /// `jobs.list`
     List(ListParams),
     /// `jobs.get`
@@ -583,8 +590,8 @@ impl Manager {
 
     async fn handle(&mut self, req: Request) -> Result<Value, RpcError> {
         match req {
-            Request::Add(p) => {
-                let r = self.add(p).await?;
+            Request::Add { params, drive } => {
+                let r = self.add(params, drive).await?;
                 self.tick().await;
                 to_value(r)
             }

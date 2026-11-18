@@ -177,7 +177,12 @@ pub fn changed_rate(p: &Pairs, field: &str) -> Result<Option<u64>, String> {
     if v.is_empty() {
         return Ok(Some(0));
     }
-    fmt::parse_rate(v).map(Some).ok_or_else(|| {
+    rate(v).map(Some)
+}
+
+/// A speed typed into a form, or the message to show next to the field.
+pub fn rate(v: &str) -> Result<u64, String> {
+    fmt::parse_rate(v).ok_or_else(|| {
         format!("\u{201c}{v}\u{201d} is not a speed. Use a number with K, M or G, e.g. 500K.")
     })
 }

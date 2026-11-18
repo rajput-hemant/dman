@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::format::size;
+use dman_proto::fmt::size;
 
 /// What a source token is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

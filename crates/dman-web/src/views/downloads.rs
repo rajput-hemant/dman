@@ -8,7 +8,8 @@ use maud::{Markup, html};
 
 use super::{ActionForm, action_form, bar, display_name, icon, is_torrent, metadata_pending};
 use super::{state_label, state_name};
-use crate::fmt;
+use crate::util;
+use dman_proto::fmt;
 
 /// Table state carried in the query string.
 #[derive(Debug, Clone, Default)]
@@ -165,12 +166,12 @@ fn figures(j: &Job) -> Vec<String> {
     let size = if j.total_bytes == 0 {
         None
     } else if j.completed_bytes >= j.total_bytes {
-        Some(fmt::bytes(j.total_bytes))
+        Some(fmt::size(j.total_bytes))
     } else {
         Some(format!(
             "{} of {}",
-            fmt::bytes(j.completed_bytes),
-            fmt::bytes(j.total_bytes)
+            fmt::size(j.completed_bytes),
+            fmt::size(j.total_bytes)
         ))
     };
     match j.state {
@@ -195,7 +196,7 @@ fn figures(j: &Job) -> Vec<String> {
                 v.push(format!("ratio {:.2}", j.ratio()));
             }
             if let Some(c) = j.completed_at {
-                v.push(format!("finished {} UTC", fmt::timestamp(c)));
+                v.push(format!("finished {} UTC", util::timestamp(c)));
             }
         }
         _ => v.extend(size),
@@ -257,8 +258,8 @@ pub fn job_live(j: &Job) -> Markup {
             }
             span.jspd {
                 @if moving {
-                    @if j.state == JobState::Active { span title="Download speed" { "\u{2193} " (fmt::speed0(j.download_speed)) } }
-                    @if j.upload_speed > 0 || j.state == JobState::Seeding { span.up title="Upload speed" { "\u{2191} " (fmt::speed0(j.upload_speed)) } }
+                    @if j.state == JobState::Active { span title="Download speed" { "\u{2193} " (fmt::speed(j.download_speed)) } }
+                    @if j.upload_speed > 0 || j.state == JobState::Seeding { span.up title="Upload speed" { "\u{2191} " (fmt::speed(j.upload_speed)) } }
                 }
             }
             span.jeta title="Time left" {

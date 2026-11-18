@@ -6,7 +6,8 @@ use dman_proto::search::{ProviderInfo, ProviderStatus, SearchHistoryEntry, Searc
 use maud::{Markup, html};
 
 use super::icon;
-use crate::fmt;
+use crate::util;
+use dman_proto::fmt;
 
 pub struct SearchView<'a> {
     pub search_id: Option<u64>,
@@ -140,14 +141,14 @@ fn result_row(base: &str, csrf: Option<&str>, r: &SearchResultDto) -> Markup {
                 span.rtitle { (r.title) }
                 span.rsrc { (r.sources.join(", ")) }
             }
-            td.num data-label="Size" { @if let Some(s) = r.size { (fmt::bytes(s)) } @else { (dash()) } }
+            td.num data-label="Size" { @if let Some(s) = r.size { (fmt::size(s)) } @else { (dash()) } }
             td data-label="Health" {
                 span class=(format!("health h{level}")) title=(format!("Seed health: {word}")) {
                     span.hb {} span.hb {} span.hb {}
                     span.hn { span.seeds { (r.seeders.map_or_else(dash, |s| s.to_string())) } span.leech { " / " (r.leechers.map_or_else(dash, |s| s.to_string())) } }
                 }
             }
-            td.date data-label="Date" { @if let Some(d) = r.date { (fmt::timestamp(d).get(..10).unwrap_or("")) } }
+            td.date data-label="Date" { @if let Some(d) = r.date { (util::timestamp(d).get(..10).unwrap_or("")) } }
             td.actions {
                 @if let Some(href) = &options_href {
                     form.inline method="post" action=(add) hx-post=(add) hx-target="#toasts" hx-swap="beforeend" hx-disabled-elt="find button" {
@@ -240,7 +241,7 @@ pub fn search_page(
                             input type="hidden" name="_csrf" value=(csrf);
                             input type="hidden" name="q" value=(h.query);
                             @for p in &h.providers { input type="hidden" name="providers" value=(p); }
-                            button.chip type="submit" title=(format!("{} results on {} UTC", h.result_count, fmt::timestamp(h.at))) { (h.query) }
+                            button.chip type="submit" title=(format!("{} results on {} UTC", h.result_count, util::timestamp(h.at))) { (h.query) }
                         }
                     }
                     form.inline method="post" action=(format!("{base}/search/history/clear")) {

@@ -8,7 +8,6 @@ use ratatui::widgets::Paragraph;
 
 use crate::action::Action;
 use crate::app::{Cmd, State};
-use crate::format;
 use crate::keymap::{Context, Keymap};
 use crate::theme::Theme;
 use crate::views::View;
@@ -18,6 +17,7 @@ use crate::widgets::input::LineInput;
 use crate::widgets::palette::PaletteState;
 use crate::widgets::prompt::PromptState;
 use crate::widgets::scrollbar;
+use dman_proto::fmt;
 
 /// Help view state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -124,10 +124,7 @@ fn entry(theme: &Theme, keys: &str, what: &str, key_w: usize, width: usize) -> L
         Span::raw("  "),
         Span::styled(format!(" {keys} "), theme.pill),
         Span::raw(" ".repeat(pad)),
-        Span::styled(
-            format!(" {}", crate::format::truncate(what, room)),
-            theme.text,
-        ),
+        Span::styled(format!(" {}", fmt::truncate(what, room)), theme.text),
     ])
 }
 
@@ -357,7 +354,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, h: &HelpState) {
         .block_focus(true)
         .title(Span::styled(" Keys ", t.accent))
         .title_bottom(Line::from(Span::styled(
-            format::truncate(
+            fmt::truncate(
                 " Keys can be changed in config.toml [keys] pause = [\"p\"] ",
                 usize::from(area.width).saturating_sub(2),
             ),

@@ -5,7 +5,7 @@ use dman_proto::method::{FsListing, MagnetPreview};
 use maud::{Markup, html};
 
 use super::icon;
-use crate::fmt;
+use dman_proto::fmt;
 
 /// What the user typed, kept across a failed submit.
 #[derive(Debug, Clone, Default)]
@@ -197,7 +197,7 @@ pub fn preview_panel(id: &str, p: &MagnetPreview) -> Markup {
             div.pickhead {
                 div {
                     h3 #pick-title.wrap { (p.name) }
-                    p.help { (fmt::bytes(p.total_bytes)) " \u{b7} " (p.files.len()) " files \u{b7} untick what you do not want, then press Add." }
+                    p.help { (fmt::size(p.total_bytes)) " \u{b7} " (p.files.len()) " files \u{b7} untick what you do not want, then press Add." }
                 }
                 div.pickbtns.jsonly {
                     button.btn.small.ghost type="button" data-check="all" { "Select all" }
@@ -209,7 +209,7 @@ pub fn preview_panel(id: &str, p: &MagnetPreview) -> Markup {
                     li { label.fileck {
                         input type="checkbox" name="select" value=(f.index) checked;
                         span.fpath { (f.path) }
-                        span.fsize { (fmt::bytes(f.length)) }
+                        span.fsize { (fmt::size(f.length)) }
                     } }
                 }
             }

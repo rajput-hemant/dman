@@ -119,7 +119,7 @@ impl LineInput {
     /// Like [`Self::line`], but scrolled horizontally so that the cursor stays
     /// visible in `width` columns; cut ends are marked with `…`.
     pub fn line_fit(&self, theme: &Theme, focused: bool, width: usize) -> Line<'static> {
-        use crate::format::width as w;
+        use dman_proto::fmt::width as w;
         let chars: Vec<char> = self.text.chars().collect();
         let cursor = self.cursor.min(chars.len());
         // Columns needed: the text plus one cell for a cursor at the end.

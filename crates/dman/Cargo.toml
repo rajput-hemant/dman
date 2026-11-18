@@ -41,7 +41,6 @@ serde.workspace = true
 serde_json.workspace = true
 secrecy.workspace = true
 url.workspace = true
-bytesize.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 base64 = "0.23"

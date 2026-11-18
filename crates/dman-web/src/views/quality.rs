@@ -5,8 +5,8 @@ use dman_proto::VideoProbe;
 use dman_proto::video::{QualityChoice, QualityChoiceKind};
 use maud::{Markup, html};
 
-use crate::fmt;
 use crate::quality::{self, PRESETS, Selection};
+use dman_proto::fmt;
 
 /// What the picker page shows.
 pub struct QualityPage<'a> {
@@ -26,7 +26,7 @@ fn label_of(c: &QualityChoice) -> String {
     if !label.contains('~')
         && let Some(s) = c.size_estimate
     {
-        label.push_str(&format!(" \u{b7} ~{}", fmt::bytes(s)));
+        label.push_str(&format!(" \u{b7} ~{}", fmt::size(s)));
     }
     label
 }

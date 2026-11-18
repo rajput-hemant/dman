@@ -10,12 +10,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use crate::app::State;
-use crate::format::{self, truncate};
 use crate::layout::Hit;
 use crate::list::Chip;
 use crate::views::View;
 use crate::widgets::Modal;
 use crate::widgets::graph;
+use dman_proto::fmt::{self, truncate};
 
 /// Severity of a banner line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,7 +130,7 @@ fn speed_spans(
     let (n, u) = if bps == 0 {
         ("0".to_owned(), String::new())
     } else {
-        crate::format::split_size(bps, true, compact)
+        fmt::split_size(bps, true, compact)
     };
     vec![
         Span::styled(format!("{icon} "), style),
@@ -218,7 +218,7 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
         right.push((
             5,
             vec![
-                Span::styled(crate::format::size(free), t.dim),
+                Span::styled(fmt::size(free), t.dim),
                 Span::styled(" free  ", t.faint),
             ],
         ));
@@ -315,10 +315,10 @@ pub fn render_card(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let max = peak(&downs_raw).max(peak(&ups_raw));
     let row =
         |icon: &'static str, now: u64, raw: &[u64], series: &[u64], style: Style, limit: u64| {
-            let (n, u) = crate::format::split_size(now, true, false);
+            let (n, u) = fmt::split_size(now, true, false);
             let (pn, pu) = match peak(raw) {
                 0 => ("–".to_owned(), String::new()),
-                p => crate::format::split_size(p, true, true),
+                p => fmt::split_size(p, true, true),
             };
             let mut spans = vec![
                 Span::styled(format!(" {icon} "), style),
@@ -347,7 +347,7 @@ pub fn render_card(frame: &mut Frame<'_>, area: Rect, state: &State) {
             } else {
                 vec![
                     Span::styled("limit ", t.faint),
-                    Span::styled(crate::format::speed(limit), t.warn),
+                    Span::styled(fmt::speed(limit), t.warn),
                 ]
             };
             let lim_w: usize = lim.iter().map(Span::width).sum();
@@ -455,7 +455,7 @@ pub fn render_context(frame: &mut Frame<'_>, area: Rect, state: &State) {
 /// crumbs collapse to `…` first, then the last one is cut in the middle.
 fn fit_crumbs(mut crumbs: Vec<String>, cols: usize) -> Vec<String> {
     let total = |c: &[String]| -> usize {
-        c.iter().map(|s| format::width(s)).sum::<usize>() + c.len().saturating_sub(1) * 3
+        c.iter().map(|s| fmt::width(s)).sum::<usize>() + c.len().saturating_sub(1) * 3
     };
     let mut i = 0;
     while total(&crumbs) > cols && i + 1 < crumbs.len() {
@@ -468,8 +468,8 @@ fn fit_crumbs(mut crumbs: Vec<String>, cols: usize) -> Vec<String> {
     if over > 0
         && let Some(last) = crumbs.last_mut()
     {
-        let keep = format::width(last).saturating_sub(over);
-        *last = format::middle(last, keep);
+        let keep = fmt::width(last).saturating_sub(over);
+        *last = fmt::middle(last, keep);
     }
     crumbs
 }
@@ -483,7 +483,7 @@ fn breadcrumb(state: &State) -> Vec<String> {
                 Some(j) => format!(
                     "{} {}",
                     state.theme.icons.state(j.state),
-                    crate::format::middle(j.name.trim_start_matches("[METADATA]"), 48)
+                    fmt::middle(j.name.trim_start_matches("[METADATA]"), 48)
                 ),
                 None => format!("Download #{}", d.id),
             },

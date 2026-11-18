@@ -21,8 +21,8 @@ use super::video::{self, ProbeFetch, ProbeUi};
 use super::{Overlay, add_any};
 use crate::api::{ApiCall, ApiReply, NEVER_ASK_HINT, PrefsIntent};
 use crate::app::{Cmd, State};
-use crate::format::{self, size, truncate};
 use crate::theme::Theme;
+use dman_proto::fmt::{self, size, truncate};
 
 /// Presets of the quick row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -479,7 +479,7 @@ fn choice_row(
         tail = format!("  ({why})");
     }
     let marker = if on { "▸ " } else { "  " };
-    let room = width.saturating_sub(2 + format::width(&tail));
+    let room = width.saturating_sub(2 + fmt::width(&tail));
     let text = format!("{marker}{}{tail}", truncate(&label, room));
     let style = if !c.available {
         theme.dim
@@ -694,7 +694,7 @@ impl Picker {
         let mut h = Vec::new();
         let mut used = 0;
         for (k, v) in Self::hints() {
-            let item_w = format::width(&k) + format::width(&v) + 2;
+            let item_w = fmt::width(&k) + fmt::width(&v) + 2;
             if used + item_w > w {
                 break;
             }

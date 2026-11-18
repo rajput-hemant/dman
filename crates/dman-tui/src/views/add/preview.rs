@@ -17,8 +17,8 @@ use ratatui::widgets::{Clear, Paragraph, Wrap};
 use super::options::{Field, Parsed};
 use super::source::{Kind, Token};
 use super::video::{self, ProbeFetch, ProbeKey};
-use crate::format::{plural, size};
 use crate::theme::Theme;
+use dman_proto::fmt::{plural, size};
 use dman_torrent::{TorrentMeta, parse_torrent};
 
 /// One download that will be requested.

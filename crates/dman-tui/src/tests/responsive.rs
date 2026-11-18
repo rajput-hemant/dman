@@ -258,7 +258,7 @@ fn render_buffer(s: &mut State, w: u16, h: u16) -> ratatui::buffer::Buffer {
 fn assert_no_split_wide_chars(buf: &ratatui::buffer::Buffer, name: &str, w: u16, h: u16) {
     for y in 0..h {
         for x in 0..w.saturating_sub(1) {
-            if crate::format::width(buf[(x, y)].symbol()) > 1 {
+            if dman_proto::fmt::width(buf[(x, y)].symbol()) > 1 {
                 let next = buf[(x + 1, y)].symbol();
                 assert!(
                     next.is_empty() || next == " ",

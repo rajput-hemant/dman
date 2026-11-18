@@ -16,8 +16,8 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::format::{self, size, truncate};
 use crate::theme::Theme;
+use dman_proto::fmt::{self, size, truncate};
 
 /// Most entries kept per local directory.
 pub const LOCAL_CAP: usize = 5000;
@@ -75,7 +75,7 @@ pub fn read_local_dir(path: Option<&Path>) -> Result<LocalListing, String> {
     entries.sort_by(|a, b| {
         b.is_dir
             .cmp(&a.is_dir)
-            .then_with(|| crate::format::cmp_ignore_case(&a.name, &b.name))
+            .then_with(|| fmt::cmp_ignore_case(&a.name, &b.name))
             .then_with(|| a.name.cmp(&b.name))
     });
     Ok(LocalListing {
@@ -536,10 +536,7 @@ fn render_popup(
         theme.border_focus,
     );
     let width = usize::from(inner.width);
-    let mut lines = vec![Line::styled(
-        format::truncate_start(head, width),
-        theme.accent,
-    )];
+    let mut lines = vec![Line::styled(fmt::truncate_start(head, width), theme.accent)];
     if let Some(e) = error {
         lines.push(Line::styled(truncate(e, width), theme.error));
     } else if loading {
@@ -552,8 +549,8 @@ fn render_popup(
     let list_h = usize::from(inner.height).saturating_sub(lines.len());
     let top = (cursor + 1).saturating_sub(list_h);
     for (i, r) in rows.iter().enumerate().skip(top).take(list_h) {
-        let name_w = width.saturating_sub(4 + format::width(&r.right) + 1);
-        let text = format!("{} {} {}", r.mark, format::fit(&r.name, name_w), r.right);
+        let name_w = width.saturating_sub(4 + fmt::width(&r.right) + 1);
+        let text = format!("{} {} {}", r.mark, fmt::fit(&r.name, name_w), r.right);
         let style = if i == cursor {
             theme.cursor
         } else if r.dir {

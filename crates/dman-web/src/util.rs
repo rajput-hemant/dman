@@ -1,37 +1,5 @@
-//! Human-readable formatting and small parsers shared by the views.
-
-/// `1536` -> `1.5 KiB`.
-pub fn bytes(n: u64) -> String {
-    const UNITS: [&str; 5] = ["B", "KiB", "MiB", "GiB", "TiB"];
-    if n < 1024 {
-        return format!("{n} B");
-    }
-    let mut v = n as f64;
-    let mut u = 0;
-    while v >= 1024.0 && u < UNITS.len() - 1 {
-        v /= 1024.0;
-        u += 1;
-    }
-    if v >= 100.0 {
-        format!("{v:.0} {}", UNITS[u])
-    } else {
-        format!("{v:.1} {}", UNITS[u])
-    }
-}
-
-/// Bytes per second; zero shows as a dash.
-pub fn speed(n: u64) -> String {
-    if n == 0 {
-        "-".into()
-    } else {
-        format!("{}/s", bytes(n))
-    }
-}
-
-/// Bytes per second; zero shows as `0 B/s`.
-pub fn speed0(n: u64) -> String {
-    format!("{}/s", bytes(n))
-}
+//! Small formatters and parsers for form fields and timestamps. Sizes, speeds
+//! and ETAs live in `dman_proto::fmt`.
 
 /// A rate as typed into a form: `""` for no limit, else `2M`, `500K` or bytes.
 pub fn rate_input(n: u64) -> String {
@@ -41,23 +9,6 @@ pub fn rate_input(n: u64) -> String {
         n if n % (K * K) == 0 => format!("{}M", n / (K * K)),
         n if n % K == 0 => format!("{}K", n / K),
         n => n.to_string(),
-    }
-}
-
-/// Seconds as `1h 02m`, `3m 04s` or `12s`.
-pub fn eta(secs: Option<u64>) -> String {
-    let Some(s) = secs else {
-        return "-".into();
-    };
-    let (d, h, m, sec) = (s / 86_400, s % 86_400 / 3600, s % 3600 / 60, s % 60);
-    if d > 0 {
-        format!("{d}d {h}h")
-    } else if h > 0 {
-        format!("{h}h {m:02}m")
-    } else if m > 0 {
-        format!("{m}m {sec:02}s")
-    } else {
-        format!("{sec}s")
     }
 }
 
@@ -110,15 +61,10 @@ mod tests {
 
     #[test]
     fn formats() {
-        assert_eq!(bytes(1536), "1.5 KiB");
-        assert_eq!(bytes(5), "5 B");
-        assert_eq!(speed(0), "-");
-        assert_eq!(speed0(0), "0 B/s");
         assert_eq!(rate_input(0), "");
         assert_eq!(rate_input(2 * 1024 * 1024), "2M");
         assert_eq!(rate_input(512_000), "500K");
         assert_eq!(rate_input(1000), "1000");
-        assert_eq!(eta(Some(3725)), "1h 02m");
         assert_eq!(timestamp(0), "1970-01-01 00:00");
         assert_eq!(timestamp(1_700_000_000), "2023-11-14 22:13");
     }

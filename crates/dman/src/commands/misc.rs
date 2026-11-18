@@ -7,6 +7,7 @@ use crate::cli::LimitArgs;
 use crate::connect::Ctx;
 use crate::error::CliError;
 use crate::format;
+use dman_proto::fmt;
 
 fn now_secs() -> i64 {
     std::time::SystemTime::now()
@@ -71,17 +72,17 @@ pub async fn max_concurrent(ctx: &Ctx, n: Option<u32>) -> Result<i32, CliError> 
 
 pub fn stats_text(s: &dman_proto::GlobalStats) -> String {
     let mut pairs = vec![
-        ("download", format::speed(s.download_speed)),
-        ("upload", format::speed(s.upload_speed)),
+        ("download", fmt::speed(s.download_speed)),
+        ("upload", fmt::speed(s.upload_speed)),
         ("active", s.num_active.to_string()),
         ("waiting", s.num_waiting.to_string()),
         ("stopped", s.num_stopped.to_string()),
     ];
     if let Some(free) = s.disk_free {
-        pairs.push(("disk free", format::size(free)));
+        pairs.push(("disk free", fmt::size(free)));
     }
-    pairs.push(("total downloaded", format::size(s.total_downloaded)));
-    pairs.push(("total uploaded", format::size(s.total_uploaded)));
+    pairs.push(("total downloaded", fmt::size(s.total_downloaded)));
+    pairs.push(("total uploaded", fmt::size(s.total_uploaded)));
     format::key_values(&pairs)
 }
 

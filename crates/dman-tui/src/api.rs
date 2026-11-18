@@ -16,7 +16,7 @@ use dman_proto::{
     VideoPreferencesUpdate, VideoProbe, VideoProbeParams,
 };
 
-use crate::format::{limit, plural};
+use dman_proto::fmt::{limit, plural};
 
 /// How long the daemon may take to fetch a magnet's metadata.
 pub const MAGNET_TIMEOUT_SECS: u32 = 120;
@@ -451,7 +451,7 @@ pub fn summarize(call: &ApiCall, result: &Result<ApiReply, String>) -> (Outcome,
             format!(
                 "Deleted {} unselected partial files ({})",
                 r.deleted,
-                crate::format::size(r.bytes)
+                dman_proto::fmt::size(r.bytes)
             ),
         ),
         Ok(ApiReply::Reloaded(r)) => reload_summary(r),

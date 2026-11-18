@@ -10,11 +10,11 @@ use ratatui::widgets::{Paragraph, Wrap};
 use super::render::spans_width;
 use crate::action::Action;
 use crate::app::State;
-use crate::format;
 use crate::keymap::Context;
 use crate::layout::Hit;
 use crate::theme::Theme;
 use crate::widgets::bar;
+use dman_proto::fmt;
 
 fn pill_spans(state: &State, a: Action, what: &str) -> Option<Vec<Span<'static>>> {
     let t = &state.theme;
@@ -47,13 +47,13 @@ pub(super) fn render_empty(frame: &mut Frame<'_>, area: Rect, state: &State) {
             .unwrap_or_default()
     };
     let width = usize::from(area.width);
-    let fit = |s: String| format::truncate(&s, width);
+    let fit = |s: String| fmt::truncate(&s, width);
     // The hints go on one line when they fit, else one per line.
     let hints: Vec<(Action, String)> = EMPTY_HINTS
         .iter()
         .map(|(a, what)| (*a, format!("{}  {what}", key(*a))))
         .collect();
-    let one_line_w = hints.iter().map(|(_, h)| format::width(h)).sum::<usize>() + 6;
+    let one_line_w = hints.iter().map(|(_, h)| fmt::width(h)).sum::<usize>() + 6;
     let one_line = one_line_w <= width;
     let mut hint_rows = 0;
     let lines: Vec<Line<'static>> = if !state.list.filter.is_empty() {
@@ -131,15 +131,13 @@ pub(super) fn render_empty(frame: &mut Frame<'_>, area: Rect, state: &State) {
         let start = msg.x + u16::try_from(width.saturating_sub(one_line_w) / 2).unwrap_or(0);
         let mut x = start;
         for (a, text) in &hints {
-            let w = u16::try_from(format::width(text)).unwrap_or(0);
+            let w = u16::try_from(fmt::width(text)).unwrap_or(0);
             state.hit(Rect::new(x, line_y, w, 1), Hit::Action(*a));
             x = x.saturating_add(w + 3);
         }
     } else if hint_rows == 3 {
         for (i, (a, text)) in hints.iter().enumerate() {
-            let w = u16::try_from(format::width(text))
-                .unwrap_or(0)
-                .min(msg.width);
+            let w = u16::try_from(fmt::width(text)).unwrap_or(0).min(msg.width);
             let x = msg.x + (msg.width - w) / 2;
             let y = msg.bottom().saturating_sub(3) + u16::try_from(i).unwrap_or(0);
             state.hit(Rect::new(x, y, w, 1), Hit::Action(*a));
@@ -156,7 +154,7 @@ pub(super) fn render_preview(frame: &mut Frame<'_>, area: Rect, state: &State) {
         (n, _) if n > 1 => format!(" {n} marked "),
         (_, Some(j)) => format!(
             " {} ",
-            format::middle(
+            fmt::middle(
                 j.name.trim_start_matches("[METADATA]"),
                 usize::from(area.width).saturating_sub(6)
             )
@@ -241,14 +239,14 @@ fn preview_job(state: &State, j: &Job, width: usize) -> Vec<Line<'static>> {
         bar::bar(t, bar_w, state.shown_progress(j), t.state(j.state))
     };
     if j.total_bytes > 0 {
-        let pct = format::percent(j);
+        let pct = fmt::percent(j);
         bar_line.push(Span::styled(format!(" {pct:>3}%"), t.text));
     }
     out.push(Line::from(bar_line));
-    let mut sizes = vec![Span::styled(format::size(j.completed_bytes), t.text)];
+    let mut sizes = vec![Span::styled(fmt::size(j.completed_bytes), t.text)];
     if j.total_bytes > 0 {
         sizes.push(Span::styled(
-            format!(" of {}", format::size(j.total_bytes)),
+            format!(" of {}", fmt::size(j.total_bytes)),
             t.dim,
         ));
     } else {
@@ -256,7 +254,7 @@ fn preview_job(state: &State, j: &Job, width: usize) -> Vec<Line<'static>> {
     }
     if j.state == JobState::Active && j.eta_secs().is_some() {
         sizes.push(Span::styled(
-            format!("   ETA {}", format::eta(j.eta_secs())),
+            format!("   ETA {}", fmt::eta(j.eta_secs())),
             t.text,
         ));
     }
@@ -264,7 +262,7 @@ fn preview_job(state: &State, j: &Job, width: usize) -> Vec<Line<'static>> {
     out.push(Line::default());
     let history = state.job_speeds.get(&j.id).map_or(&[][..], Vec::as_slice);
     let spark_w = width.saturating_sub(16).min(40);
-    let (dn, du) = format::split_size(j.download_speed, true, false);
+    let (dn, du) = fmt::split_size(j.download_speed, true, false);
     out.push(Line::from(vec![
         Span::styled(format!("{} ", t.icons.down), t.graph_down),
         Span::styled(format!("{dn:>6}"), t.text),
@@ -278,7 +276,7 @@ fn preview_job(state: &State, j: &Job, width: usize) -> Vec<Line<'static>> {
             t.graph_down,
         ),
     ]));
-    let (un, uu) = format::split_size(j.upload_speed, true, false);
+    let (un, uu) = fmt::split_size(j.upload_speed, true, false);
     out.push(Line::from(vec![
         Span::styled(format!("{} ", t.icons.up), t.graph_up),
         Span::styled(format!("{un:>6}"), t.text),
@@ -294,10 +292,10 @@ fn preview_job(state: &State, j: &Job, width: usize) -> Vec<Line<'static>> {
     ]));
     out.push(Line::default());
     if j.seeders.is_some() || j.connections > 0 {
-        out.push(kv(t, "Peers", format::peers(j), t.text));
+        out.push(kv(t, "Peers", fmt::peers(j), t.text));
     }
     if j.uploaded_bytes > 0 {
-        out.push(kv(t, "Ratio", format::ratio(j), t.text));
+        out.push(kv(t, "Ratio", fmt::ratio(j), t.text));
     }
     let engine = match j.engine {
         dman_proto::Engine::Aria2 => "aria2",
@@ -307,26 +305,26 @@ fn preview_job(state: &State, j: &Job, width: usize) -> Vec<Line<'static>> {
     out.push(kv(
         t,
         "Folder",
-        format::middle(&j.dir, width.saturating_sub(8)),
+        fmt::middle(&j.dir, width.saturating_sub(8)),
         t.dim,
     ));
     out.push(kv(
         t,
         "Source",
-        format::middle(&j.source, width.saturating_sub(8)),
+        fmt::middle(&j.source, width.saturating_sub(8)),
         t.dim,
     ));
     out.push(kv(
         t,
         "Added",
-        format::ago(state.now_secs() - j.added_at),
+        fmt::ago(state.now_secs() - j.added_at),
         t.dim,
     ));
     if let Some(h) = &j.info_hash {
         out.push(kv(
             t,
             "Hash",
-            format::middle(h, width.saturating_sub(8)),
+            fmt::middle(h, width.saturating_sub(8)),
             t.faint,
         ));
     }
@@ -349,25 +347,20 @@ fn preview_marked(state: &State, width: usize) -> Vec<Line<'static>> {
     let done: u64 = jobs.iter().map(|j| j.completed_bytes).sum();
     let speed: u64 = jobs.iter().map(|j| j.download_speed).sum();
     let mut out = vec![
-        kv(
-            t,
-            "Marked",
-            format::plural(jobs.len(), "download"),
-            t.marked,
-        ),
+        kv(t, "Marked", fmt::plural(jobs.len(), "download"), t.marked),
         kv(
             t,
             "Size",
-            format!("{} of {}", format::size(done), format::size(total)),
+            format!("{} of {}", fmt::size(done), fmt::size(total)),
             t.text,
         ),
-        kv(t, "Speed", format::speed(speed), t.info),
+        kv(t, "Speed", fmt::speed(speed), t.info),
         Line::default(),
     ];
     for j in jobs.iter().take(12) {
         out.push(Line::from(vec![
             Span::styled(format!("{} ", t.icons.state(j.state)), t.state(j.state)),
-            Span::styled(format::middle(&j.name, width.saturating_sub(2)), t.text),
+            Span::styled(fmt::middle(&j.name, width.saturating_sub(2)), t.text),
         ]));
     }
     if jobs.len() > 12 {

@@ -84,7 +84,7 @@ impl SortKey {
     fn compare(self, a: &Job, b: &Job) -> Ordering {
         match self {
             SortKey::Queue => queue_order(a, b),
-            SortKey::Name => crate::format::cmp_ignore_case(&a.name, &b.name),
+            SortKey::Name => dman_proto::fmt::cmp_ignore_case(&a.name, &b.name),
             SortKey::Size => b.total_bytes.cmp(&a.total_bytes),
             SortKey::Progress => b.progress().total_cmp(&a.progress()),
             SortKey::Speed => b.download_speed.cmp(&a.download_speed),

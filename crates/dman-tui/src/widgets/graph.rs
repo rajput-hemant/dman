@@ -13,9 +13,9 @@ use ratatui::widgets::{Axis, Chart, Dataset, GraphType, Paragraph};
 use crate::api::ApiCall;
 use crate::api::ApiReply;
 use crate::app::{Cmd, State};
-use crate::format;
 use crate::layout::Hit;
 use crate::theme::Theme;
+use dman_proto::fmt;
 
 /// How often the global history is re-read while the panel is visible.
 pub const REFRESH_EVERY: Duration = Duration::from_secs(2);
@@ -266,10 +266,10 @@ pub fn render_panel(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let mut spans = vec![
         Span::styled(" Speed ", t.accent),
         Span::styled(format!("{} ", t.icons.down), t.graph_down),
-        Span::raw(format::speed(state.stats.download_speed)),
+        Span::raw(fmt::speed(state.stats.download_speed)),
         Span::raw("  "),
         Span::styled(format!("{} ", t.icons.up), t.graph_up),
-        Span::raw(format::speed(state.stats.upload_speed)),
+        Span::raw(fmt::speed(state.stats.upload_speed)),
         Span::raw("  "),
     ];
     let used: usize = spans.iter().map(Span::width).sum();
@@ -316,8 +316,8 @@ pub fn speed_chart(
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let labels = vec![
         Span::raw("0"),
-        Span::raw(format::speed((top / 2.0) as u64)),
-        Span::raw(format::speed(top as u64)),
+        Span::raw(fmt::speed((top / 2.0) as u64)),
+        Span::raw(fmt::speed(top as u64)),
     ];
     let datasets = vec![
         Dataset::default()

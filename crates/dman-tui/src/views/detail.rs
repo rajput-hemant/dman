@@ -94,7 +94,7 @@ pub fn summary(state: &State, job: &Job, detail: Option<&JobDetail>) -> String {
                 "{base} — {} unselected partial {} ({}); {key} in the list cleans up",
                 c.count,
                 if c.count == 1 { "file" } else { "files" },
-                crate::format::size(c.bytes)
+                dman_proto::fmt::size(c.bytes)
             )
         }
         None => base,
@@ -123,18 +123,18 @@ fn summary_base(state: &State, job: &Job, detail: Option<&JobDetail>) -> String 
         JobState::Active => {
             let mut parts = vec!["Downloading".to_owned()];
             if job.seeders.is_some() || job.info_hash.is_some() {
-                parts.push(crate::format::plural(job.connections as usize, "peer"));
+                parts.push(dman_proto::fmt::plural(job.connections as usize, "peer"));
             } else if job.connections > 0 {
-                parts.push(crate::format::plural(
+                parts.push(dman_proto::fmt::plural(
                     job.connections as usize,
                     "connection",
                 ));
             }
             if job.download_speed > 0 {
-                parts.push(crate::format::speed(job.download_speed));
+                parts.push(dman_proto::fmt::speed(job.download_speed));
             }
             match job.eta_secs() {
-                Some(_) => parts.push(format!("ETA {}", crate::format::eta(job.eta_secs()))),
+                Some(_) => parts.push(format!("ETA {}", dman_proto::fmt::eta(job.eta_secs()))),
                 None if job.download_speed == 0 => parts.push("waiting for data".to_owned()),
                 None => {}
             }

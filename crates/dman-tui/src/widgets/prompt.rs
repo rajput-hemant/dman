@@ -6,11 +6,11 @@ use ratatui::layout::{Alignment, Margin, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::format;
 use crate::theme::Theme;
 use crate::widgets::input::LineInput;
 use crate::widgets::text::wrap;
 use crate::widgets::{ModalOutcome, centered, modal_frame};
+use dman_proto::fmt;
 
 /// What the prompt's value is for; interpreted by `update` on submit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,16 +106,13 @@ impl PromptState {
             label.truncate(label_max);
             if let Some(last) = label.last_mut() {
                 let text: String = last.spans.iter().map(|s| s.content.as_ref()).collect();
-                *last = Line::styled(
-                    format::truncate(&format!("{text}…"), inner_w),
-                    theme.surface,
-                );
+                *last = Line::styled(fmt::truncate(&format!("{text}…"), inner_w), theme.surface);
             }
         }
         let label_rows = u16::try_from(label.len()).unwrap_or(0);
         let extras_rows = u16::try_from(extras).unwrap_or(0);
         let rect = centered(area, width, label_rows + 3 + extras_rows);
-        let title = format::truncate(&self.title, usize::from(width.saturating_sub(4)));
+        let title = fmt::truncate(&self.title, usize::from(width.saturating_sub(4)));
         let inner = modal_frame(
             frame,
             rect,

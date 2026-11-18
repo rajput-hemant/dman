@@ -65,10 +65,6 @@ fn is_torrent(kind: SourceKind) -> bool {
     matches!(kind, SourceKind::Torrent | SourceKind::Magnet)
 }
 
-fn human(bytes: u64) -> String {
-    dman_config::format_bytes(bytes)
-}
-
 impl Manager {
     /// Flags completed torrents with leftovers of deselected files; called
     /// every tick, examines each job once.
@@ -112,7 +108,7 @@ impl Manager {
                 Level::Info,
                 format!(
                     "{name}: {count} unselected partial file(s) ({}) can be deleted: `dman cleanup {id}`",
-                    human(bytes)
+                    dman_proto::fmt::size(bytes)
                 ),
             );
             self.emit(Event::CleanupPending {
@@ -194,7 +190,7 @@ impl Manager {
             format!(
                 "deleted {} unselected partial file(s) ({}) of job {id}",
                 res.deleted,
-                human(res.bytes)
+                dman_proto::fmt::size(res.bytes)
             ),
         );
         if report.refused.is_empty() && report.failed.is_empty() {

@@ -9,10 +9,10 @@ use ratatui::widgets::Paragraph;
 use super::{Entry, PaletteState};
 use crate::action::Action;
 use crate::app::State;
-use crate::format;
 use crate::layout::Hit;
 use crate::theme::Theme;
 use crate::widgets::{modal_frame, scrollbar};
+use dman_proto::fmt;
 
 impl PaletteState {
     /// Draw the palette in `area` (the screen minus the footer).
@@ -51,7 +51,7 @@ impl PaletteState {
         } else {
             format!(" {} found ", self.items().count())
         };
-        let cw = u16::try_from(format::width(&count)).unwrap_or(0);
+        let cw = u16::try_from(fmt::width(&count)).unwrap_or(0);
         if rect.width > cw + 14 {
             frame.render_widget(
                 Paragraph::new(Span::styled(count, theme.faint.patch(theme.surface_bg()))),
@@ -105,7 +105,7 @@ impl PaletteState {
         if self.input.text().is_empty() {
             q.push(Span::styled(" ", theme.cursor));
             q.push(Span::styled(
-                format::truncate("Type to search every group", room.saturating_sub(1)),
+                fmt::truncate("Type to search every group", room.saturating_sub(1)),
                 theme.faint.patch(theme.surface_bg()),
             ));
         } else {
@@ -132,7 +132,7 @@ impl PaletteState {
         };
         let total = |short: bool| -> usize {
             (0..Self::tabs())
-                .map(|i| format::width(&make(short)(i)) + 1)
+                .map(|i| fmt::width(&make(short)(i)) + 1)
                 .sum()
         };
         let room = usize::from(area.width);
@@ -144,7 +144,7 @@ impl PaletteState {
         if full < usize::from(area.width) {
             for i in 0..Self::tabs() {
                 let text = label(i);
-                let w = u16::try_from(format::width(&text)).unwrap_or(0);
+                let w = u16::try_from(fmt::width(&text)).unwrap_or(0);
                 let style = if i == self.tab {
                     theme.mode
                 } else if searching && self.counts.get(i) == Some(&0) {
@@ -171,7 +171,7 @@ impl PaletteState {
             spans.push(Span::styled(" ", theme.surface));
             spans.push(Span::styled(text.clone(), theme.mode));
             spans.push(Span::styled(" ", theme.surface));
-            let after = x + 2 + u16::try_from(format::width(&text)).unwrap_or(0) + 1;
+            let after = x + 2 + u16::try_from(fmt::width(&text)).unwrap_or(0) + 1;
             spans.push(Span::styled("›", theme.accent.patch(theme.surface_bg())));
             state.hit(
                 Rect::new(after, area.y, 1, 1),
@@ -205,7 +205,7 @@ impl PaletteState {
             };
             frame.render_widget(
                 Paragraph::new(Span::styled(
-                    format::truncate(&text, usize::from(list.width)),
+                    fmt::truncate(&text, usize::from(list.width)),
                     theme.dim.patch(theme.surface_bg()),
                 )),
                 list,
@@ -277,7 +277,7 @@ impl PaletteState {
                     theme.warn.patch(theme.surface_bg()),
                 ),
                 Span::styled(
-                    format::truncate(n, w.saturating_sub(2)),
+                    fmt::truncate(n, w.saturating_sub(2)),
                     theme.warn.patch(theme.surface_bg()),
                 ),
             ])
@@ -285,15 +285,15 @@ impl PaletteState {
             let (_, desc) = a.palette_text();
             match (self.reason(a), desc) {
                 (Some(r), _) => Line::styled(
-                    format::truncate(&format!(" Not available: {r}"), w + 1),
+                    fmt::truncate(&format!(" Not available: {r}"), w + 1),
                     theme.faint.patch(theme.surface_bg()),
                 ),
                 (None, Some(d)) => Line::styled(
-                    format::truncate(&format!(" {d}"), w + 1),
+                    fmt::truncate(&format!(" {d}"), w + 1),
                     theme.dim.patch(theme.surface_bg()),
                 ),
                 (None, None) => Line::styled(
-                    format::truncate(" Enter runs it · Tab switches groups · Esc closes", w + 1),
+                    fmt::truncate(" Enter runs it · Tab switches groups · Esc closes", w + 1),
                     theme.faint.patch(theme.surface_bg()),
                 ),
             }
@@ -306,7 +306,7 @@ impl PaletteState {
 
 fn header_line(theme: &Theme, name: &str, width: usize) -> Line<'static> {
     let label = format!(" {} ", name.to_uppercase());
-    let rest = width.saturating_sub(format::width(&label) + 1);
+    let rest = width.saturating_sub(fmt::width(&label) + 1);
     Line::from(vec![
         Span::styled(" ", theme.surface),
         Span::styled(label, theme.section.patch(theme.surface_bg())),
@@ -369,7 +369,7 @@ fn item_line(
         Span::styled(format!(" {keys} "), style)
     });
     let left = 2;
-    let need = left + format::width(&name).min(16) + 1;
+    let need = left + fmt::width(&name).min(16) + 1;
     let w = |s: &Option<Span<'static>>| s.as_ref().map_or(0, Span::width);
     let group = if need + w(&group) + w(&pill) <= width {
         group
@@ -388,7 +388,7 @@ fn item_line(
         Span::styled(" ", base),
     ];
     let name_room = width.saturating_sub(left + right_w);
-    let shown = format::truncate(&name, name_room);
+    let shown = fmt::truncate(&name, name_room);
     for (i, ch) in shown.chars().enumerate() {
         let hit = u32::try_from(i).is_ok_and(|i| hits.binary_search(&i).is_ok());
         let style = if hit && !off {
@@ -398,7 +398,7 @@ fn item_line(
         };
         spans.push(Span::styled(ch.to_string(), style));
     }
-    let mut used = left + format::width(&shown);
+    let mut used = left + fmt::width(&shown);
     // The description (or why it is unavailable) in the room that is left.
     let room = width.saturating_sub(used + right_w + 3);
     let extra = match (reason, desc) {
@@ -412,8 +412,8 @@ fn item_line(
     if let Some((text, style)) = extra
         && room >= 8
     {
-        let text = format::truncate(&text, room);
-        used += 2 + format::width(&text);
+        let text = fmt::truncate(&text, room);
+        used += 2 + fmt::width(&text);
         spans.push(Span::styled("  ", base));
         spans.push(Span::styled(text, style));
     }

@@ -822,7 +822,6 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "base64 0.23.1",
- "bytesize",
  "clap",
  "clap_complete",
  "dman-client",
@@ -951,9 +950,11 @@ dependencies = [
 name = "dman-proto"
 version = "0.1.0"
 dependencies = [
+ "bytesize",
  "serde",
  "serde_json",
  "thiserror",
+ "unicode-width",
 ]
 
 [[package]]
@@ -1050,6 +1051,7 @@ dependencies = [
 name = "dman-ytdlp"
 version = "0.1.0"
 dependencies = [
+ "dman-proto",
  "nix",
  "serde",
  "serde_json",

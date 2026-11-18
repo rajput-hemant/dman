@@ -8,7 +8,8 @@ use maud::{Markup, html};
 
 use super::{ActionForm, Field, action_form, bar, display_name, field, icon, is_torrent};
 use super::{metadata_pending, state_label, state_name};
-use crate::fmt;
+use crate::util;
+use dman_proto::fmt;
 
 /// One plain-language sentence about where a download stands.
 pub fn status_sentence(j: &Job) -> String {
@@ -38,7 +39,7 @@ pub fn status_sentence(j: &Job) -> String {
         }
         JobState::Seeding => {
             p.push("Seeding".into());
-            p.push(format!("\u{2191} {}", fmt::speed0(j.upload_speed)));
+            p.push(format!("\u{2191} {}", fmt::speed(j.upload_speed)));
             p.push(format!("ratio {:.2}", j.ratio()));
         }
         JobState::Waiting => {
@@ -51,7 +52,7 @@ pub fn status_sentence(j: &Job) -> String {
         JobState::Paused => return "Paused \u{2014} press Resume to continue".into(),
         JobState::Complete => {
             return match j.completed_at {
-                Some(t) => format!("Completed {} UTC", fmt::timestamp(t)),
+                Some(t) => format!("Completed {} UTC", util::timestamp(t)),
                 None => "Completed".into(),
             };
         }
@@ -131,13 +132,13 @@ pub fn detail_head(base: &str, csrf: Option<&str>, j: &Job) -> Markup {
                 @if let Some(f) = frac { span.pct { (format!("{:.1}%", f * 100.0)) } }
             }
             div.tiles {
-                (tile("Download", fmt::speed0(j.download_speed), Some(format!("\u{2191} {}", fmt::speed0(j.upload_speed)))))
+                (tile("Download", fmt::speed(j.download_speed), Some(format!("\u{2191} {}", fmt::speed(j.upload_speed)))))
                 (tile("Time left", if j.state == JobState::Active { fmt::eta(j.eta_secs()) } else { "\u{2014}".into() }, None))
-                (tile("Size", if j.total_bytes > 0 { fmt::bytes(j.total_bytes) } else { "\u{2014}".into() },
-                    (j.total_bytes > 0 && j.completed_bytes < j.total_bytes).then(|| format!("{} done", fmt::bytes(j.completed_bytes)))))
+                (tile("Size", if j.total_bytes > 0 { fmt::size(j.total_bytes) } else { "\u{2014}".into() },
+                    (j.total_bytes > 0 && j.completed_bytes < j.total_bytes).then(|| format!("{} done", fmt::size(j.completed_bytes)))))
                 (peers)
                 @if torrent {
-                    (tile("Ratio", format!("{:.2}", j.ratio()), Some(format!("{} up", fmt::bytes(j.uploaded_bytes)))))
+                    (tile("Ratio", format!("{:.2}", j.ratio()), Some(format!("{} up", fmt::size(j.uploaded_bytes)))))
                 } @else {
                     (tile("Engine", (if j.engine == Engine::YtDlp { "yt-dlp" } else { "aria2" }).to_string(), None))
                 }
@@ -161,7 +162,7 @@ pub fn detail_extra(d: &JobDetail) -> Markup {
                             @let frac = if f.length == 0 { 0.0 } else { f.completed as f64 / f.length as f64 };
                             tr.skipped[!f.selected] {
                                 td.name data-label="File" { (f.path) }
-                                td.num data-label="Size" { (fmt::bytes(f.length)) }
+                                td.num data-label="Size" { (fmt::size(f.length)) }
                                 td.prog data-label="Progress" {
                                     @if f.selected {
                                         (bar(None, "bar small", Some(frac), "File progress"))
@@ -185,8 +186,8 @@ pub fn detail_extra(d: &JobDetail) -> Markup {
                         thead { tr { th { "Address" } th.num { "Down" } th.num { "Up" } th.num { "Has" } th { "Seeder" } } }
                         tbody { @for p in &d.peers { tr {
                             td.mono data-label="Address" { (p.ip) ":" (p.port) }
-                            td.num data-label="Down" { (fmt::speed(p.download_speed)) }
-                            td.num data-label="Up" { (fmt::speed(p.upload_speed)) }
+                            td.num data-label="Down" { (fmt::speed_or_dash(p.download_speed)) }
+                            td.num data-label="Up" { (fmt::speed_or_dash(p.upload_speed)) }
                             td.num data-label="Has" { (format!("{:.0}%", p.progress * 100.0)) }
                             td data-label="Seeder" { (if p.seeder { "yes" } else { "no" }) }
                         } } }
@@ -209,8 +210,8 @@ pub struct OptValues {
 impl OptValues {
     pub fn from_options(o: &JobOptions) -> Self {
         Self {
-            download: fmt::rate_input(o.max_download_limit.unwrap_or(0)),
-            upload: fmt::rate_input(o.max_upload_limit.unwrap_or(0)),
+            download: util::rate_input(o.max_download_limit.unwrap_or(0)),
+            upload: util::rate_input(o.max_upload_limit.unwrap_or(0)),
             seed_ratio: o.seed_ratio.map(|r| format!("{r}")).unwrap_or_default(),
             seed_time: o.seed_time.map(|t| t.to_string()).unwrap_or_default(),
         }
@@ -322,7 +323,7 @@ pub fn rename_form(
                 p.help { "A running download cannot be renamed. Pause it first, or rename it after it has finished." }
             }
             @if !d.renames.is_empty() {
-                ul.history { @for r in &d.renames { li { (r.from) " \u{2192} " (r.to) " " span.muted { "(" (fmt::timestamp(r.at)) " UTC)" } } } }
+                ul.history { @for r in &d.renames { li { (r.from) " \u{2192} " (r.to) " " span.muted { "(" (util::timestamp(r.at)) " UTC)" } } } }
             }
         }
     }
@@ -344,10 +345,10 @@ pub fn cleanup_card(
         section #cleanup.card.cleanup aria-labelledby="cleanup-h" {
             h2 #cleanup-h.ph { "Leftover files of skipped downloads" }
             p {
-                (n) " partial file" @if n != 1 { "s" } " (" (fmt::bytes(c.bytes)) ") from files you chose not to download "
+                (n) " partial file" @if n != 1 { "s" } " (" (fmt::size(c.bytes)) ") from files you chose not to download "
                 @if n == 1 { "is" } @else { "are" } " still in the folder. Files you selected are never touched."
             }
-            ul.names { @for f in files.iter().take(SHOWN) { li { (f.path) " " span.muted { (fmt::bytes(f.bytes)) } } } }
+            ul.names { @for f in files.iter().take(SHOWN) { li { (f.path) " " span.muted { (fmt::size(f.bytes)) } } } }
             @if n > files.len().min(SHOWN) { p.help { "and " (n - files.len().min(SHOWN)) " more" } }
             form method="post" action=(url) {
                 input type="hidden" name="_csrf" value=(csrf);
@@ -426,8 +427,8 @@ pub fn detail_page(
                     div { dt { "Folder" } dd.wrap.mono { (j.dir) } }
                     @if let Some(h) = d.info_hash.as_ref().or(j.info_hash.as_ref()) { div { dt { "Info hash" } dd.wrap.mono { (h) } } }
                     @if let Some(c) = &d.comment { div { dt { "Comment" } dd.wrap { (c) } } }
-                    div { dt { "Added" } dd { (fmt::timestamp(j.added_at)) " UTC" } }
-                    @if let Some(c) = j.completed_at { div { dt { "Completed" } dd { (fmt::timestamp(c)) " UTC" } } }
+                    div { dt { "Added" } dd { (util::timestamp(j.added_at)) " UTC" } }
+                    @if let Some(c) = j.completed_at { div { dt { "Completed" } dd { (util::timestamp(c)) " UTC" } } }
                     div { dt { "Engine" } dd { (if j.engine == Engine::YtDlp { "yt-dlp" } else { "aria2" }) } }
                 }
             }

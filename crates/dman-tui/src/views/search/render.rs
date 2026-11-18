@@ -10,9 +10,9 @@ use super::filter::SortKey;
 use super::{Focus, Prov, result_key};
 use crate::action::Action;
 use crate::app::State;
-use crate::format::{self, truncate};
 use crate::layout::{Hit, split_preview};
 use crate::widgets::scrollbar;
+use dman_proto::fmt::{self, truncate};
 
 /// Braille spinner frames.
 pub const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -70,7 +70,7 @@ fn status_lines(segments: &[(String, Style)], width: usize, max: usize) -> Vec<L
     let mut cut = false;
     for (text, style) in segments {
         let text = truncate(text, width.saturating_sub(3).max(1));
-        let w = format::width(&text);
+        let w = fmt::width(&text);
         let sep = if used == 0 { 0 } else { 3 };
         if used > 0 && used + sep + w > width.saturating_sub(1) {
             if done.len() + 1 >= max {
@@ -337,7 +337,7 @@ fn render_filters(frame: &mut Frame<'_>, area: Rect, state: &State) {
 }
 
 fn plural_results(n: usize) -> String {
-    format::plural(n, "result")
+    fmt::plural(n, "result")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -481,7 +481,7 @@ fn render_preview(frame: &mut Frame<'_>, area: Rect, state: &State) {
     ];
     lines.push(kv(
         "Size",
-        r.size.map_or("unknown".into(), format::size),
+        r.size.map_or("unknown".into(), fmt::size),
         t.text,
     ));
     lines.push(kv(
@@ -502,7 +502,7 @@ fn render_preview(frame: &mut Frame<'_>, area: Rect, state: &State) {
     if let Some(h) = &r.info_hash {
         lines.push(kv(
             "Hash",
-            format::middle(h, usize::from(inner.width).saturating_sub(9)),
+            fmt::middle(h, usize::from(inner.width).saturating_sub(9)),
             t.faint,
         ));
     }
@@ -573,7 +573,7 @@ fn render_table(frame: &mut Frame<'_>, area: Rect, state: &State) {
                 .style(if busy { t.warn } else { t.marked }),
                 Col::Num => Cell::from(right((pos + 1).to_string())),
                 Col::Title => Cell::from(truncate(&r.title, title_w)),
-                Col::Size => Cell::from(right(r.size.map_or("-".into(), format::size))),
+                Col::Size => Cell::from(right(r.size.map_or("-".into(), fmt::size))),
                 Col::Seeders => Cell::from(right(r.seeders.map_or("–".into(), |n| n.to_string())))
                     .style(health(t, r.seeders)),
                 Col::Leechers => {
@@ -602,7 +602,7 @@ fn render_table(frame: &mut Frame<'_>, area: Rect, state: &State) {
         let text = if hidden > 0 {
             format!(
                 "{} hidden by the filters — {} clears them",
-                format::plural(hidden, "result"),
+                fmt::plural(hidden, "result"),
                 state.keymap.label(
                     crate::keymap::Context::Search,
                     crate::action::Action::ClearFilter
@@ -681,8 +681,8 @@ fn render_history(frame: &mut Frame<'_>, area: Rect, state: &State) {
             } else {
                 tail
             };
-            let left = w.saturating_sub(format::width(&tail) + 1);
-            let text = format!("{} {tail}", format::fit(&what, left));
+            let left = w.saturating_sub(fmt::width(&tail) + 1);
+            let text = format!("{} {tail}", fmt::fit(&what, left));
             let style = if i == s.hist_cursor { t.cursor } else { t.text };
             Line::styled(text, style)
         })

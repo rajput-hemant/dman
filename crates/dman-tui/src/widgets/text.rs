@@ -3,7 +3,7 @@
 
 use ratatui::text::{Line, Span};
 
-use crate::format::width;
+use dman_proto::fmt::width;
 
 /// Wrap `line` to `cols` columns at spaces; words longer than a row are cut
 /// hard. Styles of the spans are kept; the line style is kept on every row.

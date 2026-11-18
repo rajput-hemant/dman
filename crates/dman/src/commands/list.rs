@@ -15,6 +15,7 @@ use crate::cli::{EngineArg, ListArgs, SortKey};
 use crate::connect::Ctx;
 use crate::error::CliError;
 use crate::format::{self, Column};
+use dman_proto::fmt;
 
 const CLEAR_SCREEN: &str = "\x1b[2J\x1b[H";
 
@@ -243,14 +244,14 @@ fn details(j: &Job) -> String {
             "size",
             format!(
                 "{} of {}",
-                format::size(j.completed_bytes),
-                format::size(j.total_bytes)
+                fmt::size(j.completed_bytes),
+                fmt::size(j.total_bytes)
             ),
         ),
-        ("download", format::speed(j.download_speed)),
-        ("upload", format::speed(j.upload_speed)),
-        ("uploaded", format::size(j.uploaded_bytes)),
-        ("eta", format::eta(j.eta_secs())),
+        ("download", fmt::speed(j.download_speed)),
+        ("upload", fmt::speed(j.upload_speed)),
+        ("uploaded", fmt::size(j.uploaded_bytes)),
+        ("eta", fmt::eta(j.eta_secs())),
         ("connections", j.connections.to_string()),
     ];
     if let Some(s) = j.seeders {

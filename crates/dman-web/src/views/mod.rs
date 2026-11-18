@@ -22,7 +22,7 @@ pub use settings::*;
 use dman_proto::{GlobalStats, Job, JobState, SourceKind};
 use maud::{DOCTYPE, Markup, html};
 
-use crate::fmt;
+use dman_proto::fmt;
 
 /// Which nav entry is highlighted.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -187,11 +187,11 @@ pub fn page(l: &Layout<'_>, title: &str, content: Markup) -> Markup {
 /// Inner HTML of the totals in the top bar. `data-down` feeds the sparkline.
 pub fn stats_inner(s: &GlobalStats) -> Markup {
     html! {
-        span.st.dn title="Total download speed" { span.ar { "\u{2193}" } b data-down=(s.download_speed) { (fmt::speed0(s.download_speed)) } }
-        span.st.upl title="Total upload speed" { span.ar { "\u{2191}" } b { (fmt::speed0(s.upload_speed)) } }
+        span.st.dn title="Total download speed" { span.ar { "\u{2193}" } b data-down=(s.download_speed) { (fmt::speed(s.download_speed)) } }
+        span.st.upl title="Total upload speed" { span.ar { "\u{2191}" } b { (fmt::speed(s.upload_speed)) } }
         span.st.cnt { b { (s.num_active) } " active" }
         span.st.cnt { b { (s.num_waiting) } " queued" }
-        @if let Some(d) = s.disk_free { span.st.cnt.free title="Free space in the download folder" { b { (fmt::bytes(d)) } " free" } }
+        @if let Some(d) = s.disk_free { span.st.cnt.free title="Free space in the download folder" { b { (fmt::size(d)) } " free" } }
         @if let Some(sch) = &s.schedule {
             @if sch.paused { span.st.warn { "Schedule: paused" } }
             @else if let Some(a) = &sch.active { span.st.cnt { "Schedule: " (a) } }

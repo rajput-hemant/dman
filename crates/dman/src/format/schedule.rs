@@ -2,7 +2,8 @@
 
 use dman_proto::method::{ScheduleStatus, WindowInfo};
 
-use super::{key_values, limit, table};
+use super::{key_values, table};
+use dman_proto::fmt::limit;
 
 /// Limits a window sets, e.g. `down 10.0 MiB/s, max 5`; `-` when it sets none.
 fn window_limits(w: &WindowInfo) -> String {

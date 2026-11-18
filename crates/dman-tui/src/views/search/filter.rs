@@ -42,8 +42,7 @@ impl SortKey {
 
     /// The next key in the cycle.
     pub fn next(self) -> SortKey {
-        let i = Self::ALL.iter().position(|k| *k == self).unwrap_or(0);
-        Self::ALL[(i + 1) % Self::ALL.len()]
+        crate::list::cycle(&Self::ALL, self, true)
     }
 
     /// Name shown in the filter line.

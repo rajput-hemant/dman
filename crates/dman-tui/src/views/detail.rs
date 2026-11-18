@@ -17,6 +17,7 @@ use dman_proto::{Job, JobDetail, JobId, JobOptions, JobState};
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
 use crate::app::{Cmd, State};
+use crate::list::cycle;
 use crate::views::{View, downloads, rename};
 use crate::widgets::Modal;
 use crate::widgets::footer::{Hint, hint};
@@ -223,32 +224,16 @@ impl Tab {
 
     /// The next of `tabs` after this one, wrapping.
     pub fn step(self, tabs: &[Tab], forward: bool) -> Tab {
-        let n = tabs.len().max(1);
-        match tabs.iter().position(|t| *t == self) {
-            Some(i) => {
-                tabs[if forward {
-                    (i + 1) % n
-                } else {
-                    (i + n - 1) % n
-                }]
-            }
-            None => Tab::Files,
+        if tabs.contains(&self) {
+            cycle(tabs, self, forward)
+        } else {
+            Tab::Files
         }
     }
 
     /// Position in [`Tab::ALL`].
     pub fn index(self) -> usize {
         Tab::ALL.iter().position(|t| *t == self).unwrap_or(0)
-    }
-
-    /// The following tab, wrapping.
-    pub fn next(self) -> Tab {
-        Tab::ALL[(self.index() + 1) % Tab::ALL.len()]
-    }
-
-    /// The preceding tab, wrapping.
-    pub fn prev(self) -> Tab {
-        Tab::ALL[(self.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]
     }
 }
 

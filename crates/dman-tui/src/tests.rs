@@ -873,6 +873,34 @@ fn offline_rows_are_greyed() {
     assert_eq!(buf[(name_x, job_row)].fg, dim.expect("dim colour"));
 }
 
+/// Colour of the first cell of the "free" figure in the header.
+fn free_space_colour(s: &mut State) -> ratatui::style::Color {
+    update(s, Msg::Resize(120, 24));
+    let mut terminal = Terminal::new(TestBackend::new(120, 24)).expect("test terminal");
+    terminal
+        .draw(|f| views::render(s, f))
+        .expect("draw succeeds");
+    let buf = terminal.backend().buffer();
+    let cells: Vec<&str> = (0..120u16).map(|x| buf[(x, 0)].symbol()).collect();
+    // The figure ends right before the " free" label.
+    let at = cells
+        .windows(5)
+        .position(|w| w.concat() == " free")
+        .expect("free space is shown");
+    buf[(u16::try_from(at).unwrap() - 1, 0)].fg
+}
+
+#[test]
+fn low_free_space_is_drawn_as_a_warning() {
+    let mut s = state();
+    let quiet = free_space_colour(&mut s);
+    assert_eq!(Some(quiet), s.theme.dim.fg);
+    s.stats.disk_low = true;
+    let warn = free_space_colour(&mut s);
+    assert_eq!(Some(warn), s.theme.warn.fg);
+    assert_ne!(quiet, warn);
+}
+
 // ------------------------------------------------------------------ add view
 
 pub(super) mod add_view {

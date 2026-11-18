@@ -537,6 +537,10 @@ pub struct GlobalStats {
     /// Free bytes on the default download volume.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disk_free: Option<u64>,
+    /// Free space on the default download volume is below `warn_free`.
+    /// Unknown free space is never low.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub disk_low: bool,
     /// Cumulative bytes over the lifetime of this profile.
     pub total_downloaded: u64,
     pub total_uploaded: u64,
@@ -572,6 +576,26 @@ pub struct Limits {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn disk_low_defaults_to_false_and_is_omitted_when_false() {
+        let old: GlobalStats = serde_json::from_str(
+            r#"{"download_speed":0,"upload_speed":0,"num_active":0,"num_waiting":0,
+                "num_stopped":0,"total_downloaded":0,"total_uploaded":0}"#,
+        )
+        .unwrap();
+        assert!(!old.disk_low);
+        assert!(!serde_json::to_string(&old).unwrap().contains("disk_low"));
+        let low = GlobalStats {
+            disk_low: true,
+            ..GlobalStats::default()
+        };
+        assert!(
+            serde_json::to_string(&low)
+                .unwrap()
+                .contains("\"disk_low\":true")
+        );
+    }
+
     #[test]
     fn add_source_debug_hides_credentials() {
         let u = AddSource::Uris {

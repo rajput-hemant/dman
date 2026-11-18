@@ -51,11 +51,11 @@ fn query(p: &Path) -> Option<Space> {
     (ok != 0).then_some(Space { free, total })
 }
 
-/// Whether a job may not run because `space` is below `min_free`. An unknown
-/// free space never blocks (the guard must not stall everything when the
-/// query is unsupported).
-pub fn blocks(min_free: &DiskThreshold, space: Option<Space>) -> bool {
-    space.is_some_and(|s| min_free.violated(s.free, s.total))
+/// Whether `space` is below `threshold` (`min_free` stops jobs, `warn_free`
+/// only warns). An unknown free space is never below: neither the guard nor
+/// the warning may misfire when the query is unsupported.
+pub fn below(threshold: &DiskThreshold, space: Option<Space>) -> bool {
+    space.is_some_and(|s| threshold.violated(s.free, s.total))
 }
 
 #[cfg(test)]
@@ -63,17 +63,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn guard_decision() {
+    fn threshold_decision() {
         let s = Some(Space {
             free: 100,
             total: 1000,
         });
-        assert!(blocks(&DiskThreshold::Absolute(101), s));
-        assert!(!blocks(&DiskThreshold::Absolute(100), s));
-        assert!(blocks(&DiskThreshold::Percent(11.0), s));
-        assert!(!blocks(&DiskThreshold::Percent(10.0), s));
-        assert!(blocks(&DiskThreshold::Percent(100.0), s));
-        assert!(!blocks(&DiskThreshold::Absolute(u64::MAX), None));
+        assert!(below(&DiskThreshold::Absolute(101), s));
+        assert!(!below(&DiskThreshold::Absolute(100), s));
+        assert!(below(&DiskThreshold::Percent(11.0), s));
+        assert!(!below(&DiskThreshold::Percent(10.0), s));
+        assert!(below(&DiskThreshold::Percent(100.0), s));
+        assert!(!below(&DiskThreshold::Absolute(u64::MAX), None));
     }
 
     #[test]

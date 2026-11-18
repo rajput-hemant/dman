@@ -215,11 +215,17 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let (conn, conn_style) = conn_label(state);
     let mut right: Vec<Segment> = Vec::new();
     if let Some(free) = state.stats.disk_free {
+        // Low space is the one case where the segment must not read as quiet.
+        let (num, label) = if state.stats.disk_low {
+            (t.warn, t.warn)
+        } else {
+            (t.dim, t.faint)
+        };
         right.push((
             5,
             vec![
-                Span::styled(fmt::size(free), t.dim),
-                Span::styled(" free  ", t.faint),
+                Span::styled(fmt::size(free), num),
+                Span::styled(" free  ", label),
             ],
         ));
     }

@@ -79,7 +79,8 @@ pub fn stats_text(s: &dman_proto::GlobalStats) -> String {
         ("stopped", s.num_stopped.to_string()),
     ];
     if let Some(free) = s.disk_free {
-        pairs.push(("disk free", fmt::size(free)));
+        let low = if s.disk_low { " (low)" } else { "" };
+        pairs.push(("disk free", format!("{}{low}", fmt::size(free))));
     }
     pairs.push(("total downloaded", fmt::size(s.total_downloaded)));
     pairs.push(("total uploaded", fmt::size(s.total_uploaded)));
@@ -118,4 +119,24 @@ pub async fn schedule(ctx: &Ctx) -> Result<i32, CliError> {
         print!("{}", format::schedule_text(&s, now_secs()));
     }
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stats_mark_low_disk_space() {
+        let mut s = dman_proto::GlobalStats {
+            disk_free: Some(2 << 30),
+            ..Default::default()
+        };
+        assert!(stats_text(&s).contains("2.0 GiB\n"));
+        assert!(!stats_text(&s).contains("low"));
+        s.disk_low = true;
+        assert!(stats_text(&s).contains("2.0 GiB (low)\n"));
+        // Unknown free space shows no line at all.
+        s.disk_free = None;
+        assert!(!stats_text(&s).contains("disk free"));
+    }
 }

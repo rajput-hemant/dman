@@ -123,12 +123,14 @@ impl Manager {
     }
 
     pub(super) fn stats(&self) -> GlobalStats {
+        let space = disk::space(&self.default_dir);
         let mut s = GlobalStats {
             download_speed: self.global_speed.0.saturating_add(self.video_speed()),
             upload_speed: self.global_speed.1,
             total_downloaded: self.totals.0.saturating_add(self.pending_transfer.0),
             total_uploaded: self.totals.1.saturating_add(self.pending_transfer.1),
-            disk_free: disk::space(&self.default_dir).map(|s| s.free),
+            disk_free: space.map(|s| s.free),
+            disk_low: disk::below(&self.profile.warn_free, space),
             schedule: self.timetable.brief(),
             ..GlobalStats::default()
         };

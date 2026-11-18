@@ -145,9 +145,7 @@ fn progress_cell(state: &State, j: &Job, bar_w: usize) -> Vec<Span<'static>> {
     } else {
         let p = state.shown_progress(j);
         out = bar::bar(t, bar_w, p, fill);
-        // Truncation intended: 99.9% is not done.
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let pct = (j.progress().clamp(0.0, 1.0) * 100.0).floor() as u32;
+        let pct = format::percent(j);
         out.push(Span::styled(format!(" {pct:>3}%"), t.text));
     }
     out

@@ -428,6 +428,11 @@ impl State {
         self.ui.animations.then_some(self.anim.ms)
     }
 
+    /// The current spinner frame (the first one when animations are off).
+    pub fn spinner(&self) -> &'static str {
+        self.theme.icons.spin(self.anim_ms().unwrap_or(0))
+    }
+
     /// The progress bar value to draw for `job` (eased when animating).
     pub fn shown_progress(&self, job: &Job) -> f64 {
         if self.ui.animations {

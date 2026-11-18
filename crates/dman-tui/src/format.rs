@@ -47,6 +47,14 @@ pub fn eta(secs: Option<u64>) -> String {
     }
 }
 
+/// Whole percent done, rounded down so that 99.9 % never reads as done.
+pub fn percent(job: &Job) -> u32 {
+    // The value is within 0..=100.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let p = (job.progress().clamp(0.0, 1.0) * 100.0).floor() as u32;
+    p
+}
+
 /// `1.23`, or `-` when nothing was downloaded or uploaded yet.
 pub fn ratio(job: &Job) -> String {
     if job.completed_bytes == 0 || job.uploaded_bytes == 0 {

@@ -217,9 +217,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let mut spans = vec![Span::styled(mode.clone(), t.mode), Span::raw(" ")];
     let mut right: Vec<Span<'static>> = Vec::new();
     if state.pending > 0 {
-        let spin = state
-            .anim_ms()
-            .map_or(t.icons.spinner[0], |ms| t.icons.spin(ms));
+        let spin = state.spinner();
         right.push(Span::styled(format!("{spin} "), t.accent));
         right.push(Span::styled("working ", t.dim));
     }

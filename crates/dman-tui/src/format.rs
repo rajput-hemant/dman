@@ -114,6 +114,20 @@ pub fn truncate(s: &str, max: usize) -> String {
     out
 }
 
+/// Shorten `s` to at most `max` columns by cutting the start, so the end of
+/// a long path survives: `…/videos/clip.mp4`.
+pub fn truncate_start(s: &str, max: usize) -> String {
+    if width(s) <= max {
+        return s.to_owned();
+    }
+    if max == 0 {
+        return String::new();
+    }
+    let mut out = String::from('…');
+    out.push_str(tail(s, max - 1));
+    out
+}
+
 /// [`truncate`] and pad with spaces to exactly `cols` columns.
 pub fn fit(s: &str, cols: usize) -> String {
     let mut out = truncate(s, cols);
@@ -212,6 +226,9 @@ mod tests {
         assert_eq!(truncate("abcdef", 4), "abc…");
         assert_eq!(truncate("abc", 4), "abc");
         assert_eq!(truncate("abc", 0), "");
+        assert_eq!(truncate_start("/home/user/a.iso", 8), "…r/a.iso");
+        assert_eq!(truncate_start("/tmp", 8), "/tmp");
+        assert_eq!(truncate_start("/動画/日本語.mkv", 9), "…本語.mkv");
     }
 
     #[test]

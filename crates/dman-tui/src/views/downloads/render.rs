@@ -229,7 +229,7 @@ fn job_line(state: &State, j: &Job, width: usize, layout: &Columns) -> Vec<Span<
                     k += 1;
                 }
                 let text = format::truncate(text, span_w);
-                let pad = span_w.saturating_sub(text.chars().count());
+                let pad = span_w.saturating_sub(format::width(&text));
                 if j.state == JobState::Error {
                     spans.push(Span::styled(text, *style));
                     spans.push(Span::raw(" ".repeat(pad)));
@@ -554,5 +554,15 @@ mod tests {
         let c40 = columns(40);
         assert!(c40.cols.len() <= 1);
         assert!(!has(&columns(84), Col::Peers) && has(&columns(100), Col::Peers));
+    }
+
+    #[test]
+    fn wide_error_text_keeps_the_row_width() {
+        let state = crate::TuiOptions::default().initial_state_with_env(&|_| None);
+        let mut j = crate::fixtures::job(1, "x.iso", JobState::Error);
+        j.total_bytes = 1 << 20;
+        j.error = Some("ファイルが見つかりません".repeat(4));
+        let spans = job_line(&state, &j, 120, &columns(120));
+        assert_eq!(spans_width(&spans), 120);
     }
 }

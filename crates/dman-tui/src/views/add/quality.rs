@@ -479,7 +479,7 @@ fn choice_row(
         tail = format!("  ({why})");
     }
     let marker = if on { "▸ " } else { "  " };
-    let room = width.saturating_sub(2 + tail.chars().count());
+    let room = width.saturating_sub(2 + format::width(&tail));
     let text = format!("{marker}{}{tail}", truncate(&label, room));
     let style = if !c.available {
         theme.dim

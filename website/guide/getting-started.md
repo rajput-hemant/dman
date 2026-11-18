@@ -10,9 +10,9 @@ one JSON-RPC-over-WebSocket API.
 | Tool | Status | Notes |
 | --- | --- | --- |
 | Linux, macOS or Windows | required | See [Install](./install) for the supported builds |
-| `aria2c` 1.36+ | required | Without it nothing downloads and the engine shows as unavailable. Install it, then run `dman daemon engine-restart`. |
-| `yt-dlp` | optional | Video downloads. Without it video is disabled; other URLs download as usual. |
-| `ffmpeg` | optional | Merging separate video and audio, and embedding subtitles, thumbnails and metadata. Without it dman picks the best single-file quality. |
+| `aria2c` 1.36+ | required | Without it the daemon still starts and the interfaces work, but nothing downloads and the engine shows as unavailable. Install it, then run `dman daemon engine-restart`. |
+| `yt-dlp` | optional | Video downloads. Without it video is disabled; other URLs download as usual, and `--no-video` forces a plain download of a page or file. |
+| `ffmpeg` | optional | Merging separate video and audio, and embedding subtitles, thumbnails and metadata. Without it dman picks the best single-file quality instead (`dman probe URL` shows what is possible). |
 
 ## Quick start
 
@@ -20,6 +20,7 @@ one JSON-RPC-over-WebSocket API.
 dman                                       # start the daemon if needed and open the TUI
 dman add "magnet:?xt=urn:btih:..."         # add from the command line
 dman add https://example.org/f.iso --wait  # show progress, exit when done
+dman add "https://drive.google.com/drive/folders/<id>"  # every file of a Google Drive folder
 dman list --sort speed                     # show downloads (--json for scripts)
 dman providers enable nyaa                 # search providers start disabled
 dman search ubuntu                         # search, then pick results to add
@@ -38,8 +39,5 @@ dman --help                                # everything else
   [Configuration](./configuration).
 - To use a daemon on another machine, see [Remote use](./remote).
 
-Shell completions for IDs, providers, profiles and options are installed with:
-
-```bash
-dman completions install
-```
+Tab completion for IDs, providers, profiles and options: `dman completions install` (see
+[CLI](./cli#tab-completion)).

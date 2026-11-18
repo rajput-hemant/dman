@@ -15,17 +15,20 @@ Questions are asked only in a terminal; scripts pass `--yes` to destructive comm
 
 ## Commands
 
+Run `dman --help` for the full list and `dman <command> --help` for flags and examples.
+
 | Task | Commands |
 | --- | --- |
-| Add and wait | `dman add URL`, `dman add --clipboard`, `dman add --wait` |
-| Inspect | `dman list`, `dman get ID`, `dman stats`, `dman probe URL` |
-| Control | `dman pause`, `dman resume`, `dman remove`, `dman limit`, `dman max-concurrent` |
-| Search | `dman search`, `dman providers`, `dman trackers status` |
+| Add | `dman add`, `dman preview` (files of a magnet), `dman probe` (video formats) |
+| Inspect | `dman list`, `dman get ID`, `dman wait ID`, `dman stats` |
+| Control | `dman pause`, `dman resume`, `dman remove`, `dman restore`, `dman purge` |
+| Change | `dman set`, `dman rename`, `dman reorder`, `dman cleanup` |
+| Limits and queue | `dman limit`, `dman max-concurrent`, `dman schedule` |
+| Search | `dman search`, `dman providers`, `dman trackers status` (see [Search](./search)) |
+| Video | `dman video prefs` (quality picker defaults) |
 | Daemon | `dman daemon start\|stop\|restart\|status\|engine-restart\|gen-config` |
-| Web UI | `dman serve`, `dman serve --stop` |
-| Maintenance | `dman config`, `dman update`, `dman completions install` |
-
-Run `dman --help` for the full list and `dman <command> --help` for flags and examples.
+| Web UI and browser | `dman serve` (see [Web UI](./web-ui)), `dman integrate`, `dman handle` (see [Browser](./browser)) |
+| Maintenance | `dman config` (see [Configuration](./configuration)), `dman update`, `dman completions install` |
 
 ## Adding downloads
 
@@ -50,16 +53,18 @@ and a hint to use `--force`; a known torrent gets the new link's trackers instea
 
 ### Google Drive folders
 
-`dman add` also takes a public or link-shared Google Drive folder link:
+`dman add` also takes a public or link-shared Google Drive folder link, on its own:
 
 ```bash
 dman add https://drive.google.com/drive/folders/FOLDER_ID
 ```
 
-Every file in the folder becomes a normal job, subfolders included, and the folder tree is
-recreated under the target directory. Files already in the list are skipped, so adding the
-folder again picks up only what is new. Private folders are refused; share the folder as
-"anyone with the link".
+Every file in the folder becomes a normal download, subfolders included, and the folder tree
+is recreated under the target directory in a folder named after the Drive folder. Files
+already in the list are skipped, so adding the folder again picks up only what is new
+(`--force` adds them anyway). If one file cannot be added, the downloads created for that
+folder are removed again. Private folders and empty folders are refused; share the folder as
+"anyone with the link". Links to single files (`/file/d/...`) are not folder links.
 
 ## Changing downloads
 
@@ -71,6 +76,7 @@ dman set 12 --header 'Cookie: a=b' --connections 4
 dman set 12 --position 0                    # move to the front of the queue
 dman rename 12 ubuntu.iso
 dman remove 12                              # asks first; dman restore 12 undoes it
+dman remove 12 --delete-files               # also deletes the files; cannot be undone
 ```
 
 Options that need a stopped transfer (folder, files, headers, connections) are refused while
@@ -79,7 +85,9 @@ the download runs: pause it first.
 ## Waiting and exit codes
 
 `dman add --wait` and `dman wait ID` show progress and exit when the download finishes. A
-torrent counts as finished once it completes; seeding does not delay the exit.
+torrent counts as finished once it completes; seeding does not delay the exit. `wait` exits 0
+when everything completed, 1 when every download failed, 8 when some did and 124 when
+`--timeout` expired (the downloads keep running).
 
 | Code | Meaning |
 | --- | --- |
@@ -95,13 +103,13 @@ torrent counts as finished once it completes; seeding does not delay the exit.
 | 9 | already in the downloads (use `--force`) |
 | 124 | timed out (`--timeout`) |
 | 130 | interrupted (Ctrl-C) |
-| 124 | timed out (`--timeout`) |
 
 ## Tab completion
 
 ```bash
 dman completions install                  # install for the shell in $SHELL
 dman completions install --shell fish     # or choose the shell
+dman completions bash > dman.bash         # print a script instead (for packagers)
 ```
 
 Completion offers job IDs with their names, providers, profiles and options. Bash, zsh and

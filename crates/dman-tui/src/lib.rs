@@ -9,8 +9,9 @@
 //! * [`views::render`] draws a `&State` into a ratatui frame (snapshot-tested
 //!   with ratatui's `TestBackend`).
 //! * [`runtime`] owns the terminal, merges all event sources into one channel,
-//!   executes commands as tasks and redraws when dirty (≤ 20 fps), so no
-//!   operation or modal ever blocks live updates.
+//!   executes commands as tasks and redraws when dirty (at most 20 fps, 30
+//!   while something animates), so no operation or modal ever blocks live
+//!   updates.
 //!
 //! Views ([`views::View`]) form a stack with the downloads list at the bottom;
 //! modals ([`widgets::Modal`]) draw on top of the current view. Keys resolve to

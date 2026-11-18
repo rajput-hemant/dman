@@ -456,7 +456,7 @@ impl State {
             return None;
         }
         if self.anim.busy(&self.jobs) {
-            Some(Duration::from_millis(33))
+            Some(crate::runtime::ANIM_FRAME)
         } else if self.spinning() {
             Some(Duration::from_millis(100))
         } else {

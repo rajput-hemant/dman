@@ -311,7 +311,7 @@ secret_ref = "daemon"
 # tls = { cert = "/etc/dman/fullchain.pem", key = "/etc/dman/privkey.pem" }
 
 # A remote daemon:
-# (see docs/remote.md; `ca` pins a private CA or self-signed certificate)
+# (see https://rajput-hemant.github.io/dman/guide/remote; `ca` pins a private CA or self-signed certificate)
 # [profiles.work]
 # daemon = { kind = "remote", url = "wss://host:6810", secret_ref = "work", ca = "~/.config/dman/work-ca.pem" }
 

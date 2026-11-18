@@ -120,7 +120,10 @@ impl Manager {
                         AddOutcome::Added { id, extra_ids: ids }
                     }
                     Ok(_) => AddOutcome::Failed {
-                        error: RpcError::new(ErrorCode::General, "no jobs created from folder"),
+                        error: RpcError::new(
+                            ErrorCode::General,
+                            "no new jobs: every file in the folder is already queued",
+                        ),
                     },
                     Err(error) => AddOutcome::Failed { error },
                 });
@@ -368,12 +371,13 @@ impl Manager {
         let mut ids = Vec::with_capacity(files.len());
         for file in files {
             let file_dir = std::path::Path::new(target_dir).join(&file.rel_dir);
-            tokio::fs::create_dir_all(&file_dir).await.map_err(|e| {
-                RpcError::new(
+            if let Err(e) = tokio::fs::create_dir_all(&file_dir).await {
+                self.rollback_created(&mut ids).await;
+                return Err(RpcError::new(
                     ErrorCode::General,
                     format!("cannot create {}: {e}", file_dir.display()),
-                )
-            })?;
+                ));
+            }
             let file_dir_s = file_dir.display().to_string();
 
             let mut file_opts = base_options.clone();
@@ -387,10 +391,13 @@ impl Manager {
             let file_src = AddSource::Uris {
                 uris: vec![file.download_url],
             };
-            if !force {
-                self.check_duplicate(&file_src).await?;
+            // A folder is often re-added to pick up new files, so an already
+            // queued file is skipped instead of failing the whole folder.
+            if !force && self.check_duplicate(&file_src).await.is_err() {
+                tracing::info!(name = %file_opts.out.as_deref().unwrap_or(""), "skipped a Drive file that is already queued");
+                continue;
             }
-            let file_ids = self
+            match self
                 .add_one(
                     client,
                     file_src,
@@ -399,9 +406,23 @@ impl Manager {
                     &file_dir_s,
                     paused,
                 )
-                .await?;
-            ids.extend(file_ids);
+                .await
+            {
+                Ok(file_ids) => ids.extend(file_ids),
+                Err(e) => {
+                    self.rollback_created(&mut ids).await;
+                    return Err(e);
+                }
+            }
         }
         Ok(ids)
+    }
+
+    /// Jobs created earlier in a failed folder add are removed, so a retry
+    /// starts from a clean state instead of hitting duplicates.
+    async fn rollback_created(&mut self, ids: &mut Vec<JobId>) {
+        for id in ids.drain(..) {
+            let _ = self.remove_one(id, true, true).await;
+        }
     }
 }

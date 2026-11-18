@@ -29,31 +29,7 @@ const FOLDER_MIME: &str = "application/vnd.google-apps.folder";
 
 /// Extracts the folder ID from a URL, accepting `/drive/folders/` and
 /// `/drive/u/<n>/folders/`. Returns `None` for `/file/d/` and other links.
-pub fn parse_folder_id(url_str: &str) -> Option<String> {
-    let u = url::Url::parse(url_str).ok()?;
-    if !matches!(u.scheme(), "http" | "https") {
-        return None;
-    }
-    let host = u.host_str()?.to_ascii_lowercase();
-    if host != "drive.google.com" && host != "docs.google.com" {
-        return None;
-    }
-    let path = u.path();
-    let rest = if let Some(r) = path.strip_prefix("/drive/folders/") {
-        r
-    } else {
-        let r = path.strip_prefix("/drive/u/")?;
-        let (_, after_user) = r.split_once('/')?;
-        after_user.strip_prefix("folders/")?
-    };
-    let id = rest.trim_matches('/');
-    let id = id.split('/').next().unwrap_or(id);
-    if id.is_empty() {
-        None
-    } else {
-        Some(id.to_string())
-    }
-}
+pub use dman_proto::parse_drive_folder_id as parse_folder_id;
 
 /// Sanitizes a file or folder name for safe filesystem usage across platforms.
 pub fn sanitize_name(name: &str) -> String {

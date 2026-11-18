@@ -4,7 +4,7 @@ pub mod client;
 pub mod error;
 pub mod parse;
 
-pub use client::{GdriveClient, GdriveFileDownload};
+pub use client::{GdriveClient, GdriveFileDownload, dedupe_names};
 pub use error::GdriveError;
 pub use parse::{
     FileItem, FolderListing, SubfolderItem, extract_folder_title, extract_ivd_json,

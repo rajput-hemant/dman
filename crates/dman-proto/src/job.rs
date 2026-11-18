@@ -359,6 +359,35 @@ pub fn is_torrent_url(s: &str) -> bool {
     }
 }
 
+/// The id of a Google Drive folder link, e.g.
+/// `https://drive.google.com/drive/folders/<id>` or
+/// `https://drive.google.com/drive/u/0/folders/<id>`. The daemon expands such
+/// a link into one job per file, so clients and the daemon must agree on what
+/// counts as one.
+pub fn parse_drive_folder_id(s: &str) -> Option<String> {
+    let s = s.trim();
+    let (scheme, rest) = s.split_once("://")?;
+    if !(scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https")) {
+        return None;
+    }
+    let rest = rest.split(['?', '#']).next().unwrap_or_default();
+    let (host, path) = rest.split_once('/')?;
+    let host = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
+    if host != "drive.google.com" && host != "docs.google.com" {
+        return None;
+    }
+    let folder = path.strip_prefix("drive/folders/").or_else(|| {
+        let after_user = path.strip_prefix("drive/u/")?.split_once('/')?.1;
+        after_user.strip_prefix("folders/")
+    })?;
+    let id = folder
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap_or_default();
+    (!id.is_empty()).then(|| id.to_owned())
+}
+
 /// Result of `jobs.add`: one entry per source, in order.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]

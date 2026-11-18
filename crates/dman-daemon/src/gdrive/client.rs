@@ -1,12 +1,19 @@
 //! HTTP client and recursive folder expansion for Google Drive.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::time::Duration;
+
+use futures_util::{StreamExt as _, TryStreamExt as _};
 
 use super::error::GdriveError;
 use super::parse::{FolderListing, parse_confirm_page, parse_folder_html, sanitize_name};
 
 const DEFAULT_BASE_URL: &str = "https://drive.google.com";
+/// A stalled Drive connection must not keep `dman add` waiting forever.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+/// Resolving every file at once exhausts the connection pool on large folders.
+const MAX_CONCURRENT_RESOLVES: usize = 8;
 const BROWSER_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 /// A resolved file ready for download.
@@ -38,10 +45,12 @@ impl GdriveClient {
     pub fn new() -> Self {
         crate::notify::install_crypto_provider();
         let http = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
             .redirect(reqwest::redirect::Policy::limited(10))
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         let no_redirect_http = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
@@ -167,6 +176,7 @@ impl GdriveClient {
             return Err(GdriveError::EmptyFolder);
         }
 
+        dedupe_names(&mut out);
         Ok(out)
     }
 
@@ -191,7 +201,10 @@ impl GdriveClient {
                     })
                 }
             });
-            let resolved_files = futures_util::future::try_join_all(file_futs).await?;
+            let resolved_files = futures_util::stream::iter(file_futs)
+                .buffer_unordered(MAX_CONCURRENT_RESOLVES)
+                .try_collect::<Vec<_>>()
+                .await?;
             out.extend(resolved_files);
 
             for subfolder in listing.subfolders {
@@ -208,5 +221,65 @@ impl GdriveClient {
 
             Ok(())
         })
+    }
+}
+
+/// Two Drive names can sanitize to the same file name in one folder, which would
+/// give two aria2 jobs the same `dir` and `out`. Suffix the later ones.
+pub fn dedupe_names(files: &mut [GdriveFileDownload]) {
+    let mut taken: HashMap<PathBuf, HashSet<String>> = HashMap::new();
+    for file in files.iter_mut() {
+        let set = taken.entry(file.rel_dir.clone()).or_default();
+        if set.insert(file.file_name.to_lowercase()) {
+            continue;
+        }
+        let (stem, ext) = match file.file_name.rsplit_once('.') {
+            Some((stem, ext)) if !stem.is_empty() => (stem.to_string(), format!(".{ext}")),
+            _ => (file.file_name.clone(), String::new()),
+        };
+        let mut n = 2;
+        loop {
+            let candidate = format!("{stem} ({n}){ext}");
+            if set.insert(candidate.to_lowercase()) {
+                file.file_name = candidate;
+                break;
+            }
+            n += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn file(dir: &str, name: &str) -> GdriveFileDownload {
+        GdriveFileDownload {
+            rel_dir: PathBuf::from(dir),
+            file_name: name.to_owned(),
+            download_url: String::new(),
+        }
+    }
+
+    #[test]
+    fn dedupe_names_keeps_names_unique_per_directory() {
+        let mut files = vec![
+            file("f", "a_b.txt"),
+            file("f", "a_b (2).txt"),
+            file("f", "a_b.txt"),
+            file("f/sub", "a_b.txt"),
+        ];
+        dedupe_names(&mut files);
+        assert_eq!(files[0].file_name, "a_b.txt");
+        assert_eq!(files[1].file_name, "a_b (2).txt");
+        assert_eq!(files[2].file_name, "a_b (3).txt");
+        assert_eq!(files[3].file_name, "a_b.txt", "other dirs are independent");
+    }
+
+    #[test]
+    fn dedupe_names_is_case_insensitive() {
+        let mut files = vec![file("f", "Readme.md"), file("f", "readme.md")];
+        dedupe_names(&mut files);
+        assert_eq!(files[1].file_name, "readme (2).md");
     }
 }

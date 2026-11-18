@@ -28,7 +28,7 @@ impl fmt::Display for GdriveError {
             Self::MissingBlob => {
                 write!(
                     f,
-                    "Google Drive folder page missing initial view data (_DRIVE_ivd)"
+                    "Google Drive folder page missing initial view data (_DRIVE_ivd); the folder may be private"
                 )
             }
             Self::ConfirmTokenNotFound => {
@@ -48,7 +48,7 @@ impl From<GdriveError> for RpcError {
         match e {
             GdriveError::AuthUnsupported => RpcError::invalid(e.to_string()),
             GdriveError::QuotaExceeded { .. } => RpcError::new(ErrorCode::General, e.to_string()),
-            GdriveError::MissingBlob => RpcError::invalid(e.to_string()),
+            GdriveError::MissingBlob => RpcError::new(ErrorCode::General, e.to_string()),
             GdriveError::ConfirmTokenNotFound => RpcError::new(ErrorCode::General, e.to_string()),
             GdriveError::EmptyFolder => RpcError::invalid(e.to_string()),
             GdriveError::Network(msg) => RpcError::new(ErrorCode::General, msg),

@@ -339,10 +339,9 @@ macro_rules! typed_api {
                 })
                 .count() as u64;
             let is_gdrive = params.sources.iter().any(|s| match s {
-                dman_proto::AddSource::Uris { uris } => uris.iter().any(|u| {
-                    (u.contains("drive.google.com") || u.contains("docs.google.com"))
-                        && (u.contains("/drive/folders/") || u.contains("/folders/"))
-                }),
+                dman_proto::AddSource::Uris { uris } => uris
+                    .iter()
+                    .any(|u| dman_proto::parse_drive_folder_id(u).is_some()),
                 _ => false,
             });
             let wait = 15 + 30 * fetches + if is_gdrive { 45 } else { 0 };

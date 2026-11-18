@@ -251,3 +251,4 @@ scraper 0.29 · quick-xml 0.42 · redb 4.5 · notify-rust 4.19 · insta · asser
 ## Session log
 
 - 2026-11-09 — plan written and all decisions confirmed; repo initialised; M0 done; M1 done (135 tests); M2 done (278 tests); M3 done; M4 schedules (372 tests); hooks/webhook/notifications; dman-search library (52 tests). Release musl binary 10.5 MB (notify-rust/zbus + reqwest added ~5 MB).
+- 2026-11-18 — media and distribution: 0.1.0 released through cargo-dist (GitHub release, Homebrew tap verified, Scoop bucket, winget manifest PR, crates.io), VitePress docs on GitHub Pages, agent skills. Google Drive folder links expand into one aria2 job per file (public/link-shared only, folder tree mirrored, names deconflicted, bounded concurrency and request timeouts, duplicate files skipped on a re-add, later failures roll back the jobs created).

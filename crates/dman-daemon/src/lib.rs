@@ -24,6 +24,7 @@
 pub mod budget;
 pub mod disk;
 pub mod engine;
+pub mod gdrive;
 pub mod history;
 pub mod manager;
 pub mod notify;

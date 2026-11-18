@@ -107,7 +107,8 @@ pub fn tail(state: &State) -> Vec<Hint> {
     .collect()
 }
 
-/// Everything the footer would show on an unlimited width.
+/// Everything the footer would show on an unlimited width (for the tests).
+#[cfg(test)]
 pub fn hints(state: &State) -> Vec<Hint> {
     let mut h = body(state);
     h.extend(tail(state));

@@ -23,7 +23,7 @@ use crate::widgets::footer::{Hint, hint};
 use crate::widgets::graph::{self, Window};
 use crate::widgets::prompt::{PromptKind, PromptState};
 
-pub use options::{OptField, OptRow, option_rows};
+pub use options::{OptField, option_rows};
 pub use render::render;
 
 /// Footer actions of this view.

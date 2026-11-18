@@ -1,7 +1,7 @@
 //! Human-readable sizes, speeds, ETAs and text helpers.
 
 use bytesize::ByteSize;
-use dman_proto::{Job, JobState};
+use dman_proto::Job;
 
 /// `1.2 MiB`.
 pub fn size(bytes: u64) -> String {
@@ -45,44 +45,6 @@ pub fn eta(secs: Option<u64>) -> String {
         3600..=86_399 => format!("{}h{:02}m", s / 3600, (s % 3600) / 60),
         _ => format!("{}d{:02}h", s / 86_400, (s % 86_400) / 3600),
     }
-}
-
-/// Short state label (fits 8 columns).
-pub const fn state(s: JobState) -> &'static str {
-    match s {
-        JobState::Waiting => "waiting",
-        JobState::Active => "active",
-        JobState::Seeding => "seeding",
-        JobState::Paused => "paused",
-        JobState::Complete => "done",
-        JobState::Error => "error",
-        JobState::Removed => "removed",
-    }
-}
-
-/// Text progress bar of `width` cells followed by a percentage, e.g.
-/// `█████░░░  62%`. Unknown sizes render as an empty bar with `  -`.
-pub fn progress_bar(job: &Job, width: usize) -> String {
-    let known = job.total_bytes > 0;
-    let p = if known {
-        job.progress().clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    // Truncation is intended: a cell is only full when reached.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let filled = ((p * width as f64).floor() as usize).min(width);
-    let mut out = String::with_capacity(width * 3 + 5);
-    out.extend(std::iter::repeat_n('█', filled));
-    out.extend(std::iter::repeat_n('░', width - filled));
-    if known {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let pct = (p * 100.0).floor() as u32;
-        out.push_str(&format!(" {pct:>3}%"));
-    } else {
-        out.push_str("    -");
-    }
-    out
 }
 
 /// `1.23`, or `-` when nothing was downloaded or uploaded yet.
@@ -198,12 +160,6 @@ pub fn split_size(bytes: u64, per_sec: bool, compact: bool) -> (String, String) 
     (num.to_owned(), unit)
 }
 
-/// `1.2G` style compact size.
-pub fn size_compact(bytes: u64) -> String {
-    let (n, u) = split_size(bytes, false, true);
-    format!("{n}{u}")
-}
-
 /// `just now`, `5m ago`, `3h ago`, `2d ago`.
 pub fn ago(secs: i64) -> String {
     match secs.max(0) {
@@ -297,7 +253,6 @@ mod tests {
             split_size(12 << 20, true, true),
             ("12.0".into(), "M".into())
         );
-        assert_eq!(size_compact(500), "500B");
         assert_eq!(ago(30), "just now");
         assert_eq!(ago(7200), "2h ago");
     }

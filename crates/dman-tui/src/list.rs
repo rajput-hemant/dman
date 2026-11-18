@@ -68,7 +68,7 @@ impl SortKey {
     fn compare(self, a: &Job, b: &Job) -> Ordering {
         match self {
             SortKey::Queue => queue_order(a, b),
-            SortKey::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            SortKey::Name => crate::format::cmp_ignore_case(&a.name, &b.name),
             SortKey::Size => b.total_bytes.cmp(&a.total_bytes),
             SortKey::Progress => b.progress().total_cmp(&a.progress()),
             SortKey::Speed => b.download_speed.cmp(&a.download_speed),
@@ -461,9 +461,13 @@ impl DownloadsList {
                 bottom += 1;
                 ctx += self.row_lines(bottom, tall);
             }
-            let heights: Vec<usize> = (0..n).map(|i| self.row_lines(i, tall)).collect();
-            let span = |from: usize, to: usize| -> usize { heights[from..=to].iter().sum() };
-            while self.offset < r && span(self.offset, bottom) > lines {
+            // Scroll down until the rows from the offset to `bottom` fit,
+            // keeping a running total so a long jump stays linear.
+            let mut span: usize = (self.offset..=bottom)
+                .map(|i| self.row_lines(i, tall))
+                .sum();
+            while self.offset < r && span > lines {
+                span -= self.row_lines(self.offset, tall);
                 self.offset += 1;
             }
         }

@@ -216,6 +216,19 @@ pub fn ago(secs: i64) -> String {
     }
 }
 
+/// Compare the lowercase forms of `a` and `b`. Sorting compares each item
+/// many times, so ASCII text (most names) is compared without allocating
+/// lowercase copies.
+pub fn cmp_ignore_case(a: &str, b: &str) -> std::cmp::Ordering {
+    if a.is_ascii() && b.is_ascii() {
+        a.bytes()
+            .map(|c| c.to_ascii_lowercase())
+            .cmp(b.bytes().map(|c| c.to_ascii_lowercase()))
+    } else {
+        a.to_lowercase().cmp(&b.to_lowercase())
+    }
+}
+
 /// `3 downloads` / `1 download`.
 pub fn plural(n: usize, word: &str) -> String {
     if n == 1 {
@@ -287,6 +300,15 @@ mod tests {
         assert_eq!(size_compact(500), "500B");
         assert_eq!(ago(30), "just now");
         assert_eq!(ago(7200), "2h ago");
+    }
+
+    #[test]
+    fn case_insensitive_order() {
+        use std::cmp::Ordering;
+        assert_eq!(cmp_ignore_case("Abc", "abd"), Ordering::Less);
+        assert_eq!(cmp_ignore_case("ABC", "abc"), Ordering::Equal);
+        assert_eq!(cmp_ignore_case("b", "A"), Ordering::Greater);
+        assert_eq!(cmp_ignore_case("Ä", "ä"), Ordering::Equal);
     }
 
     #[test]

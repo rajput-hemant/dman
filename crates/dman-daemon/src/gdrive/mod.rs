@@ -1,14 +1,16 @@
-//! Google Drive folder expansion and parsing.
+//! Google Drive folder links: listing a public folder (recursively) and
+//! resolving each file's direct download URL, so a folder becomes one aria2
+//! job per file. Only link-shared folders work; there is no sign-in.
 
-pub mod client;
-pub mod error;
-pub mod parse;
+mod client;
+mod error;
+mod parse;
 
-pub use client::{GdriveClient, GdriveFileDownload, dedupe_names};
+pub use client::{GdriveClient, GdriveFileDownload};
 pub use error::GdriveError;
 pub use parse::{
-    FileItem, FolderListing, SubfolderItem, extract_folder_title, extract_ivd_json,
-    parse_confirm_page, parse_folder_html, parse_folder_id, sanitize_name,
+    FileItem, FolderListing, SubfolderItem, parse_confirm_page, parse_folder_html, parse_folder_id,
+    sanitize_name,
 };
 
 /// Returns the folder ID if the given source is an `AddSource::Uris` with a single

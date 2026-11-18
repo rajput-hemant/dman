@@ -48,6 +48,19 @@ dman probe https://youtu.be/ID --plan   # see what add would do
 A URL or torrent already in the downloads (same URL or info hash) is refused with exit code 9
 and a hint to use `--force`; a known torrent gets the new link's trackers instead.
 
+### Google Drive folders
+
+`dman add` also takes a public or link-shared Google Drive folder link:
+
+```bash
+dman add https://drive.google.com/drive/folders/FOLDER_ID
+```
+
+Every file in the folder becomes a normal job, subfolders included, and the folder tree is
+recreated under the target directory. Files already in the list are skipped, so adding the
+folder again picks up only what is new. Private folders are refused; share the folder as
+"anyone with the link".
+
 ## Changing downloads
 
 ```bash

@@ -148,7 +148,7 @@ impl Inner {
         let mut last = String::from("no DoH endpoint configured");
         for url in &self.endpoints {
             let res = async {
-                let resp = self
+                let mut resp = self
                     .client
                     .post(url.clone())
                     .header("Content-Type", "application/dns-message")
@@ -160,12 +160,18 @@ impl Inner {
                 if !resp.status().is_success() {
                     return Err(format!("HTTP {}", resp.status().as_u16()));
                 }
-                let body = resp
-                    .bytes()
+                // Read chunk by chunk so an endpoint that streams without end cannot
+                // make us buffer more than one DNS message can hold.
+                let mut body = Vec::new();
+                while let Some(chunk) = resp
+                    .chunk()
                     .await
-                    .map_err(|e| e.without_url().to_string())?;
-                if body.len() > MAX_MESSAGE {
-                    return Err("DNS answer too large".to_owned());
+                    .map_err(|e| e.without_url().to_string())?
+                {
+                    if body.len() + chunk.len() > MAX_MESSAGE {
+                        return Err("DNS answer too large".to_owned());
+                    }
+                    body.extend_from_slice(&chunk);
                 }
                 decode_response(&body)
             }

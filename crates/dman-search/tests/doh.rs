@@ -164,3 +164,13 @@ async fn proxy_providers_do_not_need_doh() {
     assert_eq!(s.test_provider(&d).await.unwrap().results, 2);
     assert!(doh.received_requests().await.unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn oversized_answers_are_refused() {
+    let mut huge = answer(0, &[[127, 0, 0, 1]]);
+    huge.resize(256 * 1024, 0);
+    let doh = doh_server(huge).await;
+    let r = DohResolver::new("dman-test", vec![endpoint(&doh)]).unwrap();
+    let e = r.lookup("big.example").await.unwrap_err();
+    assert!(e.contains("too large"), "{e}");
+}

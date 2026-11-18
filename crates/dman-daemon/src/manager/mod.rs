@@ -392,8 +392,7 @@ impl Manager {
 
     /// A fresh job id and a queue key behind every waiting job.
     pub(crate) async fn next_ids(&self) -> Result<(JobId, u64), RpcError> {
-        self.db(|s| Ok((s.next_job_id()?, s.next_queue_key()?)))
-            .await
+        self.db(Store::allocate_job).await
     }
 
     pub(crate) fn emit(&self, e: Event) {

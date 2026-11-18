@@ -160,20 +160,15 @@ impl Store {
         Ok(())
     }
 
-    /// Allocates the next job id (persistent, monotonically increasing, from 1).
-    pub fn next_job_id(&self) -> Result<JobId> {
+    /// Allocates a new job: the next job id (persistent, monotonically
+    /// increasing, from 1) and a queue key larger than every key handed out
+    /// or stored so far. One transaction, so one disk sync, for both.
+    pub fn allocate_job(&self) -> Result<(JobId, u64)> {
         let tx = self.db.begin_write()?;
         let id = bump(&tx, K_NEXT_ID, 1)?;
-        tx.commit()?;
-        Ok(JobId(id))
-    }
-
-    /// Returns a queue key larger than every key handed out or stored so far.
-    pub fn next_queue_key(&self) -> Result<u64> {
-        let tx = self.db.begin_write()?;
         let key = bump(&tx, K_NEXT_QUEUE, 1)?;
         tx.commit()?;
-        Ok(key)
+        Ok((JobId(id), key))
     }
 
     /// Inserts or replaces one job record.
@@ -443,11 +438,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         {
             let s = open(&dir);
-            assert_eq!(s.next_job_id().unwrap(), JobId(1));
-            assert_eq!(s.next_job_id().unwrap(), JobId(2));
+            assert_eq!(s.allocate_job().unwrap().0, JobId(1));
+            assert_eq!(s.allocate_job().unwrap().0, JobId(2));
         }
         let s = open(&dir);
-        assert_eq!(s.next_job_id().unwrap(), JobId(3));
+        assert_eq!(s.allocate_job().unwrap().0, JobId(3));
     }
 
     #[test]
@@ -461,7 +456,7 @@ mod tests {
         assert!(s.get_job(JobId(9)).unwrap().is_none());
         let ids: Vec<u64> = s.list_jobs().unwrap().iter().map(|j| j.id.0).collect();
         assert_eq!(ids, [2, 3, 1]);
-        assert!(s.next_queue_key().unwrap() > 30);
+        assert!(s.allocate_job().unwrap().1 > 30);
         s.delete_job(JobId(2)).unwrap();
         assert_eq!(s.list_jobs().unwrap().len(), 2);
     }

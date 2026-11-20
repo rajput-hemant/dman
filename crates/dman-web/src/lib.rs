@@ -133,9 +133,9 @@ impl AppState {
 
     /// Call whose result is ignored.
     pub async fn call_unit(&self, method: &str, params: impl Serialize) -> Result<(), RpcError> {
-        let params = serde_json::to_value(params)
-            .map_err(|e| RpcError::invalid(format!("encode params: {e}")))?;
-        self.backend.call(method, params).await.map(|_| ())
+        self.call::<serde::de::IgnoredAny>(method, params)
+            .await
+            .map(|_| ())
     }
 }
 

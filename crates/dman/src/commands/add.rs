@@ -365,20 +365,15 @@ pub fn report(
 
 /// Asks whether to add the links found in the clipboard; Enter means yes.
 fn offer_clipboard(links: &[String]) -> Result<bool, CliError> {
-    use std::io::{BufRead as _, Write as _};
     let shown: Vec<String> = links.iter().map(|l| super::clipboard::shown(l)).collect();
     let what = match shown.as_slice() {
         [one] => one.clone(),
         many => format!("{} links ({})", many.len(), many.join(", ")),
     };
-    eprint!("Add {what} from the clipboard? [Y/n] ");
-    std::io::stderr().flush()?;
-    let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line)?;
-    Ok(matches!(
-        line.trim().to_ascii_lowercase().as_str(),
-        "" | "y" | "yes"
-    ))
+    Ok(super::ask_yes(
+        &format!("Add {what} from the clipboard?"),
+        true,
+    )?)
 }
 
 /// The sources of this `add`: arguments, `-i` file and stdin, plus the

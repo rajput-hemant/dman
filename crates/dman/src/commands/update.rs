@@ -628,15 +628,7 @@ async fn install_release(
 }
 
 fn confirm(question: &str) -> bool {
-    use std::io::{BufRead, Write};
-    if !super::can_prompt() {
-        return false;
-    }
-    eprint!("{question} [y/N] ");
-    let _ = std::io::stderr().flush();
-    let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line).is_ok()
-        && matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+    super::can_prompt() && super::ask_yes(question, false).unwrap_or(false)
 }
 
 fn run_command(program: &Path, args: &[&str]) -> Result<bool, CliError> {

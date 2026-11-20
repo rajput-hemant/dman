@@ -57,7 +57,11 @@ pub async fn serve(Path(path): Path<String>) -> Response {
         Some("svg") => "image/svg+xml",
         _ => "application/octet-stream",
     };
-    let mut resp = file.data.into_owned().into_response();
+    // The files are compiled into the binary: serve them without copying.
+    let mut resp = match file.data {
+        std::borrow::Cow::Borrowed(b) => b.into_response(),
+        std::borrow::Cow::Owned(v) => v.into_response(),
+    };
     let h = resp.headers_mut();
     h.insert(header::CONTENT_TYPE, HeaderValue::from_static(ctype));
     h.insert(

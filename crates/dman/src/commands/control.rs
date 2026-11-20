@@ -1,11 +1,9 @@
 //! pause, resume, remove, purge and reorder.
 
-use std::io::{BufRead, Write};
-
 use dman_proto::method::{BatchResult, Reorder};
 use dman_proto::{ErrorCode, JobId, JobState};
 
-use super::{can_prompt, print_json, say};
+use super::{ask_yes, can_prompt, print_json, say};
 use crate::cli::{PurgeArgs, RemoveArgs, ReorderArgs, RestoreArgs, TargetArgs};
 use crate::connect::Ctx;
 use crate::error::{CliError, batch_exit};
@@ -158,19 +156,6 @@ pub async fn resume(ctx: &Ctx, a: &TargetArgs) -> Result<i32, CliError> {
     report(ctx, &client, "resumed", &client.resume(&a.ids).await?).await
 }
 
-/// Ask a question on stderr and read one line from stdin.
-fn ask(question: &str) -> Result<String, CliError> {
-    eprint!("{question}");
-    std::io::stderr().flush()?;
-    let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line)?;
-    Ok(line.trim().to_owned())
-}
-
-fn is_yes(answer: &str) -> bool {
-    matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes")
-}
-
 /// Confirm a destructive action (a terminal answers it; elsewhere `--yes` is needed).
 fn confirm(question: &str, yes: bool) -> Result<(), CliError> {
     if yes {
@@ -182,7 +167,7 @@ fn confirm(question: &str, yes: bool) -> Result<(), CliError> {
                 .with_hint("rerun with --yes to confirm, or from a terminal to be asked"),
         );
     }
-    if !is_yes(&ask(&format!("{question} [y/N] "))?) {
+    if !ask_yes(question, false)? {
         return Err(CliError::refused("aborted"));
     }
     Ok(())
@@ -277,14 +262,6 @@ pub async fn reorder(ctx: &Ctx, a: &ReorderArgs) -> Result<i32, CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn yes_answers() {
-        assert!(is_yes("y"));
-        assert!(is_yes("YES"));
-        assert!(!is_yes(""));
-        assert!(!is_yes("n"));
-    }
 
     #[test]
     fn confirm_with_yes_skips_prompts() {

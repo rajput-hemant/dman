@@ -24,7 +24,8 @@ fn sorted<'a>(v: &SearchView<'a>) -> Vec<&'a SearchResultDto> {
         "size" => r.sort_by_key(|a| std::cmp::Reverse(a.size)),
         "seeders" => r.sort_by_key(|a| std::cmp::Reverse(a.seeders)),
         "date" => r.sort_by_key(|a| std::cmp::Reverse(a.date)),
-        "title" => r.sort_by_key(|a| a.title.to_lowercase()),
+        // One lowercase copy per result, not one per comparison.
+        "title" => r.sort_by_cached_key(|a| a.title.to_lowercase()),
         _ => {}
     }
     r

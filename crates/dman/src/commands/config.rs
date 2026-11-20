@@ -3,7 +3,7 @@
 //! These work on `config.toml` itself, so they run without a daemon and even when the
 //! file is broken (`edit` is how it gets fixed). Only the reload afterwards needs one.
 
-use std::io::{BufRead, Write};
+use std::io::Write;
 use std::path::Path;
 
 use dman_config::{Config, ConfigDoc, ConfigError, Paths, TomlValue};
@@ -355,20 +355,6 @@ fn run_editor(file: &Path) -> Result<(), CliError> {
     }
 }
 
-/// Ask a yes/no question on stderr; Enter means `default`.
-fn ask_yes(question: &str, default: bool) -> bool {
-    eprint!("{question} {} ", if default { "[Y/n]" } else { "[y/N]" });
-    let _ = std::io::stderr().flush();
-    let mut line = String::new();
-    if std::io::stdin().lock().read_line(&mut line).unwrap_or(0) == 0 {
-        return false;
-    }
-    match line.trim().to_ascii_lowercase().as_str() {
-        "" => default,
-        a => matches!(a, "y" | "yes"),
-    }
-}
-
 async fn edit(cli: &Cli, no_reload: bool) -> Result<i32, CliError> {
     let paths = Paths::discover()?;
     let file = paths.config_file();
@@ -403,7 +389,7 @@ async fn edit(cli: &Cli, no_reload: bool) -> Result<i32, CliError> {
             Ok(()) => break text,
             Err(e) => {
                 eprintln!("dman: {e}");
-                if can_prompt() && ask_yes("Open the editor again?", true) {
+                if can_prompt() && super::ask_yes("Open the editor again?", true).unwrap_or(false) {
                     continue;
                 }
                 return Err(CliError::invalid(

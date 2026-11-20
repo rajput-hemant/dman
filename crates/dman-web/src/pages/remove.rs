@@ -6,7 +6,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 use dman_proto::Job;
 use dman_proto::JobId;
-use dman_proto::method::{self, IdParams, IdsParams, RemoveParams};
+use dman_proto::method::{self, BatchResult, IdParams, IdsParams, RemoveParams};
 use maud::html;
 
 use super::jobs::{batch_failure, id_list, ids_of, list, quoted};
@@ -202,7 +202,7 @@ async fn do_remove(st: &AppState, c: &Ctx, h: &HeaderMap, ids: Vec<JobId>, p: &P
         delete_files,
         force: false,
     };
-    let v: serde_json::Value = match st.call(method::JOBS_REMOVE, params).await {
+    let v: BatchResult = match st.call(method::JOBS_REMOVE, params).await {
         Ok(v) => v,
         Err(e) => {
             // A refusal is explained inside the open dialog, which stays open.
@@ -277,7 +277,7 @@ pub async fn restore(
     } else {
         format!("{} downloads", ids.len())
     };
-    let v: serde_json::Value = match st.call(method::JOBS_RESTORE, IdsParams { ids }).await {
+    let v: BatchResult = match st.call(method::JOBS_RESTORE, IdsParams { ids }).await {
         Ok(v) => v,
         Err(e) => return fail_rpc(&st, &c, &h, &e).await,
     };

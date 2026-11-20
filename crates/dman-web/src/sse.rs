@@ -62,7 +62,8 @@ struct Feed {
     last_extra: Option<Instant>,
     known: HashMap<JobId, Section>,
     last_stats: String,
-    providers: BTreeMap<String, ProviderStatus>,
+    /// Provider states of the watched search, sorted by name.
+    providers: Vec<(String, ProviderStatus)>,
     results: Vec<SearchResultDto>,
     finished: bool,
     queue: VecDeque<SseEvent>,
@@ -96,7 +97,9 @@ impl Feed {
                 )
                 .await
         {
-            self.providers = snap.providers.into_iter().collect();
+            for (name, status) in snap.providers {
+                self.set_provider(name, status);
+            }
             self.results = snap.results;
             self.finished = snap.finished;
             // A finished search is already on the page; re-sending it would only
@@ -181,16 +184,19 @@ impl Feed {
         }
     }
 
+    /// Records a provider's state, keeping the list sorted by name.
+    fn set_provider(&mut self, name: String, status: ProviderStatus) {
+        match self.providers.binary_search_by(|(n, _)| n.cmp(&name)) {
+            Ok(i) => self.providers[i].1 = status,
+            Err(i) => self.providers.insert(i, (name, status)),
+        }
+    }
+
     fn push_search(&mut self) {
-        let providers: Vec<(String, ProviderStatus)> = self
-            .providers
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect();
         let view = SearchView {
             search_id: self.search,
             finished: self.finished,
-            providers: &providers,
+            providers: &self.providers,
             results: &self.results,
             sort: &self.sort,
         };
@@ -263,7 +269,7 @@ impl Feed {
                 status,
                 results,
             } if Some(search_id) == self.search => {
-                self.providers.insert(provider, status);
+                self.set_provider(provider, status);
                 self.results = results;
                 b.search_changed = true;
             }
@@ -294,8 +300,7 @@ impl Feed {
         if let Some(id) = self.job
             && (b.resync || b.removed.contains(&id) || b.jobs.contains_key(&id))
         {
-            let job = b.jobs.get(&id).cloned();
-            self.push_detail(job.as_ref(), false).await;
+            self.push_detail(b.jobs.get(&id), false).await;
         }
         if !self.rows {
             return;
@@ -378,7 +383,7 @@ fn event_stream(
         last_extra: None,
         known: HashMap::new(),
         last_stats: String::new(),
-        providers: BTreeMap::new(),
+        providers: Vec::new(),
         results: Vec::new(),
         finished: false,
         queue: VecDeque::new(),

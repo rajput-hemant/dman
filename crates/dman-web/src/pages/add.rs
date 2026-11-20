@@ -22,9 +22,9 @@ use super::{
     Pairs, St, fail, full_page, html, hx_target, is_htmx, query_pairs, redirect, toast_markup,
     with_header,
 };
+use crate::AppState;
 use crate::auth::{Ctx, random_id};
 use crate::views::{self, AddErrors, AddPage, AddValues, Nav, TableQuery};
-use crate::{AppState, fmt};
 
 /// A fetched magnet file list, kept until the add form comes back.
 pub struct StoredPreview {
@@ -280,14 +280,9 @@ fn parse_add(st: &AppState, p: &Pairs, video_ok: bool) -> Parsed {
         ..JobOptions::default()
     };
     if !values.download_limit.is_empty() {
-        match fmt::parse_rate(&values.download_limit) {
-            Some(n) => options.max_download_limit = Some(n),
-            None => {
-                errors.limit = Some(format!(
-                    "\u{201c}{}\u{201d} is not a speed. Use a number with K, M or G, e.g. 500K.",
-                    values.download_limit
-                ));
-            }
+        match super::rate(&values.download_limit) {
+            Ok(n) => options.max_download_limit = Some(n),
+            Err(m) => errors.limit = Some(m),
         }
     }
     if let Some(sel) = preview_id.as_ref().and_then(|_| {
@@ -316,7 +311,7 @@ pub(super) async fn add_sources(
     paused: bool,
 ) -> Result<(Vec<u64>, Vec<(String, String)>), RpcError> {
     let (labels, sources): (Vec<String>, Vec<AddSource>) = sources.into_iter().unzip();
-    let v: serde_json::Value = st
+    let outcomes: Vec<AddOutcome> = st
         .call(
             method::JOBS_ADD,
             AddParams {
@@ -327,9 +322,6 @@ pub(super) async fn add_sources(
             },
         )
         .await?;
-    let outcomes = serde_json::from_value::<Vec<AddOutcome>>(v.clone())
-        .or_else(|_| serde_json::from_value::<AddOutcome>(v).map(|o| vec![o]))
-        .unwrap_or_default();
     let (mut ok, mut bad) = (Vec::new(), Vec::new());
     for (i, o) in outcomes.into_iter().enumerate() {
         match o {

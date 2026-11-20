@@ -232,9 +232,9 @@ impl Default for Ui {
 /// The whole `config.toml`.
 ///
 /// `deny_unknown_fields` cannot be combined with `#[serde(flatten)]`, so the
-/// top level is lenient: unknown tables (future `web`, `providers`,
-/// `notify` sections) are captured in [`Config::extra`] and written
-/// back unchanged. All nested sections remain strict.
+/// top level is lenient: unknown tables (sections added by a newer dman)
+/// are captured in [`Config::extra`] and written back unchanged. All
+/// nested sections remain strict.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {

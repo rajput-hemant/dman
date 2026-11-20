@@ -60,7 +60,7 @@ pub(super) fn apply_event(state: &mut State, event: Event) -> Vec<Cmd> {
             }
             state.status.info(format!(
                 "{name}: {count} unselected partial files ({}) can be deleted (palette: cleanup)",
-                crate::format::size(bytes)
+                dman_proto::fmt::size(bytes)
             ));
         }
         Event::SearchUpdate {

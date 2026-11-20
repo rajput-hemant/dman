@@ -41,12 +41,12 @@ use self::video::ProbeFetch;
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
 use crate::app::{Cmd, State};
-use crate::format::{plural, truncate};
 use crate::theme::Theme;
 use crate::views::View;
 use crate::widgets::confirm::ConfirmState;
 use crate::widgets::editor::Editor;
 use crate::widgets::footer::{Hint, hint, own};
+use dman_proto::fmt::{plural, truncate};
 use dman_proto::{AddOutcome, AddParams, AddSource};
 
 /// Actions shown in the footer of the form.

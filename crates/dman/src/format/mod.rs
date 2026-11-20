@@ -1,6 +1,6 @@
 //! Human-readable formatting: sizes, speeds, ETAs and the job table.
 
-use bytesize::ByteSize;
+use dman_proto::fmt::{self, eta, size, speed_or_dash, truncate};
 use dman_proto::search::{ProviderInfo, SearchHistoryEntry, SearchResultDto};
 use dman_proto::{FileInfo, Job, JobState, PeerInfo};
 
@@ -46,35 +46,6 @@ pub fn printable(s: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// `1.2 MiB`.
-pub fn size(bytes: u64) -> String {
-    ByteSize::b(bytes).display().iec().to_string()
-}
-
-/// `1.2 MiB/s`.
-pub fn speed(bytes_per_sec: u64) -> String {
-    format!("{}/s", size(bytes_per_sec))
-}
-
-/// A speed limit where 0 means unlimited.
-pub fn limit(bytes_per_sec: u64) -> String {
-    if bytes_per_sec == 0 {
-        "unlimited".into()
-    } else {
-        speed(bytes_per_sec)
-    }
-}
-
-/// `45s`, `5m03s`, `1h02m`; `-` when unknown.
-pub fn eta(secs: Option<u64>) -> String {
-    let Some(s) = secs else { return "-".into() };
-    match s {
-        0..=59 => format!("{s}s"),
-        60..=3599 => format!("{}m{:02}s", s / 60, s % 60),
-        _ => format!("{}h{:02}m", s / 3600, (s % 3600) / 60),
-    }
-}
-
 /// Lower-case state label.
 pub fn state(s: JobState) -> &'static str {
     match s {
@@ -95,21 +66,6 @@ pub fn progress(job: &Job) -> String {
     } else {
         format!("{:.1}%", job.progress() * 100.0)
     }
-}
-
-/// Shorten `s` to at most `max` characters, ending in `…` when cut.
-pub fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() <= max {
-        return s.to_owned();
-    }
-    let keep = max.saturating_sub(1);
-    let mut out: String = s.chars().take(keep).collect();
-    out.push('…');
-    out
-}
-
-fn rate_or_dash(v: u64) -> String {
-    if v == 0 { "-".into() } else { speed(v) }
 }
 
 /// A column of the job table, selectable with `dman list --columns`.
@@ -170,8 +126,8 @@ impl Column {
             Column::Id => j.id.to_string(),
             Column::State => state(j.state).to_owned(),
             Column::Progress => progress(j),
-            Column::Down => rate_or_dash(j.download_speed),
-            Column::Up => rate_or_dash(j.upload_speed),
+            Column::Down => speed_or_dash(j.download_speed),
+            Column::Up => speed_or_dash(j.upload_speed),
             Column::Eta => eta(j.eta_secs()),
             Column::Size if j.total_bytes == 0 => "-".into(),
             Column::Size => size(j.total_bytes),
@@ -206,7 +162,7 @@ pub fn job_table_with(jobs: &[Job], width: usize, columns: &[Column]) -> String 
         .filter(|(_, c)| !c.is_long())
         .map(|(i, c)| {
             rows.iter()
-                .map(|r| r[i].chars().count())
+                .map(|r| fmt::width(&r[i]))
                 .chain([c.header().len()])
                 .max()
                 .unwrap_or(0)
@@ -239,10 +195,10 @@ pub fn job_table_with(jobs: &[Job], width: usize, columns: &[Column]) -> String 
 /// left-aligned columns (the last column is never padded).
 fn table_dyn<R: AsRef<[String]>>(headers: &[&str], rows: &[R], left: &[usize]) -> String {
     let n = headers.len();
-    let mut widths: Vec<usize> = headers.iter().map(|h| h.chars().count()).collect();
+    let mut widths: Vec<usize> = headers.iter().map(|h| fmt::width(h)).collect();
     for row in rows {
         for (w, cell) in widths.iter_mut().zip(row.as_ref()) {
-            *w = (*w).max(cell.chars().count());
+            *w = (*w).max(fmt::width(cell));
         }
     }
     let line = |cells: &mut dyn Iterator<Item = &str>| {
@@ -254,10 +210,15 @@ fn table_dyn<R: AsRef<[String]>>(headers: &[&str], rows: &[R], left: &[usize]) -
                 // The last column is never padded, so lines carry no trailing blanks.
                 out.push_str(&cell);
             } else {
+                // Pad by terminal columns; `format!` pads by characters,
+                // which misaligns wide (CJK, emoji) names.
+                let pad = " ".repeat(w.saturating_sub(fmt::width(&cell)));
                 if left.contains(&i) {
-                    out.push_str(&format!("{cell:<w$}"));
+                    out.push_str(&cell);
+                    out.push_str(&pad);
                 } else {
-                    out.push_str(&format!("{cell:>w$}"));
+                    out.push_str(&pad);
+                    out.push_str(&cell);
                 }
                 out.push_str(COLUMN_GAP);
             }
@@ -418,8 +379,8 @@ pub fn peer_table(peers: &[PeerInfo]) -> String {
                     format!("{}:{}", p.ip, p.port)
                 },
                 format!("{:.1}%", p.progress * 100.0),
-                rate_or_dash(p.download_speed),
-                rate_or_dash(p.upload_speed),
+                speed_or_dash(p.download_speed),
+                speed_or_dash(p.upload_speed),
                 if p.seeder { "seeder" } else { "" }.into(),
             ]
         })
@@ -492,7 +453,7 @@ pub fn search_table(results: &[SearchResultDto], first: usize, width: usize) -> 
     let mut widths = headers.map(str::len);
     for row in &rows {
         for (w, cell) in widths.iter_mut().zip(row) {
-            *w = (*w).max(cell.chars().count());
+            *w = (*w).max(fmt::width(cell));
         }
     }
     let others: usize = widths
@@ -757,34 +718,11 @@ mod tests {
     }
 
     #[test]
-    fn sizes_and_speeds() {
-        assert_eq!(size(0), "0 B");
-        assert_eq!(size(1_258_291), "1.2 MiB");
-        assert_eq!(speed(1_258_291), "1.2 MiB/s");
-        assert_eq!(limit(0), "unlimited");
-    }
-
-    #[test]
-    fn eta_formats() {
-        assert_eq!(eta(None), "-");
-        assert_eq!(eta(Some(45)), "45s");
-        assert_eq!(eta(Some(303)), "5m03s");
-        assert_eq!(eta(Some(3720)), "1h02m");
-    }
-
-    #[test]
     fn control_characters_are_not_printed() {
         assert_eq!(printable("plain"), "plain");
         assert_eq!(printable("a\x1b[2Jb\nc"), "a\u{fffd}[2Jb\u{fffd}c");
         let t = table(["A", "B"], &[["x\x1b]0;t\x07".into(), "y".into()]], &[0]);
         assert!(!t.contains('\x1b') && !t.contains('\x07'), "{t:?}");
-    }
-
-    #[test]
-    fn truncation() {
-        assert_eq!(truncate("abcdef", 6), "abcdef");
-        assert_eq!(truncate("abcdef", 4), "abc…");
-        assert_eq!(truncate("ééééé", 3), "éé…");
     }
 
     #[test]
@@ -805,6 +743,16 @@ mod tests {
         assert!(lines.iter().all(|l| l.chars().count() <= 80), "{t}");
         assert!(lines[1].ends_with('…'));
         assert!(lines[2].ends_with("short"));
+    }
+
+    #[test]
+    fn table_truncates_wide_names_by_columns() {
+        // Every character takes two terminal columns, so a char count would
+        // overflow the table.
+        let cjk = "日本語のファイル名".repeat(10);
+        let t = job_table_with(&[job(1, &cjk)], 80, &[]);
+        assert!(t.lines().all(|l| fmt::width(l) <= 80), "{t}");
+        assert!(t.lines().nth(1).unwrap().ends_with('…'));
     }
 
     #[test]

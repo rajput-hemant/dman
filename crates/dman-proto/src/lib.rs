@@ -5,6 +5,7 @@
 //! [`API_VERSION`].
 
 pub mod error;
+pub mod fmt;
 pub mod job;
 pub mod method;
 pub mod redact;

@@ -148,21 +148,6 @@ fn estimate(f: &Format, duration: Option<f64>) -> Option<u64> {
     })
 }
 
-fn human_size(b: u64) -> String {
-    const UNITS: [&str; 4] = ["KiB", "MiB", "GiB", "TiB"];
-    let mut v = b as f64 / 1024.0;
-    let mut u = 0;
-    while v >= 1024.0 && u < UNITS.len() - 1 {
-        v /= 1024.0;
-        u += 1;
-    }
-    if v >= 100.0 {
-        format!("{v:.0} {}", UNITS[u])
-    } else {
-        format!("{v:.1} {}", UNITS[u])
-    }
-}
-
 fn resolution(height: Option<u32>, class: u32) -> Option<String> {
     height.map(|h| {
         if class > 0 {
@@ -176,7 +161,7 @@ fn resolution(height: Option<u32>, class: u32) -> Option<String> {
 fn label(parts: &[Option<String>], size: Option<u64>) -> String {
     let mut v: Vec<String> = parts.iter().flatten().cloned().collect();
     if let Some(s) = size {
-        v.push(format!("~{}", human_size(s)));
+        v.push(format!("~{}", dman_proto::fmt::size(s)));
     }
     v.join(" · ")
 }
@@ -502,7 +487,7 @@ mod tests {
         assert!(top.requires_ffmpeg && top.available);
         assert_eq!(top.size_estimate, Some(85_000_000 + 1_700_000));
         assert_eq!(top.codec.as_deref(), Some("H.264"));
-        assert_eq!(c.video[0].label, "2160p · VP9 · ~173 MiB");
+        assert_eq!(c.video[0].label, "2160p · VP9 · ~173.3 MiB");
     }
 
     #[test]

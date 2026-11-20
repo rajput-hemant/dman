@@ -6,7 +6,8 @@ use dman_proto::{Engine, Limits, VideoPreferences};
 use maud::{Markup, html};
 
 use super::{Field, field, icon, switch_row};
-use crate::fmt;
+use crate::util;
+use dman_proto::fmt;
 
 /// How the browser reached this UI.
 pub struct WebInfo {
@@ -29,8 +30,8 @@ pub struct LimitValues {
 impl LimitValues {
     pub fn from_limits(l: Option<&Limits>) -> Self {
         Self {
-            download: l.map(|l| fmt::rate_input(l.download)).unwrap_or_default(),
-            upload: l.map(|l| fmt::rate_input(l.upload)).unwrap_or_default(),
+            download: l.map(|l| util::rate_input(l.download)).unwrap_or_default(),
+            upload: l.map(|l| util::rate_input(l.upload)).unwrap_or_default(),
             max_concurrent: l.map(|l| l.max_concurrent.to_string()).unwrap_or_default(),
         }
     }
@@ -239,7 +240,7 @@ pub fn settings_page(base: &str, csrf: &str, s: &SettingsData<'_>) -> Markup {
         if n == 0 {
             "no limit".to_string()
         } else {
-            fmt::bytes(n) + "/s"
+            fmt::size(n) + "/s"
         }
     };
     let err = |name: &str| match &s.error {
@@ -307,7 +308,7 @@ pub fn settings_page(base: &str, csrf: &str, s: &SettingsData<'_>) -> Markup {
                                 "Times are in " (sch.time_zone) ". "
                                 @if sch.paused { strong { "Downloads are held by a pause window right now. " } }
                                 @if let Some(a) = &sch.active { "Active window: " (a) ". " }
-                                @if let Some(n) = sch.next_change { "Next change " (fmt::timestamp(n)) " UTC" @if let Some(w) = &sch.next_window { " (" (w) ")" } "." }
+                                @if let Some(n) = sch.next_change { "Next change " (util::timestamp(n)) " UTC" @if let Some(w) = &sch.next_window { " (" (w) ")" } "." }
                             }
                             div.tblwrap { table.tbl {
                                 thead { tr { th { "Window" } th { "Days" } th { "Time" } th { "Does" } th.num { "Down" } th.num { "Up" } } }

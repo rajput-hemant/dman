@@ -35,7 +35,6 @@ pub use self::render::render;
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
 use crate::app::{Cmd, State};
-use crate::format::plural;
 use crate::views::View;
 use crate::views::add::AddState;
 use crate::views::providers;
@@ -43,6 +42,7 @@ use crate::widgets::Modal;
 use crate::widgets::confirm::ConfirmState;
 use crate::widgets::input::LineInput;
 use crate::widgets::prompt::{PromptKind, PromptState};
+use dman_proto::fmt::plural;
 
 /// Footer actions while the results have the keyboard.
 pub const FOOTER: &[Action] = &[
@@ -1303,7 +1303,7 @@ fn finish_add(state: &mut State) -> Vec<Cmd> {
         match &i.state {
             FlowState::Ready(u) => ready.push(u.clone()),
             FlowState::Failed(e) => {
-                failed.push(format!("{}: {e}", crate::format::truncate(&i.title, 30)))
+                failed.push(format!("{}: {e}", dman_proto::fmt::truncate(&i.title, 30)))
             }
             FlowState::Resolving(_) => {}
         }

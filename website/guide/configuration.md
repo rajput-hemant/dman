@@ -46,6 +46,22 @@ daemon = { kind = "remote", url = "wss://host.example:6810", secret_ref = "work"
 Select with `dman --profile work list` or `DMAN_PROFILE=work`. See
 [Remote use](./remote) for TLS and SSH tunnels.
 
+## Free-space guard
+
+Two thresholds on the profile watch the free space of the download volume. Each
+is an absolute size (`"5GiB"`, `"500MB"`) or a percentage (`"5%"`):
+
+```toml
+[profiles.local]
+min_free = "1GiB"   # below this, downloads pause and nothing new starts
+warn_free = "5GiB"  # below this, the free-space figure is flagged as low
+```
+
+The low-space warning shows as a highlighted free-space figure in the TUI
+status bar and the web header, and as `(low)` after `disk free` in
+`dman stats`. Changes to either threshold need a daemon restart, like the rest
+of the profile.
+
 ## Secrets
 
 API tokens live in `~/.config/dman/secrets.toml` (mode 0600; on Unix dman refuses looser

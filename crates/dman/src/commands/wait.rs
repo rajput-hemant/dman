@@ -15,6 +15,7 @@ use crate::cli::WaitArgs;
 use crate::connect::Ctx;
 use crate::error::{CliError, EXIT_TIMEOUT, batch_exit};
 use crate::format;
+use dman_proto::fmt;
 
 /// More jobs than this are summarised on one line instead of one line each, so the
 /// in-place redraw always fits on the screen.
@@ -247,7 +248,7 @@ pub fn conclude(ctx: &Ctx, tracked: &Tracked, timeout: Option<Duration>) -> Resu
     if tracked.timed_out {
         let left = tracked.jobs.iter().filter(|j| !is_final(j.state)).count();
         let after = timeout.map_or_else(String::new, |t| {
-            format!(" after {}", format::eta(Some(t.as_secs())))
+            format!(" after {}", fmt::eta(Some(t.as_secs())))
         });
         eprintln!(
             "dman: timed out{after}; {left} download(s) still unfinished (they keep running)"

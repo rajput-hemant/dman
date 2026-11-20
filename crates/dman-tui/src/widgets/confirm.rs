@@ -17,10 +17,10 @@ use ratatui::widgets::Paragraph;
 use crate::action::Action;
 use crate::api::ApiCall;
 use crate::app::State;
-use crate::format;
 use crate::layout::Hit;
 use crate::widgets::text::wrap;
 use crate::widgets::{ModalOutcome, centered, modal_frame};
+use dman_proto::fmt;
 
 /// What happens on confirmation.
 #[derive(Debug, Clone, PartialEq)]
@@ -198,7 +198,7 @@ impl ConfirmState {
         let inner_w = usize::from(width.saturating_sub(4)).max(1);
         // Buttons: roomy when they fit, compact on narrow terminals.
         let roomy = format!("[ Cancel ]  [ {} ]  y / n", self.confirm_label);
-        let (cancel, confirm, gap) = if format::width(&roomy) <= inner_w {
+        let (cancel, confirm, gap) = if fmt::width(&roomy) <= inner_w {
             (
                 " Cancel ".to_owned(),
                 format!(" {} ", self.confirm_label),
@@ -215,7 +215,7 @@ impl ConfirmState {
             };
             Span::styled(format!("[{label}]"), style)
         };
-        let buttons_w = format::width(&cancel) + format::width(&confirm) + 4 + gap.len();
+        let buttons_w = fmt::width(&cancel) + fmt::width(&confirm) + 4 + gap.len();
         let hint = if buttons_w + 7 <= inner_w {
             "y / n"
         } else {
@@ -247,7 +247,7 @@ impl ConfirmState {
         } else {
             (theme.border_focus, theme.accent)
         };
-        let title = format::truncate(&self.title, usize::from(width.saturating_sub(4)));
+        let title = fmt::truncate(&self.title, usize::from(width.saturating_sub(4)));
         let inner = modal_frame(
             frame,
             rect,
@@ -266,8 +266,8 @@ impl ConfirmState {
         frame.render_widget(Paragraph::new(body).style(surface), inner);
         // Buttons sit on the last inner row, right-aligned.
         let y = inner.bottom().saturating_sub(1);
-        let cw = u16::try_from(format::width(&cancel) + 2).unwrap_or(0);
-        let fw = u16::try_from(format::width(&confirm) + 2).unwrap_or(0);
+        let cw = u16::try_from(fmt::width(&cancel) + 2).unwrap_or(0);
+        let fw = u16::try_from(fmt::width(&confirm) + 2).unwrap_or(0);
         let gap = u16::try_from(gap.len()).unwrap_or(1);
         let right = inner.right();
         let confirm_x = right.saturating_sub(fw);

@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use dman_proto::{Job, JobState, SourceKind};
 
 use crate::format;
+use dman_proto::fmt;
 
 /// How often a non-terminal stderr gets a new line per job.
 const PLAIN_EVERY: Duration = Duration::from_secs(5);
@@ -49,8 +50,8 @@ fn status(job: &Job) -> String {
         JobState::Active => {
             let mut s = format!(
                 "{}  eta {}",
-                format::speed(job.download_speed),
-                format::eta(job.eta_secs())
+                fmt::speed(job.download_speed),
+                fmt::eta(job.eta_secs())
             );
             if let Some(w) = swarm(job) {
                 s.push_str("  ");
@@ -59,14 +60,14 @@ fn status(job: &Job) -> String {
             s
         }
         JobState::Seeding => {
-            let mut s = format!("done, up {}", format::speed(job.upload_speed));
+            let mut s = format!("done, up {}", fmt::speed(job.upload_speed));
             if let Some(w) = swarm(job) {
                 s.push_str("  ");
                 s.push_str(&w);
             }
             s
         }
-        JobState::Complete => format!("done  {}", format::size(job.total_bytes)),
+        JobState::Complete => format!("done  {}", fmt::size(job.total_bytes)),
         JobState::Error => format!("error: {}", job.error.as_deref().unwrap_or("failed")),
         other => format::state(other).to_owned(),
     }
@@ -105,15 +106,15 @@ pub fn line(job: &Job, width: usize, color: bool) -> String {
     let room = width.saturating_sub(id.chars().count() + pct.len() + bar_width + 16);
     if bar_width == 0 || room < 12 {
         // `#12 name  45.2% status`, cut to the width.
-        let status = format::truncate(&status, width.saturating_sub(id.len() + 18).max(8));
+        let status = fmt::truncate(&status, width.saturating_sub(id.len() + 18).max(8));
         let fixed = id.chars().count() + 1 + 2 + pct.len() + 1 + status.chars().count();
-        let name = format::truncate(&name, width.saturating_sub(fixed).max(4));
-        return format::truncate(&format!("{id} {name}  {pct} {status}"), width);
+        let name = fmt::truncate(&name, width.saturating_sub(fixed).max(4));
+        return fmt::truncate(&format!("{id} {name}  {pct} {status}"), width);
     }
-    let status = format::truncate(&status, room.min(width.saturating_sub(40).max(16)));
+    let status = fmt::truncate(&status, room.min(width.saturating_sub(40).max(16)));
     let fixed = id.chars().count() + pct.len() + bar_width + 2 + status.chars().count() + 6;
     let name_width = width.saturating_sub(fixed).max(8);
-    let name = format::truncate(&name, name_width);
+    let name = fmt::truncate(&name, name_width);
     let bar = bar(fraction, bar_width);
     let (on, off) = match (color, job.state) {
         (true, JobState::Complete | JobState::Seeding) => ("\x1b[32m", "\x1b[0m"),
@@ -174,7 +175,7 @@ impl Renderer {
             }
             if let Some(f) = footer {
                 frame.push_str("\r\x1b[2K");
-                frame.push_str(&format::truncate(f, width.saturating_sub(1)));
+                frame.push_str(&fmt::truncate(f, width.saturating_sub(1)));
                 frame.push('\n');
             }
             self.drawn = jobs.len() + usize::from(footer.is_some());

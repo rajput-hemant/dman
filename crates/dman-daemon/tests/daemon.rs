@@ -115,6 +115,29 @@ async fn serves_without_engine_and_enforces_auth_and_lock() {
     d.stop(&c).await;
 }
 
+/// `disk_low` follows `warn_free` without stopping anything (no aria2 needed).
+#[tokio::test(flavor = "multi_thread")]
+async fn stats_flag_low_disk_space_from_warn_free() {
+    for (warn_free, low) in [
+        (DiskThreshold::Absolute(0), false),
+        (DiskThreshold::Percent(100.0), true),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let mut cfg = config(
+            root.path(),
+            "/nonexistent/aria2c",
+            DiskThreshold::Absolute(0),
+        );
+        cfg.profiles.get_mut("local").unwrap().warn_free = warn_free;
+        let d = Daemon::start(root.path(), cfg).await;
+        let c = d.client().await;
+        let stats = c.stats().await.unwrap();
+        assert!(stats.disk_free.is_some());
+        assert_eq!(stats.disk_low, low, "warn_free {warn_free}");
+        d.stop(&c).await;
+    }
+}
+
 /// `fs.list` over the API (no aria2 needed): default = profile download dir.
 #[tokio::test(flavor = "multi_thread")]
 async fn fs_list_over_the_api() {

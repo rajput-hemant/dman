@@ -8,8 +8,8 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::format;
 use crate::theme::Theme;
+use dman_proto::fmt;
 
 /// One column.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,8 +122,8 @@ pub fn line(cols: &[Col], shown: &[(usize, u16)], cells: &[Cell], base: Style) -
         }
         let w = usize::from(w);
         let (text, style) = cells.get(i).cloned().unwrap_or_default();
-        let cut = format::truncate(&text, w);
-        let pad = " ".repeat(w.saturating_sub(format::width(&cut)));
+        let cut = fmt::truncate(&text, w);
+        let pad = " ".repeat(w.saturating_sub(fmt::width(&cut)));
         let text = if cols[i].right {
             format!("{pad}{cut}")
         } else {

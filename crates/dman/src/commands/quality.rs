@@ -16,6 +16,7 @@ use crate::completion::{AUDIO_PREFS, CONTAINERS, QUALITY_PRESETS};
 use crate::connect::Ctx;
 use crate::error::CliError;
 use crate::format;
+use dman_proto::fmt;
 
 /// Printed after "never ask again".
 pub const NEVER_ASK_HINT: &str =
@@ -161,7 +162,7 @@ pub fn format_choices(
         if !label.contains('~')
             && let Some(s) = c.size_estimate
         {
-            label.push_str(&format!(" · ~{}", format::size(s)));
+            label.push_str(&format!(" · ~{}", fmt::size(s)));
         }
         let note = if !c.available {
             format!(

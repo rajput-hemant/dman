@@ -11,12 +11,12 @@ use ratatui::widgets::Paragraph;
 
 use crate::action::Action;
 use crate::app::State;
-use crate::format;
 use crate::keymap::Context;
 use crate::layout::{Hit, split_preview};
 use crate::list::{Row, Section};
 use crate::theme::Theme;
 use crate::widgets::{bar, scrollbar};
+use dman_proto::fmt;
 
 /// Right-hand fields of a row, most important first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,7 +119,7 @@ fn speed_cell(
     if bps == 0 {
         return dash(t, width);
     }
-    let (n, u) = format::split_size(bps, true, compact);
+    let (n, u) = fmt::split_size(bps, true, compact);
     num_unit(t, n, u, width, style)
 }
 
@@ -127,7 +127,7 @@ fn size_cell(t: &Theme, bytes: u64, width: usize, compact: bool) -> Vec<Span<'st
     if bytes == 0 {
         return dash(t, width);
     }
-    let (n, u) = format::split_size(bytes, false, compact);
+    let (n, u) = fmt::split_size(bytes, false, compact);
     num_unit(t, n, u, width, t.text)
 }
 
@@ -145,7 +145,7 @@ fn progress_cell(state: &State, j: &Job, bar_w: usize) -> Vec<Span<'static>> {
     } else {
         let p = state.shown_progress(j);
         out = bar::bar(t, bar_w, p, fill);
-        let pct = format::percent(j);
+        let pct = fmt::percent(j);
         out.push(Span::styled(format!(" {pct:>3}%"), t.text));
     }
     out
@@ -167,7 +167,7 @@ fn state_note(state: &State, j: &Job) -> Option<(String, Style)> {
         JobState::Complete => {
             let when = j
                 .completed_at
-                .map(|at| format!(" · {}", format::ago(state.now_secs() - at)))
+                .map(|at| format!(" · {}", fmt::ago(state.now_secs() - at)))
                 .unwrap_or_default();
             Some((format!("done{when}"), t.ok))
         }
@@ -206,7 +206,7 @@ fn job_line(state: &State, j: &Job, width: usize, layout: &Columns) -> Vec<Span<
     } else {
         t.text
     };
-    name.push(Span::styled(format::middle(shown_name, nw), name_style));
+    name.push(Span::styled(fmt::middle(shown_name, nw), name_style));
     let mut spans = fit(name, name_w);
     let note = state_note(state, j);
     let mut i = 0;
@@ -226,8 +226,8 @@ fn job_line(state: &State, j: &Job, width: usize, layout: &Columns) -> Vec<Span<
                     span_w += layout.cols[k].1 + 1;
                     k += 1;
                 }
-                let text = format::truncate(text, span_w);
-                let pad = span_w.saturating_sub(format::width(&text));
+                let text = fmt::truncate(text, span_w);
+                let pad = span_w.saturating_sub(fmt::width(&text));
                 if j.state == JobState::Error {
                     spans.push(Span::styled(text, *style));
                     spans.push(Span::raw(" ".repeat(pad)));
@@ -247,20 +247,20 @@ fn job_line(state: &State, j: &Job, width: usize, layout: &Columns) -> Vec<Span<
             Col::Speed => speed_cell(t, j.download_speed, w, layout.compact, t.info),
             Col::Eta if j.state == JobState::Seeding => {
                 vec![Span::styled(
-                    format!("{:>w$}", format!("r{}", format::ratio(j))),
+                    format!("{:>w$}", format!("r{}", fmt::ratio(j))),
                     t.ok,
                 )]
             }
             Col::Eta => match j.eta_secs() {
                 Some(_) => vec![Span::styled(
-                    format!("{:>w$}", format::eta(j.eta_secs())),
+                    format!("{:>w$}", fmt::eta(j.eta_secs())),
                     t.text,
                 )],
                 None => dash(t, w),
             },
             Col::Size => size_cell(t, j.total_bytes, w, layout.compact),
             Col::Peers => {
-                let p = format::peers(j);
+                let p = fmt::peers(j);
                 if p == "-" {
                     dash(t, w)
                 } else {
@@ -269,7 +269,7 @@ fn job_line(state: &State, j: &Job, width: usize, layout: &Columns) -> Vec<Span<
             }
             Col::Up => speed_cell(t, j.upload_speed, w, layout.compact, t.ok),
             Col::Ratio => {
-                let r = format::ratio(j);
+                let r = fmt::ratio(j);
                 if r == "-" {
                     dash(t, w)
                 } else {
@@ -302,11 +302,11 @@ fn detail_line(state: &State, j: &Job, width: usize) -> Vec<Span<'static>> {
     if j.total_bytes > 0 && j.state != JobState::Complete {
         facts.push(format!(
             "{} of {}",
-            format::size(j.completed_bytes),
-            format::size(j.total_bytes)
+            fmt::size(j.completed_bytes),
+            fmt::size(j.total_bytes)
         ));
     } else if j.total_bytes > 0 {
-        facts.push(format::size(j.total_bytes));
+        facts.push(fmt::size(j.total_bytes));
     }
     match j.state {
         JobState::Active if j.connections > 0 => {
@@ -315,9 +315,9 @@ fn detail_line(state: &State, j: &Job, width: usize) -> Vec<Span<'static>> {
             } else {
                 "connection"
             };
-            facts.push(format::plural(j.connections as usize, what));
+            facts.push(fmt::plural(j.connections as usize, what));
         }
-        JobState::Seeding => facts.push(format!("ratio {}", format::ratio(j))),
+        JobState::Seeding => facts.push(format!("ratio {}", fmt::ratio(j))),
         _ => {}
     }
     if j.engine == dman_proto::Engine::YtDlp {
@@ -334,13 +334,10 @@ fn detail_line(state: &State, j: &Job, width: usize) -> Vec<Span<'static>> {
         facts.push(host);
     }
     if j.state != JobState::Complete {
-        facts.push(format!(
-            "added {}",
-            format::ago(state.now_secs() - j.added_at)
-        ));
+        facts.push(format!("added {}", fmt::ago(state.now_secs() - j.added_at)));
     }
     let used = spans_width(&spans);
-    let text = format::truncate(&facts.join(" · "), width.saturating_sub(used));
+    let text = fmt::truncate(&facts.join(" · "), width.saturating_sub(used));
     spans.push(Span::styled(text, t.faint));
     spans
 }

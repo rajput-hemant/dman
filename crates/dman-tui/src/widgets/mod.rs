@@ -230,7 +230,7 @@ pub fn clear_wide_edge(frame: &mut Frame<'_>, rect: Rect) {
     let area = frame.area();
     let buf = frame.buffer_mut();
     for y in rect.top()..rect.bottom().min(area.bottom()) {
-        if x >= area.left() && crate::format::width(buf[(x, y)].symbol()) > 1 {
+        if x >= area.left() && dman_proto::fmt::width(buf[(x, y)].symbol()) > 1 {
             buf[(x, y)].set_symbol(" ");
         }
     }

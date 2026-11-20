@@ -735,7 +735,7 @@ pub async fn preview(ctx: &Ctx, magnet: &str, timeout: Option<u32>) -> Result<i3
     println!("info hash:  {}", p.info_hash);
     println!(
         "size:       {} in {} file(s)",
-        crate::format::size(p.total_bytes),
+        dman_proto::fmt::size(p.total_bytes),
         p.files.len()
     );
     println!();

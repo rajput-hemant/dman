@@ -2,7 +2,7 @@
 
 use dman_proto::JobOptions;
 
-use crate::format;
+use dman_proto::fmt;
 
 /// An editable option.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,14 +220,14 @@ pub fn option_rows(o: &JobOptions) -> Vec<OptRow> {
             "max_download_limit",
             OptField::MaxDownloadLimit,
             o.max_download_limit,
-            |b| format::limit(*b),
+            |b| fmt::limit(*b),
             |b| size_input(*b),
         ),
         editable(
             "max_upload_limit",
             OptField::MaxUploadLimit,
             o.max_upload_limit,
-            |b| format::limit(*b),
+            |b| fmt::limit(*b),
             |b| size_input(*b),
         ),
         readonly(

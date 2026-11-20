@@ -61,7 +61,7 @@ html:not(.js) .jsonly{display:none!important}html.js .nojs{display:none!importan
 .spark{width:96px;height:28px;flex-shrink:0}.sa{fill:var(--accent);fill-opacity:.09}.sl{fill:none;stroke:var(--accent);stroke-width:1.6;vector-effect:non-scaling-stroke}
 .stats{align-items:baseline;gap:16px;font-size:13px;white-space:nowrap;overflow:hidden}
 .stats b{color:var(--text);font-weight:620}.ar{margin-right:3px;font-weight:700}.dn .ar{color:var(--accent)}.upl .ar{color:var(--success)}
-.dn b{display:inline-block;min-width:5.6em}.stats .warn{color:var(--warning);font-weight:600}
+.dn b{display:inline-block;min-width:5.6em}.stats .warn,.stats .low,.stats .low b{color:var(--warning);font-weight:600}
 .topact{gap:8px;margin-left:auto}
 .cmdbtn{gap:8px;height:34px;padding:0 8px 0 10px;border-radius:var(--r-md);font:inherit;font-size:13px;cursor:pointer}.cmdbtn:hover{color:var(--text)}
 .banner{gap:10px;align-items:flex-start;margin-top:16px;padding:12px 14px;background:var(--warning-soft);border:1px solid color-mix(in srgb,var(--warning) 35%,transparent)}.banner .i{color:var(--warning)}.banner p{margin:0}
@@ -278,7 +278,7 @@ body.center{display:grid;place-items:center;min-height:100vh;padding:24px}
 @keyframes rise{from{opacity:0;transform:translate(-50%,8px)}}@keyframes late{from{opacity:0}}
 @media (prefers-reduced-motion:reduce){*,::before,::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
 /* responsive */
-@media (max-width:1180px){.stats .free,.cmdbtn .cl{display:none}}
+@media (max-width:1180px){.stats .free,.cmdbtn .cl{display:none}.stats .free.low{display:inline}}
 @media (max-width:980px){
 .job{grid-template-columns:18px 36px auto minmax(0,1fr) 140px 96px 72px;grid-template-areas:"sel ico name name prog spd act" "sel ico pill sub prog eta act" "sel ico err err err err act"}
 .job .pill{height:20px;font-size:11.5px;padding:0 8px;margin-top:3px}.jsub{margin-top:3px}

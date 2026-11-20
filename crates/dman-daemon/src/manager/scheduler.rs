@@ -41,7 +41,7 @@ impl Manager {
         for e in self.jobs.values() {
             if e.rec.desired == Desired::Queued
                 && e.uses_slot()
-                && disk::blocks(&min_free, space_of(&e.rec.dir))
+                && disk::below(&min_free, space_of(&e.rec.dir))
             {
                 to_pause.push((
                     e.rec.id,
@@ -147,7 +147,7 @@ impl Manager {
         let dirs: HashMap<JobId, String> = candidates.into_iter().map(|c| (c.1, c.2)).collect();
         let plan = queue::plan_starts(max_concurrent, running, &ids, |id| {
             dirs.get(&id)
-                .is_none_or(|d| !disk::blocks(&min_free, space_of(d)))
+                .is_none_or(|d| !disk::below(&min_free, space_of(d)))
         });
         for id in plan.blocked {
             let Some(e) = self.jobs.get_mut(&id) else {

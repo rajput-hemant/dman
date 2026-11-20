@@ -8,8 +8,8 @@ use dman_proto::video::{VideoFormat, VideoPlan, VideoPlanKind, VideoStreamKind};
 use dman_proto::{VideoOptions, VideoProbe, VideoProbeParams};
 use ratatui::text::{Line, Span};
 
-use crate::format::{plural, size, truncate};
 use crate::theme::Theme;
+use dman_proto::fmt::{plural, size, truncate};
 
 /// Spinner frames of the running probe.
 pub const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

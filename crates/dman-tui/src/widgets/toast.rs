@@ -15,8 +15,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph};
 
 use crate::app::State;
-use crate::format::truncate;
 use crate::layout::Hit;
+use dman_proto::fmt::truncate;
 
 /// How long a toast stays.
 pub fn ttl(level: Level) -> Duration {

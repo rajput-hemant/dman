@@ -22,7 +22,6 @@ pub mod action;
 pub mod anim;
 pub mod api;
 pub mod app;
-pub mod format;
 pub mod keymap;
 pub mod layout;
 pub mod list;

@@ -9,11 +9,11 @@ use ratatui::widgets::{Paragraph, Wrap};
 
 use super::{DetailState, Tab, option_rows};
 use crate::app::State;
-use crate::format;
 use crate::layout::Hit;
 use crate::theme::{IconSet, Theme};
 use crate::widgets::bar;
 use crate::widgets::table::{self, Col};
+use dman_proto::fmt;
 
 fn field(t: &Theme, name: &str, value: String) -> Line<'static> {
     Line::from(vec![
@@ -30,21 +30,21 @@ fn card_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line
     let mut out = vec![Line::from(vec![
         Span::styled(format!("{} ", t.icons.state(j.state)), st),
         Span::styled(
-            format::truncate(&now, width.saturating_sub(2)),
+            fmt::truncate(&now, width.saturating_sub(2)),
             st.add_modifier(Modifier::BOLD),
         ),
     ])];
     let sizes = if j.total_bytes > 0 {
         format!(
             "  {} / {}",
-            format::size(j.completed_bytes),
-            format::size(j.total_bytes)
+            fmt::size(j.completed_bytes),
+            fmt::size(j.total_bytes)
         )
     } else {
-        format!("  {} / ?", format::size(j.completed_bytes))
+        format!("  {} / ?", fmt::size(j.completed_bytes))
     };
     let pct = if j.total_bytes > 0 {
-        format!(" {:>3}%", format::percent(j))
+        format!(" {:>3}%", fmt::percent(j))
     } else {
         String::new()
     };
@@ -60,8 +60,8 @@ fn card_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line
     bar_line.push(Span::styled(sizes, t.dim));
     out.push(Line::from(bar_line));
     let history = state.job_speeds.get(&j.id).map_or(&[][..], Vec::as_slice);
-    let (dn, du) = format::split_size(j.download_speed, true, false);
-    let (un, uu) = format::split_size(j.upload_speed, true, false);
+    let (dn, du) = fmt::split_size(j.download_speed, true, false);
+    let (un, uu) = fmt::split_size(j.upload_speed, true, false);
     let mut speed = vec![
         Span::styled(format!("{} ", t.icons.down), t.graph_down),
         Span::styled(dn, t.text),
@@ -78,10 +78,10 @@ fn card_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line
         speed.push(Span::styled(v, t.text));
     };
     if j.seeders.is_some() || j.connections > 0 {
-        extra("peers", format::peers(j));
+        extra("peers", fmt::peers(j));
     }
     if j.uploaded_bytes > 0 {
-        extra("ratio", format::ratio(j));
+        extra("ratio", fmt::ratio(j));
     }
     out.push(Line::from(speed));
     out
@@ -94,10 +94,10 @@ fn info_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line
         field(
             t,
             "Name",
-            format::middle(j.name.trim_start_matches("[METADATA]"), room),
+            fmt::middle(j.name.trim_start_matches("[METADATA]"), room),
         ),
-        field(t, "Folder", format::middle(&j.dir, room)),
-        field(t, "Source", format::middle(&j.source, room)),
+        field(t, "Folder", fmt::middle(&j.dir, room)),
+        field(t, "Source", fmt::middle(&j.source, room)),
         field(
             t,
             "Engine",
@@ -106,10 +106,10 @@ fn info_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line
                 dman_proto::Engine::YtDlp => "yt-dlp (video)".to_owned(),
             },
         ),
-        field(t, "Added", format::ago(state.now_secs() - j.added_at)),
+        field(t, "Added", fmt::ago(state.now_secs() - j.added_at)),
     ];
     if let Some(at) = j.completed_at {
-        v.push(field(t, "Finished", format::ago(state.now_secs() - at)));
+        v.push(field(t, "Finished", fmt::ago(state.now_secs() - at)));
     }
     let hash = j
         .info_hash
@@ -124,7 +124,7 @@ fn info_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line
     if let Some(e) = &j.error {
         v.push(Line::from(vec![
             Span::styled(format!("{:<11}", "Error"), t.faint),
-            Span::styled(format::truncate(e, room.max(10) * 3), t.error),
+            Span::styled(fmt::truncate(e, room.max(10) * 3), t.error),
         ]));
     }
     v
@@ -168,7 +168,7 @@ fn render_tabs(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState
     let total = |counts: bool| {
         shown
             .iter()
-            .map(|t| format::width(&label(*t, counts)) + 1)
+            .map(|t| fmt::width(&label(*t, counts)) + 1)
             .sum::<usize>()
     };
     let counts = total(true) <= room;
@@ -183,7 +183,7 @@ fn render_tabs(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState
         let marks = usize::from(first > 0) * 2 + 2;
         labels[first..=sel]
             .iter()
-            .map(|(_, l)| format::width(l) + 1)
+            .map(|(_, l)| fmt::width(l) + 1)
             .sum::<usize>()
             + marks
             <= room
@@ -199,7 +199,7 @@ fn render_tabs(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState
     }
     let mut last = first;
     for (i, (tab, text)) in labels.iter().enumerate().skip(first) {
-        let w = format::width(text);
+        let w = fmt::width(text);
         let more = usize::from(i + 1 < labels.len()) * 2;
         if usize::from(x - area.x) + w + more > usize::from(area.width) && i > sel {
             break;
@@ -267,12 +267,12 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
         };
         let right = format!(" #{} · {engine} ", d.id);
         let title_room = usize::from(area.width)
-            .saturating_sub(format::width(&right) + 6)
+            .saturating_sub(fmt::width(&right) + 6)
             .max(8);
         let block = t
             .block()
             .title(Span::styled(
-                format!(" {} ", format::middle(name, title_room)),
+                format!(" {} ", fmt::middle(name, title_room)),
                 t.accent,
             ))
             .title(
@@ -313,7 +313,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
         };
         frame.render_widget(
             Paragraph::new(Line::styled(
-                format::truncate(
+                fmt::truncate(
                     &format!("Detail refresh failed: {e}"),
                     usize::from(warn.width),
                 ),
@@ -476,10 +476,10 @@ fn files(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState, deta
             (check.to_owned(), if f.selected { t.ok } else { t.faint }),
             (f.index.to_string(), t.faint),
             (
-                format::middle(&display_path(&f.path, dir), path_w),
+                fmt::middle(&display_path(&f.path, dir), path_w),
                 Style::new(),
             ),
-            (format::size_or_dash(f.length), Style::new()),
+            (fmt::size_or_dash(f.length), Style::new()),
             (String::new(), Style::new()),
         ];
         let mut line = table::line(&cols, &shown, &cells, base);
@@ -503,7 +503,7 @@ fn files(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState, deta
                 ));
             } else {
                 line.spans.push(Span::styled(
-                    format::fit("skipped", usize::from(bar_w) + 5),
+                    fmt::fit("skipped", usize::from(bar_w) + 5),
                     base.patch(t.faint),
                 ));
             }
@@ -541,8 +541,8 @@ fn peers(frame: &mut Frame<'_>, area: Rect, t: &Theme, d: &DetailState, detail: 
                 vec![
                     plain(format!("{}:{}", p.ip, p.port)),
                     plain(format!("{:.0}%", p.progress * 100.0)),
-                    plain(format::speed_or_dash(p.download_speed)),
-                    plain(format::speed_or_dash(p.upload_speed)),
+                    plain(fmt::speed_or_dash(p.download_speed)),
+                    plain(fmt::speed_or_dash(p.upload_speed)),
                     (if p.seeder { "seed" } else { "" }.to_owned(), t.faint),
                 ],
                 Style::new(),
@@ -564,7 +564,7 @@ fn trackers(frame: &mut Frame<'_>, area: Rect, t: &Theme, d: &DetailState, detai
     };
     frame.render_widget(
         Paragraph::new(Line::styled(
-            format::truncate(
+            fmt::truncate(
                 "aria2 does not report tracker status, so it is always \"unknown\".",
                 usize::from(note.width),
             ),
@@ -648,10 +648,10 @@ fn pieces(frame: &mut Frame<'_>, area: Rect, t: &Theme, detail: &JobDetail) {
         ..area
     };
     frame.render_widget(
-        Paragraph::new(format::truncate(
+        Paragraph::new(fmt::truncate(
             &format!(
                 "{n} pieces of {}  ·  {have} have ({})",
-                format::size(*piece_length),
+                fmt::size(*piece_length),
                 pct(have as u64, n as u64)
             ),
             usize::from(area.width),

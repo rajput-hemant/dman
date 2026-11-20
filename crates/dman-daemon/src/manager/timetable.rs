@@ -156,22 +156,14 @@ fn window_info(w: &ScheduleWindow) -> WindowInfo {
     }
 }
 
-fn rate(n: u64) -> String {
-    if n == 0 {
-        "unlimited".into()
-    } else {
-        format!("{}/s", format_bytes(n))
-    }
-}
-
 /// "download 10MiB/s, max 5 concurrent" for the fields `w` overrides.
 fn describe_overrides(w: &ScheduleWindow) -> String {
     let mut parts = Vec::new();
     if let Some(d) = w.download_limit {
-        parts.push(format!("download {}", rate(d.0)));
+        parts.push(format!("download {}", dman_proto::fmt::limit(d.0)));
     }
     if let Some(u) = w.upload_limit {
-        parts.push(format!("upload {}", rate(u.0)));
+        parts.push(format!("upload {}", dman_proto::fmt::limit(u.0)));
     }
     if let Some(m) = w.max_concurrent {
         parts.push(format!("max {m} concurrent"));
@@ -182,8 +174,8 @@ fn describe_overrides(w: &ScheduleWindow) -> String {
 fn describe_limits(l: &Limits) -> String {
     format!(
         "download {}, upload {}, max {} concurrent",
-        rate(l.download),
-        rate(l.upload),
+        dman_proto::fmt::limit(l.download),
+        dman_proto::fmt::limit(l.upload),
         l.max_concurrent
     )
 }

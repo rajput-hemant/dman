@@ -16,13 +16,13 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use crate::action::Action;
 use crate::api::{ApiCall, ApiReply};
 use crate::app::{Cmd, State};
-use crate::format::{self, plural};
 use crate::views::View;
 use crate::views::search::{self, render::SPINNER};
 use crate::widgets::Modal;
 use crate::widgets::confirm::ConfirmState;
 use crate::widgets::prompt::{PromptKind, PromptState};
 use crate::widgets::table::{self, Col};
+use dman_proto::fmt::{self, plural};
 
 /// Footer actions of this view.
 pub const FOOTER: &[Action] = &[
@@ -473,7 +473,7 @@ fn test_lines(state: &State, p: &ProviderInfo) -> Vec<Line<'static>> {
                 ));
             }
             if let Some(s) = &r.sample {
-                let size = s.size.map_or("-".into(), format::size);
+                let size = s.size.map_or("-".into(), fmt::size);
                 let seeders = s.seeders.map_or("-".into(), |n| n.to_string());
                 out.push(Line::styled(
                     format!("  sample: {} ({size}, {seeders} seeders)", s.title),

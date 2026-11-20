@@ -17,10 +17,10 @@
 
 mod assets;
 mod auth;
-mod fmt;
 mod pages;
 mod quality;
 mod sse;
+mod util;
 mod views;
 
 #[cfg(test)]

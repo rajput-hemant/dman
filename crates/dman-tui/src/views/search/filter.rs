@@ -9,7 +9,7 @@ use dman_proto::search::SearchResultDto;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
-use crate::format::{cmp_ignore_case, size};
+use dman_proto::fmt::{cmp_ignore_case, size};
 
 /// What the results are ordered by.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

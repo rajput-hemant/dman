@@ -109,7 +109,7 @@ pub async fn cleanup(ctx: &Ctx, id: JobId, yes: bool) -> Result<i32, CliError> {
         for f in &found.files {
             println!(
                 "{:>10}  {}",
-                crate::format::size(f.bytes),
+                dman_proto::fmt::size(f.bytes),
                 crate::format::printable(&f.path)
             );
         }
@@ -119,7 +119,7 @@ pub async fn cleanup(ctx: &Ctx, id: JobId, yes: bool) -> Result<i32, CliError> {
         &format!(
             "Delete {} unselected partial file(s) ({})?",
             found.files.len(),
-            crate::format::size(found.bytes)
+            dman_proto::fmt::size(found.bytes)
         ),
         yes,
     )?;
@@ -130,7 +130,7 @@ pub async fn cleanup(ctx: &Ctx, id: JobId, yes: bool) -> Result<i32, CliError> {
         println!(
             "deleted {} file(s) ({})",
             done.deleted,
-            crate::format::size(done.bytes)
+            dman_proto::fmt::size(done.bytes)
         );
     }
     Ok(0)

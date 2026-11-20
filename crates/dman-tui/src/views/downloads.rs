@@ -14,7 +14,6 @@ use ratatui::layout::Rect;
 use crate::action::Action;
 use crate::api::ApiCall;
 use crate::app::{Cmd, State};
-use crate::format;
 use crate::layout::Hit;
 use crate::list::{Chip, Row};
 use crate::views::View;
@@ -22,6 +21,7 @@ use crate::widgets::Modal;
 use crate::widgets::confirm::ConfirmState;
 use crate::widgets::footer::{Hint, hint};
 use crate::widgets::prompt::{PromptKind, PromptState};
+use dman_proto::fmt;
 
 /// Footer actions of this view.
 pub const FOOTER: &[Action] = &[
@@ -287,7 +287,7 @@ fn names(state: &State, ids: &[JobId]) -> Vec<String> {
         .take(MAX_LISTED)
         .map(|id| {
             let name = state.jobs.get(id).map_or("?", |j| j.name.as_str());
-            format!("  • {}", format::truncate(name, 52))
+            format!("  • {}", fmt::truncate(name, 52))
         })
         .collect();
     if ids.len() > MAX_LISTED {
@@ -307,7 +307,7 @@ pub fn confirm_remove_ids(state: &mut State, ids: Vec<JobId>, delete_files: bool
         state.status.info("Nothing selected");
         return Vec::new();
     }
-    let what = format::plural(ids.len(), "download");
+    let what = fmt::plural(ids.len(), "download");
     let mut lines = names(state, &ids);
     let call = ApiCall::Remove {
         ids: ids.clone(),
@@ -341,10 +341,10 @@ pub fn confirm_remove_ids(state: &mut State, ids: Vec<JobId>, delete_files: bool
 pub fn restored_message(state: &State, ids: &[JobId]) -> String {
     match ids {
         [id] => match state.jobs.get(id) {
-            Some(j) => format!("Restored '{}'", format::middle(&j.name, 50)),
+            Some(j) => format!("Restored '{}'", fmt::middle(&j.name, 50)),
             None => format!("Restored download #{id}"),
         },
-        _ => format!("Restored {}", format::plural(ids.len(), "download")),
+        _ => format!("Restored {}", fmt::plural(ids.len(), "download")),
     }
 }
 
@@ -352,10 +352,10 @@ pub fn restored_message(state: &State, ids: &[JobId]) -> String {
 pub fn removed_message(state: &State, ids: &[JobId], delete_files: bool) -> String {
     let what = match ids {
         [id] => match state.jobs.get(id) {
-            Some(j) => format!("'{}'", format::truncate(&j.name, 50)),
+            Some(j) => format!("'{}'", fmt::truncate(&j.name, 50)),
             None => format!("download #{id}"),
         },
-        _ => format::plural(ids.len(), "download"),
+        _ => fmt::plural(ids.len(), "download"),
     };
     let files = match (delete_files, ids.len()) {
         (false, _) => " (files kept)",
@@ -393,7 +393,7 @@ pub fn cleanup_confirm(id: JobId, name: &str, files: &[(String, u64)]) -> Confir
     let total: u64 = files.iter().map(|f| f.1).sum();
     let mut lines = vec![format!("{name} (#{id})"), String::new()];
     for (path, bytes) in files.iter().take(MAX_LISTED) {
-        lines.push(format!("{}  {}", format::size(*bytes), path));
+        lines.push(format!("{}  {}", fmt::size(*bytes), path));
     }
     if files.len() > MAX_LISTED {
         lines.push(format!("… and {} more", files.len() - MAX_LISTED));
@@ -406,7 +406,7 @@ pub fn cleanup_confirm(id: JobId, name: &str, files: &[(String, u64)]) -> Confir
         format!(
             "Delete {} unselected partial files ({})?",
             files.len(),
-            format::size(total)
+            fmt::size(total)
         ),
         lines,
         ApiCall::Cleanup { id, dry_run: false },
@@ -435,7 +435,7 @@ fn confirm_purge(state: &mut State) -> Vec<Cmd> {
         return Vec::new();
     }
     ids.sort();
-    let what = format::plural(ids.len(), "stopped download");
+    let what = fmt::plural(ids.len(), "stopped download");
     let mut lines = names(state, &ids);
     lines.push(String::new());
     lines.push("They are dropped from the list; files on disk are kept.".into());

@@ -30,7 +30,7 @@ use maud::Markup;
 
 use crate::auth::Ctx;
 use crate::views::{self, Layout, Nav};
-use crate::{AppState, MAX_UPLOAD_BYTES, fmt};
+use crate::{AppState, MAX_UPLOAD_BYTES, util};
 
 pub(crate) type St = State<Arc<AppState>>;
 
@@ -182,7 +182,7 @@ pub fn changed_rate(p: &Pairs, field: &str) -> Result<Option<u64>, String> {
 
 /// A speed typed into a form, or the message to show next to the field.
 pub fn rate(v: &str) -> Result<u64, String> {
-    fmt::parse_rate(v).ok_or_else(|| {
+    util::parse_rate(v).ok_or_else(|| {
         format!("\u{201c}{v}\u{201d} is not a speed. Use a number with K, M or G, e.g. 500K.")
     })
 }

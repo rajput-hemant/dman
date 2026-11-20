@@ -1,7 +1,8 @@
-//! Human-readable sizes, speeds, ETAs and text helpers.
+//! Human-readable sizes, speeds, ETAs and terminal-width-aware text helpers
+//! shared by the TUI, the CLI and the web UI.
 
+use crate::Job;
 use bytesize::ByteSize;
-use dman_proto::Job;
 
 /// `1.2 MiB`.
 pub fn size(bytes: u64) -> String {
@@ -221,9 +222,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sizes_and_speeds() {
+        assert_eq!(size(0), "0 B");
+        assert_eq!(size(1_258_291), "1.2 MiB");
+        assert_eq!(size_or_dash(0), "-");
+        assert_eq!(speed(1_258_291), "1.2 MiB/s");
+        assert_eq!(speed(0), "0 B/s");
+        assert_eq!(speed_or_dash(0), "-");
+        assert_eq!(limit(0), "unlimited");
+        assert_eq!(limit(1 << 20), "1.0 MiB/s");
+    }
+
+    #[test]
     fn eta_formats() {
         assert_eq!(eta(None), "-");
         assert_eq!(eta(Some(5)), "5s");
+        assert_eq!(eta(Some(45)), "45s");
         assert_eq!(eta(Some(303)), "5m03s");
         assert_eq!(eta(Some(3720)), "1h02m");
         assert_eq!(eta(Some(90_000)), "1d01h");

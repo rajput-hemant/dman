@@ -1,5 +1,6 @@
 //! The downloads list model: sections, sorting, fuzzy filter, paging, cursor and
-//! selection. Pure data, no rendering.
+//! selection. Pure data, no rendering. Also [`cycle`], the wrapping step that
+//! every tab row, focus ring and sort key of the UI uses.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
@@ -7,6 +8,22 @@ use std::collections::{BTreeSet, HashMap};
 use dman_proto::{Job, JobId, JobState};
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
+
+/// The item after `current` in `items` (before it unless `forward`),
+/// wrapping around. An item that is not in `items` steps from the first one;
+/// with no items at all `current` is kept.
+pub fn cycle<T: Copy + PartialEq>(items: &[T], current: T, forward: bool) -> T {
+    let n = items.len();
+    if n == 0 {
+        return current;
+    }
+    let i = items.iter().position(|x| *x == current).unwrap_or(0);
+    items[if forward {
+        (i + 1) % n
+    } else {
+        (i + n - 1) % n
+    }]
+}
 
 /// Default number of stopped jobs per page.
 pub const STOPPED_PAGE_SIZE: usize = 50;
@@ -47,8 +64,7 @@ impl SortKey {
 
     /// Next key in the cycle.
     pub fn next(self) -> SortKey {
-        let i = Self::ALL.iter().position(|k| *k == self).unwrap_or(0);
-        Self::ALL[(i + 1) % Self::ALL.len()]
+        cycle(&Self::ALL, self, true)
     }
 
     /// Label for the info bar.
@@ -68,7 +84,7 @@ impl SortKey {
     fn compare(self, a: &Job, b: &Job) -> Ordering {
         match self {
             SortKey::Queue => queue_order(a, b),
-            SortKey::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+            SortKey::Name => crate::format::cmp_ignore_case(&a.name, &b.name),
             SortKey::Size => b.total_bytes.cmp(&a.total_bytes),
             SortKey::Progress => b.progress().total_cmp(&a.progress()),
             SortKey::Speed => b.download_speed.cmp(&a.download_speed),
@@ -461,9 +477,13 @@ impl DownloadsList {
                 bottom += 1;
                 ctx += self.row_lines(bottom, tall);
             }
-            let heights: Vec<usize> = (0..n).map(|i| self.row_lines(i, tall)).collect();
-            let span = |from: usize, to: usize| -> usize { heights[from..=to].iter().sum() };
-            while self.offset < r && span(self.offset, bottom) > lines {
+            // Scroll down until the rows from the offset to `bottom` fit,
+            // keeping a running total so a long jump stays linear.
+            let mut span: usize = (self.offset..=bottom)
+                .map(|i| self.row_lines(i, tall))
+                .sum();
+            while self.offset < r && span > lines {
+                span -= self.row_lines(self.offset, tall);
                 self.offset += 1;
             }
         }
@@ -559,6 +579,18 @@ mod tests {
         let mut l = DownloadsList::default();
         l.recompute(jobs);
         l
+    }
+
+    #[test]
+    fn cycle_wraps_both_ways() {
+        assert_eq!(cycle(&[1, 2, 3], 3, true), 1);
+        assert_eq!(cycle(&[1, 2, 3], 1, false), 3);
+        assert_eq!(
+            cycle(&[1, 2, 3], 9, true),
+            2,
+            "unknown steps from the first"
+        );
+        assert_eq!(cycle(&[], 7, true), 7, "an empty ring never panics");
     }
 
     #[test]

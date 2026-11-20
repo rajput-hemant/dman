@@ -5,7 +5,7 @@
 //! command results) are funnelled into one mpsc channel of [`Msg`]s. The loop
 //! applies each message with [`update`], spawns the returned [`Cmd`]s as tasks
 //! (so a slow call never blocks input or rendering) and redraws when the state
-//! is dirty, at most every [`MIN_FRAME`].
+//! is dirty, at most every [`MIN_FRAME`] ([`ANIM_FRAME`] while animating).
 
 use std::io::{self, Stdout, stdout};
 use std::sync::atomic::{AtomicBool, Ordering};

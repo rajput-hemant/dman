@@ -1,5 +1,5 @@
 //! The downloads view: list actions, confirmations and mouse handling; the
-//! drawing lives in [`render`].
+//! drawing lives in [`render()`].
 
 mod preview;
 mod render;

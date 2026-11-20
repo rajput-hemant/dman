@@ -107,7 +107,8 @@ pub fn tail(state: &State) -> Vec<Hint> {
     .collect()
 }
 
-/// Everything the footer would show on an unlimited width.
+/// Everything the footer would show on an unlimited width (for the tests).
+#[cfg(test)]
 pub fn hints(state: &State) -> Vec<Hint> {
     let mut h = body(state);
     h.extend(tail(state));
@@ -216,9 +217,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State) {
     let mut spans = vec![Span::styled(mode.clone(), t.mode), Span::raw(" ")];
     let mut right: Vec<Span<'static>> = Vec::new();
     if state.pending > 0 {
-        let spin = state
-            .anim_ms()
-            .map_or(t.icons.spinner[0], |ms| t.icons.spin(ms));
+        let spin = state.spinner();
         right.push(Span::styled(format!("{spin} "), t.accent));
         right.push(Span::styled("working ", t.dim));
     }

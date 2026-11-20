@@ -284,16 +284,6 @@ impl Field {
     pub const fn is_multiline(self) -> bool {
         matches!(self, Field::Headers | Field::Engine)
     }
-
-    /// The next field, wrapping.
-    pub fn next(self) -> Field {
-        Field::ALL[(self.index() + 1) % Field::ALL.len()]
-    }
-
-    /// The previous field, wrapping.
-    pub fn prev(self) -> Field {
-        Field::ALL[(self.index() + Field::ALL.len() - 1) % Field::ALL.len()]
-    }
 }
 
 /// The value of a field.
@@ -785,12 +775,5 @@ mod tests {
         assert!(parse_checksum("md5=d41d8cd98f00b204e9800998ecf8427e").is_ok());
         assert!(parse_checksum("crc=1").is_err());
         assert!(parse_checksum("md5").is_err());
-    }
-
-    #[test]
-    fn field_navigation_wraps() {
-        assert_eq!(Field::Engine.next(), Field::Mirror);
-        assert_eq!(Field::Mirror.prev(), Field::Engine);
-        assert_eq!(Field::Dir.next(), Field::Out);
     }
 }

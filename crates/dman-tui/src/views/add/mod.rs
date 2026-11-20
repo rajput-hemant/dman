@@ -514,14 +514,7 @@ impl AddState {
     }
 
     fn step_focus(&mut self, forward: bool) {
-        let order = self.focus_order();
-        let n = order.len();
-        let i = order.iter().position(|f| *f == self.focus).unwrap_or(0);
-        self.focus = order[if forward {
-            (i + 1) % n
-        } else {
-            (i + n - 1) % n
-        }];
+        self.focus = crate::list::cycle(&self.focus_order(), self.focus, forward);
     }
 
     /// Footer hints while a popup is open.

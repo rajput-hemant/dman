@@ -164,11 +164,6 @@ impl Theme {
         })
     }
 
-    /// Whether `NO_COLOR` is set to a non-empty value (<https://no-color.org>).
-    pub fn no_color_env() -> bool {
-        std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())
-    }
-
     /// The canonical name of a theme setting, or `None` when unknown
     /// (`default` is the old name of `dman-dark`).
     pub fn canonical(name: &str) -> Option<&'static str> {

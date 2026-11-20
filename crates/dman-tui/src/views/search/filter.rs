@@ -9,7 +9,7 @@ use dman_proto::search::SearchResultDto;
 use nucleo_matcher::pattern::{CaseMatching, Normalization, Pattern};
 use nucleo_matcher::{Config, Matcher, Utf32Str};
 
-use crate::format::size;
+use crate::format::{cmp_ignore_case, size};
 
 /// What the results are ordered by.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -42,8 +42,7 @@ impl SortKey {
 
     /// The next key in the cycle.
     pub fn next(self) -> SortKey {
-        let i = Self::ALL.iter().position(|k| *k == self).unwrap_or(0);
-        Self::ALL[(i + 1) % Self::ALL.len()]
+        crate::list::cycle(&Self::ALL, self, true)
     }
 
     /// Name shown in the filter line.
@@ -65,21 +64,17 @@ impl SortKey {
             SortKey::Leechers => b.leechers.cmp(&a.leechers),
             SortKey::Size => b.size.cmp(&a.size),
             SortKey::Date => b.date.cmp(&a.date),
-            SortKey::Title => lower(&a.title).cmp(&lower(&b.title)),
-            SortKey::Source => first_source(a).cmp(&first_source(b)),
+            SortKey::Title => cmp_ignore_case(&a.title, &b.title),
+            SortKey::Source => cmp_ignore_case(first_source(a), first_source(b)),
         };
         primary
             .then_with(|| b.seeders.cmp(&a.seeders))
-            .then_with(|| lower(&a.title).cmp(&lower(&b.title)))
+            .then_with(|| cmp_ignore_case(&a.title, &b.title))
     }
 }
 
-fn lower(s: &str) -> String {
-    s.to_lowercase()
-}
-
-fn first_source(r: &SearchResultDto) -> String {
-    r.sources.first().map(|s| lower(s)).unwrap_or_default()
+fn first_source(r: &SearchResultDto) -> &str {
+    r.sources.first().map_or("", String::as_str)
 }
 
 /// The user's result filters.

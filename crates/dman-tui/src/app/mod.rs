@@ -428,6 +428,11 @@ impl State {
         self.ui.animations.then_some(self.anim.ms)
     }
 
+    /// The current spinner frame (the first one when animations are off).
+    pub fn spinner(&self) -> &'static str {
+        self.theme.icons.spin(self.anim_ms().unwrap_or(0))
+    }
+
     /// The progress bar value to draw for `job` (eased when animating).
     pub fn shown_progress(&self, job: &Job) -> f64 {
         if self.ui.animations {
@@ -456,7 +461,7 @@ impl State {
             return None;
         }
         if self.anim.busy(&self.jobs) {
-            Some(Duration::from_millis(33))
+            Some(crate::runtime::ANIM_FRAME)
         } else if self.spinning() {
             Some(Duration::from_millis(100))
         } else {

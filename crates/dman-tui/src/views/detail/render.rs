@@ -44,9 +44,7 @@ fn card_lines(state: &State, j: &Job, d: &DetailState, width: usize) -> Vec<Line
         format!("  {} / ?", format::size(j.completed_bytes))
     };
     let pct = if j.total_bytes > 0 {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let p = (j.progress().clamp(0.0, 1.0) * 100.0).floor() as u32;
-        format!(" {p:>3}%")
+        format!(" {:>3}%", format::percent(j))
     } else {
         String::new()
     };
@@ -336,9 +334,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &State, d: &DetailState)
             );
         }
         _ if waiting_meta => {
-            let spin = state
-                .anim_ms()
-                .map_or(t.icons.spinner[0], |ms| t.icons.spin(ms));
+            let spin = state.spinner();
             let lines = vec![
                 Line::from(vec![
                     Span::styled(format!("{spin} "), t.accent),

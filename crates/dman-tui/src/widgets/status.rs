@@ -3,7 +3,6 @@
 //! Transient messages are toasts ([`crate::widgets::toast`]).
 
 use dman_client::ConnState;
-use dman_proto::JobState;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
@@ -117,21 +116,6 @@ fn conn_label(state: &State) -> (String, Style) {
     }
 }
 
-/// (active, waiting, done, failed) counts of the listed jobs.
-fn counts(state: &State) -> [usize; 4] {
-    let mut c = [0; 4];
-    for j in state.jobs.values() {
-        match j.state {
-            JobState::Active | JobState::Seeding => c[0] += 1,
-            JobState::Waiting | JobState::Paused => c[1] += 1,
-            JobState::Complete => c[2] += 1,
-            JobState::Error => c[3] += 1,
-            JobState::Removed => {}
-        }
-    }
-    c
-}
-
 /// A segment of the header: priority (lower = kept longer) and spans.
 type Segment = (u8, Vec<Span<'static>>);
 
@@ -193,7 +177,7 @@ pub fn render_header(frame: &mut Frame<'_>, area: Rect, state: &State) {
         s.extend(speed_spans(state, t.icons.up, up, t.graph_up, true));
         left.push((1, s));
     }
-    let [a, w, d, f] = counts(state);
+    let [_, a, w, d, f] = crate::views::downloads::chip_counts(state);
     let any = a + w + d + f > 0;
     let mut c = vec![Span::raw("  ")];
     let short = width < 100;

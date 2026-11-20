@@ -560,27 +560,16 @@ mod tests {
         use dman_proto::Engine;
         use dman_store::Desired;
         let mut rec = JobRecord {
-            id: dman_proto::JobId(1),
-            engine: Engine::Aria2,
-            kind: SourceKind::Torrent,
             name: "T".into(),
             dir: "/dl".into(),
-            source: String::new(),
-            options: JobOptions::default(),
             desired: Desired::Stopped,
             state: JobState::Complete,
-            gid: None,
-            info_hash: None,
-            total_bytes: 0,
-            completed_bytes: 0,
-            uploaded_base: 0,
-            uploaded_session: 0,
-            added_at: 0,
-            completed_at: None,
-            queue_key: 0,
-            error: None,
-            has_blob: false,
-            extra: Default::default(),
+            ..JobRecord::new(
+                dman_proto::JobId(1),
+                Engine::Aria2,
+                SourceKind::Torrent,
+                false,
+            )
         };
         rec.extra.insert(
             "files".into(),

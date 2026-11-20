@@ -92,6 +92,40 @@ pub struct JobRecord {
 }
 
 impl JobRecord {
+    /// A record for a job that has not run yet: no gid, progress or error,
+    /// and empty name, directory and source for the caller to fill in. A
+    /// `paused` job waits for a resume, any other for a queue slot.
+    pub fn new(id: JobId, engine: Engine, kind: SourceKind, paused: bool) -> Self {
+        let (desired, state) = if paused {
+            (Desired::Paused, JobState::Paused)
+        } else {
+            (Desired::Queued, JobState::Waiting)
+        };
+        Self {
+            id,
+            engine,
+            kind,
+            name: String::new(),
+            dir: String::new(),
+            source: String::new(),
+            options: JobOptions::default(),
+            desired,
+            state,
+            gid: None,
+            info_hash: None,
+            total_bytes: 0,
+            completed_bytes: 0,
+            uploaded_base: 0,
+            uploaded_session: 0,
+            added_at: 0,
+            completed_at: None,
+            queue_key: 0,
+            error: None,
+            has_blob: false,
+            extra: serde_json::Map::new(),
+        }
+    }
+
     /// Total uploaded bytes across all engine sessions.
     pub fn uploaded_total(&self) -> u64 {
         self.uploaded_base.saturating_add(self.uploaded_session)

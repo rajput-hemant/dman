@@ -1,7 +1,7 @@
 //! Human-readable sizes, speeds, ETAs and text helpers.
 
 use bytesize::ByteSize;
-use dman_proto::{Job, JobState};
+use dman_proto::Job;
 
 /// `1.2 MiB`.
 pub fn size(bytes: u64) -> String {
@@ -47,42 +47,12 @@ pub fn eta(secs: Option<u64>) -> String {
     }
 }
 
-/// Short state label (fits 8 columns).
-pub const fn state(s: JobState) -> &'static str {
-    match s {
-        JobState::Waiting => "waiting",
-        JobState::Active => "active",
-        JobState::Seeding => "seeding",
-        JobState::Paused => "paused",
-        JobState::Complete => "done",
-        JobState::Error => "error",
-        JobState::Removed => "removed",
-    }
-}
-
-/// Text progress bar of `width` cells followed by a percentage, e.g.
-/// `█████░░░  62%`. Unknown sizes render as an empty bar with `  -`.
-pub fn progress_bar(job: &Job, width: usize) -> String {
-    let known = job.total_bytes > 0;
-    let p = if known {
-        job.progress().clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    // Truncation is intended: a cell is only full when reached.
+/// Whole percent done, rounded down so that 99.9 % never reads as done.
+pub fn percent(job: &Job) -> u32 {
+    // The value is within 0..=100.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let filled = ((p * width as f64).floor() as usize).min(width);
-    let mut out = String::with_capacity(width * 3 + 5);
-    out.extend(std::iter::repeat_n('█', filled));
-    out.extend(std::iter::repeat_n('░', width - filled));
-    if known {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let pct = (p * 100.0).floor() as u32;
-        out.push_str(&format!(" {pct:>3}%"));
-    } else {
-        out.push_str("    -");
-    }
-    out
+    let p = (job.progress().clamp(0.0, 1.0) * 100.0).floor() as u32;
+    p
 }
 
 /// `1.23`, or `-` when nothing was downloaded or uploaded yet.
@@ -152,6 +122,20 @@ pub fn truncate(s: &str, max: usize) -> String {
     out
 }
 
+/// Shorten `s` to at most `max` columns by cutting the start, so the end of
+/// a long path survives: `…/videos/clip.mp4`.
+pub fn truncate_start(s: &str, max: usize) -> String {
+    if width(s) <= max {
+        return s.to_owned();
+    }
+    if max == 0 {
+        return String::new();
+    }
+    let mut out = String::from('…');
+    out.push_str(tail(s, max - 1));
+    out
+}
+
 /// [`truncate`] and pad with spaces to exactly `cols` columns.
 pub fn fit(s: &str, cols: usize) -> String {
     let mut out = truncate(s, cols);
@@ -198,12 +182,6 @@ pub fn split_size(bytes: u64, per_sec: bool, compact: bool) -> (String, String) 
     (num.to_owned(), unit)
 }
 
-/// `1.2G` style compact size.
-pub fn size_compact(bytes: u64) -> String {
-    let (n, u) = split_size(bytes, false, true);
-    format!("{n}{u}")
-}
-
 /// `just now`, `5m ago`, `3h ago`, `2d ago`.
 pub fn ago(secs: i64) -> String {
     match secs.max(0) {
@@ -213,6 +191,19 @@ pub fn ago(secs: i64) -> String {
         s @ 86_400..=2_591_999 => format!("{}d ago", s / 86_400),
         s @ 2_592_000..=31_535_999 => format!("{}mo ago", s / 2_592_000),
         s => format!("{}y ago", s / 31_536_000),
+    }
+}
+
+/// Compare the lowercase forms of `a` and `b`. Sorting compares each item
+/// many times, so ASCII text (most names) is compared without allocating
+/// lowercase copies.
+pub fn cmp_ignore_case(a: &str, b: &str) -> std::cmp::Ordering {
+    if a.is_ascii() && b.is_ascii() {
+        a.bytes()
+            .map(|c| c.to_ascii_lowercase())
+            .cmp(b.bytes().map(|c| c.to_ascii_lowercase()))
+    } else {
+        a.to_lowercase().cmp(&b.to_lowercase())
     }
 }
 
@@ -243,6 +234,9 @@ mod tests {
         assert_eq!(truncate("abcdef", 4), "abc…");
         assert_eq!(truncate("abc", 4), "abc");
         assert_eq!(truncate("abc", 0), "");
+        assert_eq!(truncate_start("/home/user/a.iso", 8), "…r/a.iso");
+        assert_eq!(truncate_start("/tmp", 8), "/tmp");
+        assert_eq!(truncate_start("/動画/日本語.mkv", 9), "…本語.mkv");
     }
 
     #[test]
@@ -284,9 +278,17 @@ mod tests {
             split_size(12 << 20, true, true),
             ("12.0".into(), "M".into())
         );
-        assert_eq!(size_compact(500), "500B");
         assert_eq!(ago(30), "just now");
         assert_eq!(ago(7200), "2h ago");
+    }
+
+    #[test]
+    fn case_insensitive_order() {
+        use std::cmp::Ordering;
+        assert_eq!(cmp_ignore_case("Abc", "abd"), Ordering::Less);
+        assert_eq!(cmp_ignore_case("ABC", "abc"), Ordering::Equal);
+        assert_eq!(cmp_ignore_case("b", "A"), Ordering::Greater);
+        assert_eq!(cmp_ignore_case("Ä", "ä"), Ordering::Equal);
     }
 
     #[test]

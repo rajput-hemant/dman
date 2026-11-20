@@ -301,16 +301,7 @@ impl Picker {
     }
 
     fn step_focus(&mut self, forward: bool) {
-        let i = FOCUS_ORDER
-            .iter()
-            .position(|f| *f == self.focus)
-            .unwrap_or(0);
-        let n = FOCUS_ORDER.len();
-        self.focus = FOCUS_ORDER[if forward {
-            (i + 1) % n
-        } else {
-            (i + n - 1) % n
-        }];
+        self.focus = crate::list::cycle(&FOCUS_ORDER, self.focus, forward);
     }
 
     fn step_preset(&mut self, delta: isize) {
@@ -488,7 +479,7 @@ fn choice_row(
         tail = format!("  ({why})");
     }
     let marker = if on { "▸ " } else { "  " };
-    let room = width.saturating_sub(2 + tail.chars().count());
+    let room = width.saturating_sub(2 + format::width(&tail));
     let text = format!("{marker}{}{tail}", truncate(&label, room));
     let style = if !c.available {
         theme.dim

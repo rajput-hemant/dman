@@ -104,9 +104,7 @@ pub(super) fn render_empty(frame: &mut Frame<'_>, area: Rect, state: &State) {
         }
         out
     } else {
-        let spin = state
-            .anim_ms()
-            .map_or(t.icons.spinner[0], |ms| t.icons.spin(ms));
+        let spin = state.spinner();
         vec![Line::from(vec![
             Span::styled(format!("{spin} "), t.accent),
             Span::styled(fit("No data — waiting for the daemon".into()), t.dim),
@@ -243,8 +241,7 @@ fn preview_job(state: &State, j: &Job, width: usize) -> Vec<Line<'static>> {
         bar::bar(t, bar_w, state.shown_progress(j), t.state(j.state))
     };
     if j.total_bytes > 0 {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let pct = (j.progress().clamp(0.0, 1.0) * 100.0).floor() as u32;
+        let pct = format::percent(j);
         bar_line.push(Span::styled(format!(" {pct:>3}%"), t.text));
     }
     out.push(Line::from(bar_line));

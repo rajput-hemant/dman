@@ -8,12 +8,15 @@
 //! cancels the search nor loses its results; only Esc inside the view cancels.
 //!
 //! Events may arrive before the `search.start` reply has told us the id; they
-//! are buffered ([`SearchState::early`]) and replayed when the reply comes.
+//! are buffered (`SearchState::early`) and replayed when the reply comes.
 //!
 //! Adding: a result's magnet is used as is; with only a detail page it is first
 //! resolved with `search.resolve` (an [`AddFlow`]); with only a torrent URL that
 //! URL is added as an http source. The sources then open the Add view
 //! (prefilled) or, for `A`, go straight to `jobs.add` with the profile defaults.
+//!
+//! [`Event::SearchUpdate`]: dman_proto::method::Event::SearchUpdate
+//! [`Event::SearchFinished`]: dman_proto::method::Event::SearchFinished
 
 pub mod filter;
 pub mod render;

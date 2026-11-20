@@ -364,10 +364,9 @@ impl Manager {
         if status == DownloadStatus::Waiting && pause_gid(client, &g).await.is_err() {
             return;
         }
-        let ids = self
-            .db(|s| Ok((s.next_job_id()?, s.next_queue_key()?)))
-            .await;
-        let Ok((id, key)) = ids else { return };
+        let Ok((id, key)) = self.next_ids().await else {
+            return;
+        };
         let first_uri = st
             .files
             .as_ref()
@@ -408,30 +407,23 @@ impl Manager {
             extra.insert("files".into(), json!(file_paths(files)));
         }
         let rec = JobRecord {
-            id,
-            engine: Engine::Aria2,
-            kind,
             name,
             dir: st
                 .dir
                 .clone()
                 .unwrap_or_else(|| self.default_dir.display().to_string()),
             source,
-            options: Default::default(),
             desired,
             state,
             gid: Some(gid.to_owned()),
             info_hash: st.info_hash.clone(),
             total_bytes: st.total_length.unwrap_or(0),
             completed_bytes: st.completed_length.unwrap_or(0),
-            uploaded_base: 0,
             uploaded_session: st.upload_length.unwrap_or(0),
             added_at: now(),
-            completed_at: None,
             queue_key: key,
-            error: None,
-            has_blob: false,
             extra,
+            ..JobRecord::new(id, Engine::Aria2, kind, false)
         };
         tracing::info!(%id, gid, "adopted a download added outside dman");
         let mut e = Entry::new(rec);

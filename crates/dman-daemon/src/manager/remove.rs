@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 
 use dman_aria2::{DownloadStatus, Gid};
-use dman_proto::method::{BatchFailure, BatchResult, Event, RemoveParams};
+use dman_proto::method::{BatchFailure, BatchResult, Event};
 use dman_proto::{ErrorCode, JobId, JobState, RpcError};
 use dman_store::{Desired, LiveFigures};
 use serde_json::json;
@@ -37,23 +37,8 @@ pub(super) fn note_removal(rec: &mut dman_store::JobRecord, delete_files: bool) 
 impl Manager {
     // ----- restore -----------------------------------------------------------
 
-    pub(super) async fn restore(&mut self, ids: &[JobId]) -> BatchResult {
-        let mut res = BatchResult {
-            ok: Vec::new(),
-            failed: Vec::new(),
-        };
-        for &id in ids {
-            match self.restore_one(id).await {
-                Ok(()) => res.ok.push(id),
-                Err(error) => res.failed.push(BatchFailure { id, error }),
-            }
-        }
-        self.flush(true).await;
-        res
-    }
-
     /// Undoes `jobs.remove`: the job returns to the state it had before.
-    async fn restore_one(&mut self, id: JobId) -> Result<(), RpcError> {
+    pub(super) async fn restore_one(&mut self, id: JobId) -> Result<(), RpcError> {
         let e = self
             .jobs
             .get(&id)
@@ -143,21 +128,6 @@ impl Manager {
     }
 
     // ----- remove / purge ----------------------------------------------------
-
-    pub(super) async fn remove(&mut self, p: RemoveParams) -> BatchResult {
-        let mut res = BatchResult {
-            ok: Vec::new(),
-            failed: Vec::new(),
-        };
-        for &id in &p.ids {
-            match self.remove_one(id, p.delete_files, p.force).await {
-                Ok(()) => res.ok.push(id),
-                Err(error) => res.failed.push(BatchFailure { id, error }),
-            }
-        }
-        self.flush(true).await;
-        res
-    }
 
     pub(super) async fn remove_one(
         &mut self,
@@ -290,10 +260,7 @@ impl Manager {
     }
 
     pub(super) async fn purge(&mut self, ids: Vec<JobId>) -> BatchResult {
-        let mut res = BatchResult {
-            ok: Vec::new(),
-            failed: Vec::new(),
-        };
+        let mut res = BatchResult::default();
         let ids: Vec<JobId> = if ids.is_empty() {
             let mut v: Vec<JobId> = self
                 .jobs

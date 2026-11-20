@@ -17,8 +17,7 @@ use url::Url;
 
 use crate::error::{Aria2Error, Error, Result};
 use crate::types::{
-    Aria2Event, Aria2Notification, File, FileUri, Gid, GlobalStat, Options, Peer, PosHow,
-    ServerGroup, SessionInfo, Status, Version,
+    Aria2Event, Aria2Notification, File, Gid, GlobalStat, Options, PosHow, Status, Version,
 };
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -265,19 +264,9 @@ impl Aria2Client {
         self.call_ok("aria2.pauseAll", vec![]).await
     }
 
-    /// `aria2.forcePauseAll`
-    pub async fn force_pause_all(&self) -> Result<()> {
-        self.call_ok("aria2.forcePauseAll", vec![]).await
-    }
-
     /// `aria2.unpause`
     pub async fn unpause(&self, gid: &Gid) -> Result<Gid> {
         self.call("aria2.unpause", vec![json!(gid)]).await
-    }
-
-    /// `aria2.unpauseAll`
-    pub async fn unpause_all(&self) -> Result<()> {
-        self.call_ok("aria2.unpauseAll", vec![]).await
     }
 
     // ----- queries ----------------------------------------------------------
@@ -314,21 +303,6 @@ impl Aria2Client {
         self.call("aria2.getFiles", vec![json!(gid)]).await
     }
 
-    /// `aria2.getPeers`
-    pub async fn get_peers(&self, gid: &Gid) -> Result<Vec<Peer>> {
-        self.call("aria2.getPeers", vec![json!(gid)]).await
-    }
-
-    /// `aria2.getServers`
-    pub async fn get_servers(&self, gid: &Gid) -> Result<Vec<ServerGroup>> {
-        self.call("aria2.getServers", vec![json!(gid)]).await
-    }
-
-    /// `aria2.getUris`
-    pub async fn get_uris(&self, gid: &Gid) -> Result<Vec<FileUri>> {
-        self.call("aria2.getUris", vec![json!(gid)]).await
-    }
-
     /// `aria2.changePosition`; returns the new position.
     pub async fn change_position(&self, gid: &Gid, pos: i64, how: PosHow) -> Result<i64> {
         self.call(
@@ -357,21 +331,11 @@ impl Aria2Client {
             .await
     }
 
-    /// `aria2.getGlobalOption`
-    pub async fn get_global_option(&self) -> Result<Options> {
-        self.call("aria2.getGlobalOption", vec![]).await
-    }
-
     // ----- global -----------------------------------------------------------
 
     /// `aria2.getGlobalStat`
     pub async fn get_global_stat(&self) -> Result<GlobalStat> {
         self.call("aria2.getGlobalStat", vec![]).await
-    }
-
-    /// `aria2.purgeDownloadResult`
-    pub async fn purge_download_result(&self) -> Result<()> {
-        self.call_ok("aria2.purgeDownloadResult", vec![]).await
     }
 
     /// `aria2.removeDownloadResult`
@@ -383,11 +347,6 @@ impl Aria2Client {
     /// `aria2.getVersion`
     pub async fn get_version(&self) -> Result<Version> {
         self.call("aria2.getVersion", vec![]).await
-    }
-
-    /// `aria2.getSessionInfo`
-    pub async fn get_session_info(&self) -> Result<SessionInfo> {
-        self.call("aria2.getSessionInfo", vec![]).await
     }
 
     /// `aria2.saveSession`

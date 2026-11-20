@@ -216,39 +216,15 @@ impl Manager {
             &self.tools,
         )
         .map_err(RpcError::invalid)?;
-        let (id, key) = self
-            .db(|s| Ok((s.next_job_id()?, s.next_queue_key()?)))
-            .await?;
+        let (id, key) = self.next_ids().await?;
         let mut rec = JobRecord {
-            id,
-            engine: Engine::YtDlp,
-            kind: SourceKind::Video,
             name: crate::tick::name_of_uri(spec.url.as_str()),
             dir: dir.to_owned(),
             source: spec.url.to_string(),
             options: options.clone(),
-            desired: if paused {
-                Desired::Paused
-            } else {
-                Desired::Queued
-            },
-            state: if paused {
-                JobState::Paused
-            } else {
-                JobState::Waiting
-            },
-            gid: None,
-            info_hash: None,
-            total_bytes: 0,
-            completed_bytes: 0,
-            uploaded_base: 0,
-            uploaded_session: 0,
             added_at: now(),
-            completed_at: None,
             queue_key: key,
-            error: None,
-            has_blob: false,
-            extra: serde_json::Map::new(),
+            ..JobRecord::new(id, Engine::YtDlp, SourceKind::Video, paused)
         };
         rec.extra.insert(
             KEY_OPTIONS.into(),
@@ -689,27 +665,10 @@ mod tests {
 
     fn rec(dir: &Path) -> JobRecord {
         JobRecord {
-            id: JobId(7),
-            engine: Engine::YtDlp,
-            kind: SourceKind::Video,
             name: "v".into(),
             dir: dir.display().to_string(),
             source: "https://e.com/v".into(),
-            options: JobOptions::default(),
-            desired: Desired::Queued,
-            state: JobState::Waiting,
-            gid: None,
-            info_hash: None,
-            total_bytes: 0,
-            completed_bytes: 0,
-            uploaded_base: 0,
-            uploaded_session: 0,
-            added_at: 0,
-            completed_at: None,
-            queue_key: 0,
-            error: None,
-            has_blob: false,
-            extra: Default::default(),
+            ..JobRecord::new(JobId(7), Engine::YtDlp, SourceKind::Video, false)
         }
     }
 

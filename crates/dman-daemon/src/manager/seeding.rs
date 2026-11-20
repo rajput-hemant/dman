@@ -377,31 +377,19 @@ mod tests {
 
     fn rec(ratio: Option<f64>, time: Option<u64>) -> JobRecord {
         JobRecord {
-            id: JobId(1),
-            engine: Engine::Aria2,
-            kind: SourceKind::Torrent,
             name: "n".into(),
             dir: "/d".into(),
-            source: String::new(),
             options: JobOptions {
                 seed_ratio: ratio,
                 seed_time: time,
                 ..Default::default()
             },
-            desired: Desired::Queued,
             state: JobState::Seeding,
             gid: Some("g".into()),
-            info_hash: None,
             total_bytes: 1000,
             completed_bytes: 1000,
-            uploaded_base: 0,
-            uploaded_session: 0,
-            added_at: 0,
             completed_at: Some(1_000),
-            queue_key: 0,
-            error: None,
-            has_blob: false,
-            extra: Default::default(),
+            ..JobRecord::new(JobId(1), Engine::Aria2, SourceKind::Torrent, false)
         }
     }
 

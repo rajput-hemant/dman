@@ -20,5 +20,5 @@ pub use supervisor::{
 };
 pub use types::{
     Aria2Event, Aria2Notification, BitTorrent, BtInfo, DownloadStatus, File, FileUri, Gid,
-    GlobalStat, Options, Peer, PosHow, Server, ServerGroup, SessionInfo, Status, Version,
+    GlobalStat, Options, Peer, PosHow, Status, Version,
 };

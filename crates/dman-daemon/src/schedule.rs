@@ -43,11 +43,6 @@ impl SystemClock {
             }
         }
     }
-
-    /// A specific zone.
-    pub fn with_zone(tz: TimeZone) -> Self {
-        Self { tz }
-    }
 }
 
 impl Clock for SystemClock {

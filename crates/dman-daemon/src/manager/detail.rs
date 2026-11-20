@@ -279,7 +279,7 @@ pub(crate) fn bitfield_progress(hex: &str, num_pieces: u64) -> f64 {
 mod tests {
     use super::*;
     use dman_aria2::File;
-    use dman_proto::{Engine, JobOptions, JobState};
+    use dman_proto::{Engine, JobState};
     use dman_store::Desired;
     use serde_json::json;
 
@@ -359,27 +359,14 @@ mod tests {
     #[test]
     fn stored_files_fallback() {
         let mut rec = JobRecord {
-            id: JobId(1),
-            engine: Engine::Aria2,
-            kind: SourceKind::Http,
             name: "a".into(),
             dir: "/dl".into(),
             source: "x".into(),
-            options: JobOptions::default(),
             desired: Desired::Stopped,
             state: JobState::Complete,
-            gid: None,
-            info_hash: None,
             total_bytes: 10,
             completed_bytes: 10,
-            uploaded_base: 0,
-            uploaded_session: 0,
-            added_at: 0,
-            completed_at: None,
-            queue_key: 0,
-            error: None,
-            has_blob: false,
-            extra: Default::default(),
+            ..JobRecord::new(JobId(1), Engine::Aria2, SourceKind::Http, false)
         };
         assert!(stored_files(&rec).is_empty());
         rec.extra.insert("files".into(), json!(["/dl/a"]));

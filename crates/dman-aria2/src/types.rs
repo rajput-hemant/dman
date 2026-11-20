@@ -376,32 +376,6 @@ pub struct Peer {
     pub seeder: Option<bool>,
 }
 
-/// One server of a file (`getServers`).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Server {
-    /// Original URI.
-    #[serde(default)]
-    pub uri: Option<String>,
-    /// URI currently in use (after redirects).
-    #[serde(default)]
-    pub current_uri: Option<String>,
-    /// Download speed, bytes/s.
-    #[serde(default, deserialize_with = "de_opt_num")]
-    pub download_speed: Option<u64>,
-}
-
-/// Servers grouped by file index (`getServers`).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-pub struct ServerGroup {
-    /// 1-based file index.
-    #[serde(default, deserialize_with = "de_opt_num")]
-    pub index: Option<u64>,
-    /// Servers in use for that file.
-    #[serde(default)]
-    pub servers: Vec<Server>,
-}
-
 /// Global statistics (`getGlobalStat`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -436,15 +410,6 @@ pub struct Version {
     /// Compiled-in features.
     #[serde(default)]
     pub enabled_features: Vec<String>,
-}
-
-/// Session information (`getSessionInfo`).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionInfo {
-    /// Session id.
-    #[serde(default)]
-    pub session_id: String,
 }
 
 /// Kind of a server notification.

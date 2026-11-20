@@ -155,6 +155,7 @@ impl Toasts {
     }
 
     /// Whether an undo is offered right now.
+    #[cfg(test)]
     pub fn has_undo(&self) -> bool {
         self.items
             .iter()

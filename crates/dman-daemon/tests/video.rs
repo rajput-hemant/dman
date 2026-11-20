@@ -11,118 +11,25 @@
 #![cfg(unix)]
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use dman_client::{Client, ClientError};
-use dman_config::{Config, DaemonTarget, DiskThreshold, Paths, Secrets};
-use dman_daemon::{DaemonOptions, run};
+use dman_config::{Config, DaemonTarget, DiskThreshold, Paths};
 use dman_proto::method::{Event, Level, ListParams, Outcome, RemoveParams};
 use dman_proto::{
     AddOutcome, AddParams, AddSource, Engine, ErrorCode, Job, JobId, JobOptions, JobState,
     SourceKind, VideoOptions, VideoProbeParams,
 };
-use secrecy::SecretString;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::broadcast;
-use tokio::task::JoinHandle;
-use url::Url;
 
 fn env_on(name: &str) -> bool {
     std::env::var(name).as_deref() == Ok("1")
 }
 
 mod support;
-use support::free_port;
-
-// ----- a tiny Range-capable HTTP file server ----------------------------------
-
-async fn serve_files(files: HashMap<String, Vec<u8>>) -> SocketAddr {
-    let files = Arc::new(files);
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    tokio::spawn(async move {
-        while let Ok((s, _)) = l.accept().await {
-            tokio::spawn(handle_http(s, files.clone()));
-        }
-    });
-    addr
-}
-
-async fn handle_http(mut s: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 2048];
-    while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
-        match s.read(&mut chunk).await {
-            Ok(0) | Err(_) => return,
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
-        }
-    }
-    let head = String::from_utf8_lossy(&buf).to_string();
-    let mut lines = head.lines();
-    let first = lines.next().unwrap_or_default();
-    let mut parts = first.split_whitespace();
-    let method = parts.next().unwrap_or_default().to_owned();
-    let path = parts.next().unwrap_or_default().trim_start_matches('/');
-    let range = lines.find_map(|l| {
-        let (k, v) = l.split_once(':')?;
-        k.trim()
-            .eq_ignore_ascii_case("range")
-            .then(|| v.trim().to_owned())
-    });
-    let Some(data) = files.get(path) else {
-        let _ = s
-            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .await;
-        return;
-    };
-    let len = data.len();
-    let (status, start, end) = match range.as_deref().and_then(|r| r.strip_prefix("bytes=")) {
-        Some(r) => {
-            let (a, b) = r.split_once('-').unwrap_or((r, ""));
-            let a: usize = a.parse().unwrap_or(0);
-            let b: usize = b.parse().unwrap_or(len - 1).min(len - 1);
-            ("206 Partial Content", a, b)
-        }
-        None => ("200 OK", 0, len - 1),
-    };
-    let body = &data[start..=end];
-    let ctype = if path.ends_with(".mp4") {
-        "video/mp4"
-    } else {
-        "application/octet-stream"
-    };
-    let mut h = format!(
-        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nContent-Type: {ctype}\r\nConnection: close\r\n",
-        body.len()
-    );
-    if status.starts_with("206") {
-        h.push_str(&format!("Content-Range: bytes {start}-{end}/{len}\r\n"));
-    }
-    h.push_str("\r\n");
-    if s.write_all(h.as_bytes()).await.is_err() {
-        return;
-    }
-    if method != "HEAD" {
-        for c in body.chunks(16 * 1024) {
-            if s.write_all(c).await.is_err() {
-                return;
-            }
-        }
-    }
-    let _ = s.shutdown().await;
-}
+use support::{Daemon, added, free_port, job, serve_files, wait_event, wait_jobs};
 
 // ----- daemon harness ---------------------------------------------------------
-
-struct Daemon {
-    paths: Paths,
-    url: Url,
-    task: JoinHandle<anyhow::Result<()>>,
-}
 
 fn config(root: &Path, aria2: &str, ytdlp: &str, ffmpeg: Option<&str>) -> Config {
     let mut c = Config::default();
@@ -144,105 +51,8 @@ fn config(root: &Path, aria2: &str, ytdlp: &str, ffmpeg: Option<&str>) -> Config
     c
 }
 
-impl Daemon {
-    async fn start(root: &Path, config: Config) -> Self {
-        let paths = Paths::with_root(root);
-        let DaemonTarget::Local { listen, .. } = &config.profiles["local"].daemon else {
-            unreachable!()
-        };
-        let url = Url::parse(&format!("ws://{listen}/api/v1/ws")).unwrap();
-        let task = tokio::spawn(run(DaemonOptions {
-            paths: paths.clone(),
-            config,
-            profile: "local".into(),
-        }));
-        let d = Self { paths, url, task };
-        for _ in 0..200 {
-            if d.task.is_finished() {
-                break;
-            }
-            if d.try_connect().await.is_ok() {
-                return d;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        let r = d.task.await;
-        panic!("daemon did not come up: {r:?}");
-    }
-
-    fn token(&self) -> SecretString {
-        Secrets::load(&self.paths)
-            .ok()
-            .and_then(|s| s.get("daemon"))
-            .unwrap_or_else(|| SecretString::from(String::new()))
-    }
-
-    async fn try_connect(&self) -> Result<Client, ClientError> {
-        Client::connect(&self.url, self.token(), "dman-test").await
-    }
-
-    async fn client(&self) -> Client {
-        self.try_connect().await.expect("connect")
-    }
-
-    async fn stop(self, client: &Client) {
-        client.shutdown().await.expect("shutdown call");
-        tokio::time::timeout(Duration::from_secs(30), self.task)
-            .await
-            .expect("daemon did not stop")
-            .expect("join")
-            .expect("daemon result");
-    }
-}
-
-async fn wait_jobs(c: &Client, secs: u64, what: &str, f: impl Fn(&[Job]) -> bool) -> Vec<Job> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(secs);
-    loop {
-        let jobs = c.list(ListParams::default()).await.expect("list");
-        if f(&jobs) {
-            return jobs;
-        }
-        if tokio::time::Instant::now() > deadline {
-            panic!("timed out waiting for {what}: {jobs:#?}");
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-}
-
-fn job(jobs: &[Job], id: JobId) -> &Job {
-    jobs.iter()
-        .find(|j| j.id == id)
-        .unwrap_or_else(|| panic!("job {id} missing"))
-}
-
 fn state_of(jobs: &[Job], id: JobId) -> JobState {
     job(jobs, id).state
-}
-
-fn added(outcomes: &[AddOutcome]) -> Vec<JobId> {
-    outcomes
-        .iter()
-        .map(|o| match o {
-            AddOutcome::Added { id, .. } => *id,
-            AddOutcome::Failed { error } => panic!("add failed: {error}"),
-        })
-        .collect()
-}
-
-async fn wait_event(
-    rx: &mut broadcast::Receiver<Event>,
-    secs: u64,
-    f: impl Fn(&Event) -> bool,
-) -> Option<Event> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(secs);
-    loop {
-        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        match tokio::time::timeout(left, rx.recv()).await {
-            Ok(Ok(e)) if f(&e) => return Some(e),
-            Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) => {}
-            Ok(Err(_)) | Err(_) => return None,
-        }
-    }
 }
 
 fn video(url: impl Into<String>, video: VideoOptions) -> AddSource {

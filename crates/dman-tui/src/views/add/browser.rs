@@ -16,7 +16,7 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
-use crate::format::{size, truncate};
+use crate::format::{self, size, truncate};
 use crate::theme::Theme;
 
 /// Most entries kept per local directory.
@@ -75,7 +75,7 @@ pub fn read_local_dir(path: Option<&Path>) -> Result<LocalListing, String> {
     entries.sort_by(|a, b| {
         b.is_dir
             .cmp(&a.is_dir)
-            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            .then_with(|| crate::format::cmp_ignore_case(&a.name, &b.name))
             .then_with(|| a.name.cmp(&b.name))
     });
     Ok(LocalListing {
@@ -536,7 +536,10 @@ fn render_popup(
         theme.border_focus,
     );
     let width = usize::from(inner.width);
-    let mut lines = vec![Line::styled(truncate_left(head, width), theme.accent)];
+    let mut lines = vec![Line::styled(
+        format::truncate_start(head, width),
+        theme.accent,
+    )];
     if let Some(e) = error {
         lines.push(Line::styled(truncate(e, width), theme.error));
     } else if loading {
@@ -549,14 +552,8 @@ fn render_popup(
     let list_h = usize::from(inner.height).saturating_sub(lines.len());
     let top = (cursor + 1).saturating_sub(list_h);
     for (i, r) in rows.iter().enumerate().skip(top).take(list_h) {
-        let right_w = r.right.chars().count();
-        let name_w = width.saturating_sub(4 + right_w + 1);
-        let text = format!(
-            "{} {:<name_w$} {}",
-            r.mark,
-            truncate(&r.name, name_w),
-            r.right
-        );
+        let name_w = width.saturating_sub(4 + format::width(&r.right) + 1);
+        let text = format!("{} {} {}", r.mark, format::fit(&r.name, name_w), r.right);
         let style = if i == cursor {
             theme.cursor
         } else if r.dir {
@@ -567,17 +564,6 @@ fn render_popup(
         lines.push(Line::styled(text, style));
     }
     frame.render_widget(Paragraph::new(lines), inner);
-}
-
-/// Keep the end of a long path.
-fn truncate_left(s: &str, max: usize) -> String {
-    let n = s.chars().count();
-    if n <= max {
-        s.to_owned()
-    } else {
-        let tail: String = s.chars().skip(n - max.saturating_sub(1)).collect();
-        format!("…{tail}")
-    }
 }
 
 #[cfg(test)]
@@ -735,5 +721,39 @@ mod tests {
         assert_eq!(join_remote("/a", "b"), "/a/b");
         assert_eq!(join_remote("/", "b"), "/b");
         assert_eq!(join_remote(r"C:\a", "b"), r"C:\a\b");
+    }
+
+    #[test]
+    fn wide_names_keep_the_size_column_aligned() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+        let row = |name: &str| Row {
+            mark: " ",
+            name: name.to_owned(),
+            right: "1.0 MiB".to_owned(),
+            dir: false,
+        };
+        let rows = [row("plain-name.mkv"), row("日本語のファイル名.mkv")];
+        let mut term = Terminal::new(TestBackend::new(60, 14)).expect("test terminal");
+        term.draw(|f| {
+            let theme = Theme::default();
+            render_popup(f, f.area(), &theme, "Files", "/", &rows, 0, None, false, "");
+        })
+        .expect("draw succeeds");
+        let buf = term.backend().buffer();
+        // Column of the last "B" of the size on the row that shows `name`.
+        let size_end = |name: char| {
+            (0..buf.area.height)
+                .find_map(|y| {
+                    let line: Vec<&str> =
+                        (0..buf.area.width).map(|x| buf[(x, y)].symbol()).collect();
+                    let text = line.concat();
+                    text.contains(name)
+                        .then(|| line.iter().rposition(|c| *c == "B"))
+                        .flatten()
+                })
+                .expect("row is drawn")
+        };
+        assert_eq!(size_end('p'), size_end('日'));
     }
 }

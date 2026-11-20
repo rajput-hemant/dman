@@ -22,7 +22,7 @@
 # answer 403 with a Cloudflare challenge to non-browser clients, so no real
 # page could be fetched to check the selectors. Fixtures are hand-written.
 # dman does not solve challenges; reach it through Prowlarr/Jackett with
-# FlareSolverr and the Torznab provider (docs/search.md).
+# FlareSolverr and the Torznab provider (https://rajput-hemant.github.io/dman/guide/search).
 [[provider]]
 name = "1337x"
 kind = "html"

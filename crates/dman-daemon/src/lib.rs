@@ -12,6 +12,8 @@
 //! * [`search`]: search providers, background searches, search history and the
 //!   tracker list; independent of the manager so it can never block downloads.
 //! * [`server`]: axum WebSocket endpoint `GET /api/v1/ws` (JSON-RPC 2.0).
+//!   `jobs.add` fetches `.torrent` URLs and lists Google Drive folders
+//!   ([`gdrive`]) there, before the request reaches the manager.
 //! * [`web`]: the browser UI on its own listener (`[web]`, `web.start`/`web.stop`),
 //!   served through the same dispatch as the WebSocket API.
 //! * `reconcile`: store ↔ aria2 matching on startup and after engine restarts.
@@ -171,7 +173,7 @@ pub async fn run_with_clock(
         tracing::warn!(
             %listen,
             "API listens beyond loopback WITHOUT TLS: the token and all traffic cross the network in \
-             clear text; configure daemon.tls or use an SSH tunnel (see docs/remote.md)"
+             clear text; configure daemon.tls or use an SSH tunnel (see https://rajput-hemant.github.io/dman/guide/remote)"
         );
     }
 

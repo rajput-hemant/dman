@@ -4,16 +4,14 @@ Common failures, in the words dman itself uses.
 
 ## Nothing downloads and the engine shows as unavailable
 
-`aria2c` (1.36+) is required. Install it with your package manager (Homebrew, Scoop, winget
-and the AUR do it together with dman), then:
+`aria2c` (1.36+) is missing or not found. Install it with your package manager, then:
 
 ```bash
 dman daemon engine-restart
 ```
 
-Without `yt-dlp`, video downloads are disabled; other URLs download as usual and `--no-video`
-forces a plain download of a page or file. Without `ffmpeg`, dman picks the best single-file
-quality instead; `dman probe URL` shows what is possible.
+For `yt-dlp` and `ffmpeg`, which are optional, see
+[Requirements](./getting-started#requirements).
 
 ## The daemon cannot be reached (exit code 3)
 
@@ -24,7 +22,7 @@ dman daemon start
 dman daemon status
 ```
 
-If it ran before, `dman daemon status` shows whether it runs and which engines it found.
+`dman daemon status` shows whether it runs and which engines it found.
 
 ## A provider search fails
 
@@ -40,13 +38,24 @@ If it ran before, `dman daemon status` shows whether it runs and which engines i
 ## A download is refused with exit code 9
 
 The link (same URL or torrent info hash) is already in your downloads. The message names the
-existing job; use `--force` to add anyway. A duplicate torrent receives the new link's
-trackers instead. `dman remove 12` followed by `dman restore 12` undoes a remove.
+existing job; use `--force` to add anyway. See [CLI](./cli#adding-downloads).
+
+## A Google Drive folder is refused
+
+- `folder must be public or link-shared` or `folder page missing initial view data ... the
+  folder may be private`: share the folder as "anyone with the link". dman does not sign in
+  to Google.
+- `quota exceeded`: Google limits downloads of popular files for a while. Retry later.
+- `folder contains no files`: the folder, with its subfolders, has nothing to download.
+- `no new jobs: every file in the folder is already queued`: everything is in the list
+  already; use `--force` to add the files again.
+
+See [CLI](./cli#google-drive-folders).
 
 ## dman cannot read the clipboard
 
-`dman add --clipboard` needs a clipboard tool: `wl-paste` (Wayland), `xclip` or `xsel` (X11),
-`pbpaste` (macOS) or PowerShell's `Get-Clipboard` (Windows). Install one, then retry.
+`dman add --clipboard` needs a clipboard tool. See [Browser](./browser#clipboard) for the one
+to install on your platform.
 
 ## A setting did not take effect
 
@@ -54,13 +63,14 @@ trackers instead. `dman remove 12` followed by `dman restore 12` undoes a remove
 dman config reload
 ```
 
-Some settings need a restart of the daemon: `dman daemon restart`. Check the effective
-values with `dman config show` and a single one with `dman config get limits.download`.
+Some settings need `dman daemon restart` instead; see
+[Configuration](./configuration#reading-and-changing-settings). Check the effective values with
+`dman config show`.
 
 ## Wrong token or unauthorized (exit code 4)
 
-The token lives in `~/.config/dman/secrets.toml` (mode 0600). Copy the daemon's token into
-the client's file and restart the daemon after rotating. See [Remote use](./remote).
+The client's token does not match the daemon's. Copy the daemon's token into the client's
+`secrets.toml` as described in [Remote use](./remote#the-token).
 
 ## A remote connection fails
 

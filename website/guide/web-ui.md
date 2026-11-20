@@ -22,10 +22,12 @@ are in. Other websites cannot drive it through your browser:
 - state-changing requests must come from the page itself (`Origin`/`Sec-Fetch-Site` check
   plus a per-page CSRF token),
 - the `Host` header must name loopback, the bind address or an entry of `web.allowed_hosts`,
-  which stops DNS rebinding.
+  which stops DNS rebinding,
+- requests relayed by a proxy (`X-Forwarded-For`, `Forwarded`, ...) are refused on a
+  login-free loopback UI.
 
 When the web UI is bound to a network address it asks for its own access token (`web` in
-`secrets.toml`). Without a token the daemon refuses to serve a network address unless
+`secrets.toml`, generated on first use by `dman serve --bind`). Without a token the daemon refuses to serve a network address unless
 `web.allow_unauthenticated = true` (every page then shows a warning banner).
 `web.require_login = true` asks for the token on loopback too.
 
@@ -46,5 +48,6 @@ When the web UI is bound to a network address it asks for its own access token (
 
 ## Behind a proxy or over TLS
 
-For TLS on the web listener, reverse-proxy examples and token handling, see
-[Remote use](./remote).
+For TLS on the web listener and reverse-proxy examples (nginx, Caddy), see
+[Remote use](./remote#option-2-built-in-tls). To send links to the add page from a browser,
+see [Browser](./browser).

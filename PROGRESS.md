@@ -1,15 +1,15 @@
 # dman — progress tracker
 
-**Overall: 100 %** (all milestones done; further work comes from new requests) · Current milestone: **M7 — web UI leftovers, then M8** · Last updated: 2026-11-10
+**Overall: 100 %** (all milestones done; further work comes from new requests) · Latest release: **0.1.0** · Last updated: 2026-11-18
 
-Resume rule: start at the first unchecked item in "Next up". Tick items here and
-commit this file together with the code it describes.
+Resume rule: take the user's request, or the first unchecked item in "Next up" if one is
+open. Tick items here and commit this file together with the code it describes.
 
 ## Current state
 
-- Pushed to github.com/rajput-hemant/dman (main). Release-ready for 0.1.0: all milestones, the picked CLI improvements, the Windows build and the final release review are done. The owner publishes by following docs/releasing.md; no release tagged yet. Toolchain: Rust 1.97 stable, musl target.
+- Pushed to github.com/rajput-hemant/dman. `main` takes pull requests only; commits are made on a branch and merged through a PR. All milestones are done and 0.1.0 is released (tag `v0.1.0`; GitHub release, Homebrew, Scoop, winget and crates.io; the AUR package is still manual). Releases follow `docs/releasing.md`. Toolchain: stable (`rust-toolchain.toml`), minimum Rust 1.97.
+- Added after the milestones: the VitePress website in `website/` (published on GitHub Pages; `website/guide/` is the only user documentation, `docs/` keeps maintainer notes), the `dman` and `release` agent skills in `skills/`, and Google Drive folder downloads (public or link-shared folders become one aria2 job per file).
 - Engines available in the dev container: aria2c 1.37.0, yt-dlp 2026.10.26, ffmpeg.
-- M1 done: daemon (aria2 supervisor, dman-owned queue, disk guard, reconcile after restart, redb store, WS API with token auth) + CLI (add/list/get/pause/resume/remove/purge/reorder/limit/stats/daemon …). Verified end to end with the real binary.
 - Dev quick start: `cargo build -p dman`, then `DMAN_CONFIG_DIR=/tmp/x target/debug/dman daemon gen-config` (edit listen/rpc_port/download_dir), `dman daemon start`, `dman add <url>`, `dman list`.
 - Real-engine tests: `DMAN_TEST_ARIA2=1 cargo test --workspace -- --include-ignored --test-threads=1`.
 
@@ -24,10 +24,12 @@ commit this file together with the code it describes.
 | M4 Daemon services (queue, disk guard, schedule, store, hooks, notifications) | 13 | done |
 | M5 Search (providers, fan-out, dedupe, custom providers, search view, CLI) | 12 | done |
 | M6 Video engine (yt-dlp adapter, probe UI, options, fallbacks) | 10 | done |
-| M7 Web UI (htmx views, live updates, upload, auth, responsive) | 12 | in progress |
-| M8 Remote and release (TLS, reconnect, completions, installers, update, docs, review) | 11 | — |
+| M7 Web UI (htmx views, live updates, upload, auth, responsive) | 12 | done |
+| M8 Remote and release (TLS, reconnect, completions, installers, update, docs, review) | 11 | done |
 
 ## Next up
+
+No milestone work is open; new work comes from user requests (see "Open for later" under the review pass). The checklists below are the record of what was built.
 
 ### M0 — spikes (5 %)
 - [x] aria2 behaviour spike: changeOption `out`/`index-out`/`bt-tracker` on paused items; magnet metadata-only → re-add with `select-file`; `bt-detach-seed-only`; session restore of paused items; upload counters after restart
@@ -112,11 +114,11 @@ commit this file together with the code it describes.
 
 ### User requests (2026-11-10, after the review)
 - [x] Leftover engine files: finished torrent/magnet jobs leave only their files. Job-owned `.aria2` control files and the `<infohash>.torrent` metadata copy are removed after completion (after seeding ends, if seeding is on). A `.torrent` that existed before the job, has another hash or doesn't parse is never touched; failed, paused and unfinished jobs keep their `.aria2` so they can resume. aria2 no longer writes upload copies (`rpc-save-upload-metadata=false`, the job blob is the copy). Older jobs from before this change only get their `.aria2` cleaned.
-- [x] Search providers: EZTV, Torlock, TorrentDownloads, Internet Archive, Academic Torrents and LinuxTracker are verified; LimeTorrents, SolidTorrents and 1337x are unverified (1337x hosts all serve a Cloudflare challenge, so the docs route it through Prowlarr/Jackett + FlareSolverr). Per-provider mirrors with fallback, per-provider/global proxy (`"none"` forces direct), `[search] dns` with DNS-over-HTTPS. See docs/search.md.
+- [x] Search providers: EZTV, Torlock, TorrentDownloads, Internet Archive, Academic Torrents and LinuxTracker are verified; LimeTorrents, SolidTorrents and 1337x are unverified (1337x hosts all serve a Cloudflare challenge, so the docs route it through Prowlarr/Jackett + FlareSolverr). Per-provider mirrors with fallback, per-provider/global proxy (`"none"` forces direct), `[search] dns` with DNS-over-HTTPS. See website/guide/search.md.
 - [x] CLI improvements (owner took the recommended picks from `.plan/cli-improvements.md`):
   - `list` --sort/--reverse/--name/--engine/--columns/--limit; `dman wait` and `add --wait` (exit 124 on --timeout); live progress bar for `get --watch` and `add --wait`; interactive "Add which?" after `dman search`
   - `dman config get|set|unset|edit|path|show` (toml_edit, validated before saving, secrets masked, reloads the daemon); a `hint:` next step on errors with did-you-mean for ids/providers/profiles/keys; `dman probe --plan` (daemon `video.plan`)
-  - duplicate detection in the daemon add path (exit 9, `--force`; a duplicate torrent gets the new trackers); http(s) .torrent URLs become real torrent jobs; `dman set <ids>` via jobs.set_options; `add --clipboard`; `dman handle` + `dman integrate install|uninstall|status` (Linux .desktop, documented macOS/Windows, docs/browser.md)
+  - duplicate detection in the daemon add path (exit 9, `--force`; a duplicate torrent gets the new trackers); http(s) .torrent URLs become real torrent jobs; `dman set <ids>` via jobs.set_options; `add --clipboard`; `dman handle` + `dman integrate install|uninstall|status` (Linux .desktop, documented macOS/Windows, website/guide/browser.md)
   - polish: local dates in `get`/`list`, commands grouped by task in `--help`
 - [x] Windows build: `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings` is clean (default and slim). Unix-only pieces are behind `cfg(unix)`: yt-dlp is stopped with `taskkill /T` instead of process groups, the daemon stops on Ctrl-C/Ctrl-Break/console close/shutdown, free space comes from `GetDiskFreeSpaceExW`, `daemon start` launches it with no window in its own process group. Shell-script and symlink tests are Unix-only. Built and linked with MinGW here; never run on a real Windows machine.
 - [x] Release review (2026-11-12): docs checked against the code; CLI hardening (control characters stripped from untrusted text, more secrets masked, DoH not applied to proxied providers, real terminal width, examples in every --help); daemon review (seeding limits kept across restarts: aria2 gets the remaining ratio/time; .torrent fetch size cap; Windows taskkill by full path)
@@ -139,7 +141,7 @@ commit this file together with the code it describes.
 
 ### M8 — Remote and release (11 %)
 - [x] Built-in TLS (D24) for the API listener and web listener (rustls, user cert/key paths in config; `wss://`/`https://` in client + remote profiles) + docs for SSH tunnel / reverse proxy
-- [x] Remote profiles end to end (TLS + custom CA pin, reconnect across daemon restart, docs/remote.md): TUI/CLI against a remote daemon (paths are daemon-side; uploads for local .torrent), reconnect hardening tests (kill/restart daemon while TUI attached)
+- [x] Remote profiles end to end (TLS + custom CA pin, reconnect across daemon restart, website/guide/remote.md): TUI/CLI against a remote daemon (paths are daemon-side; uploads for local .torrent), reconnect hardening tests (kill/restart daemon while TUI attached)
 - [x] CLI robustness: SIGPIPE-safe output, exit codes audit
 - [x] Packaging: cargo-dist config (Linux musl x86_64/aarch64, macOS x86_64/aarch64, Windows x86_64), Homebrew tap formula, install receipt; `dman update` with install-method detection (D22) + `--check`; opt-in update check (D27)
 - [x] cargo-deny (licenses permissive only + MPL-2.0 exception — Q8, advisories), CI workflow (GitHub Actions: fmt, clippy, test, gated aria2/yt-dlp jobs, size report)

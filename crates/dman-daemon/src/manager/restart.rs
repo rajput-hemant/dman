@@ -135,31 +135,16 @@ impl Manager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use dman_proto::{Engine, JobOptions, JobState};
+    use dman_proto::{Engine, JobState};
 
     fn rec(kind: SourceKind) -> JobRecord {
         JobRecord {
-            id: JobId(1),
-            engine: Engine::Aria2,
-            kind,
             name: "f.bin".into(),
             dir: "/d".into(),
             source: "http://x/f.bin".into(),
-            options: JobOptions::default(),
-            desired: Desired::Queued,
             state: JobState::Active,
             gid: Some("g".into()),
-            info_hash: None,
-            total_bytes: 0,
-            completed_bytes: 0,
-            uploaded_base: 0,
-            uploaded_session: 0,
-            added_at: 0,
-            completed_at: None,
-            queue_key: 0,
-            error: None,
-            has_blob: false,
-            extra: Default::default(),
+            ..JobRecord::new(JobId(1), Engine::Aria2, kind, false)
         }
     }
 

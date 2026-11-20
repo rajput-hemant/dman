@@ -84,11 +84,6 @@ impl Editor {
         (self.row, self.col)
     }
 
-    /// Whether line breaks are forbidden.
-    pub fn is_single(&self) -> bool {
-        self.single
-    }
-
     /// Replace the text; the cursor goes to the end.
     pub fn set_text(&mut self, text: &str) {
         *self = Self::from_text(text, self.single);

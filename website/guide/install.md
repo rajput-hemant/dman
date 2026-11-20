@@ -30,9 +30,8 @@ Archives for five targets are on the
 
 ## Shell completions
 
-```bash
-dman completions install
-```
+`dman completions install` sets up tab completion for bash, zsh or fish; see
+[CLI](./cli#tab-completion).
 
 ## Updating
 
@@ -42,7 +41,7 @@ version.
 
 ## Building from source
 
-The toolchain is stable, and Rust 1.97+ is required.
+Rust 1.97 or newer is required; `rust-toolchain.toml` follows the stable channel and `rustup` installs it on first use.
 
 ```bash
 cargo build --release -p dman
@@ -60,10 +59,3 @@ Slimmer source builds are possible with `--no-default-features --features web,se
 | `notify` | Desktop notifications (daemon and TUI) |
 
 All four are on by default.
-
-### Cross-compiling
-
-| Target | Command | Needs |
-| --- | --- | --- |
-| Linux musl or macOS | `cargo zigbuild --release -p dman --target <linux-musl or apple target>` | zig, cargo-zigbuild |
-| Windows | `cargo xwin build --release -p dman --target x86_64-pc-windows-msvc` | cargo-xwin, llvm |

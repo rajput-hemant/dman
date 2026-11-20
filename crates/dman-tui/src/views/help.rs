@@ -189,7 +189,9 @@ pub fn groups(
     out
 }
 
-/// The help text as lines (one column, contexts in the usual order).
+/// The help text as lines (one column, contexts in the usual order); the
+/// tests read the whole sheet through it.
+#[cfg(test)]
 pub fn lines(keymap: &Keymap, theme: &Theme) -> Vec<Line<'static>> {
     let mut out = Vec::new();
     let all = groups(keymap, theme, Context::Global, "", usize::MAX / 2);

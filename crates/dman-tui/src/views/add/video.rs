@@ -173,13 +173,7 @@ impl ProbeUi {
         if all.len() < 2 {
             return;
         }
-        let i = all.iter().position(|s| *s == self.section).unwrap_or(0);
-        let n = all.len();
-        self.section = all[if forward {
-            (i + 1) % n
-        } else {
-            (i + n - 1) % n
-        }];
+        self.section = crate::list::cycle(&all, self.section, forward);
     }
 
     /// Checked playlist entries (1-based indexes).

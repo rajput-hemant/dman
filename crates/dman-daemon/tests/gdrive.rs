@@ -259,6 +259,55 @@ async fn recursive_expansion_with_wiremock() {
 }
 
 #[tokio::test]
+async fn files_keep_the_folder_order_when_resolved_concurrently() {
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/drive/folders/folder_123"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(read_fixture("flat.html")))
+        .mount(&server)
+        .await;
+    // The first file answers last.
+    for (id, delay) in [("file_id_1", 300), ("file_id_2", 100), ("file_id_3", 0)] {
+        Mock::given(method("GET"))
+            .and(path("/uc"))
+            .and(query_param("id", id))
+            .respond_with(
+                ResponseTemplate::new(303)
+                    .insert_header("Location", format!("https://example.com/{id}").as_str())
+                    .set_delay(std::time::Duration::from_millis(delay)),
+            )
+            .mount(&server)
+            .await;
+    }
+    let files = GdriveClient::new()
+        .with_base_url(server.uri())
+        .expand_folder("folder_123")
+        .await
+        .expect("expand_folder failed");
+    let names: Vec<&str> = files.iter().map(|f| f.file_name.as_str()).collect();
+    assert_eq!(names, ["document.pdf", "photo.jpg", "archive.tar.gz"]);
+}
+
+#[tokio::test]
+async fn missing_folder_reports_the_http_status_not_a_private_folder() {
+    let server = wiremock::MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/drive/folders/gone"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("<html>Not Found</html>"))
+        .mount(&server)
+        .await;
+    let err = GdriveClient::new()
+        .with_base_url(server.uri())
+        .expand_folder("gone")
+        .await
+        .expect_err("a 404 is an error");
+    assert!(
+        matches!(&err, GdriveError::Network(m) if m.contains("404")),
+        "{err:?}"
+    );
+}
+
+#[tokio::test]
 async fn recursive_cycle_guard_terminates() {
     let server = wiremock::MockServer::start().await;
 

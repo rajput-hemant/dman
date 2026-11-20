@@ -162,59 +162,49 @@ pub fn extract_folder_title(html: &str) -> Option<String> {
     }
 }
 
-/// Unescapes a JavaScript string literal into raw UTF-8 bytes and then a `String`.
-/// Handles `\xHH`, `\uHHHH`, and standard escape sequences.
+/// Unescapes the body of a JavaScript string literal. `\xHH` and `\uHHHH`
+/// are code points (not bytes) and a `😀` surrogate pair is one
+/// character, as in JavaScript; malformed escapes are dropped.
 pub fn unescape_js_string(s: &str) -> String {
-    let mut bytes = Vec::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\\' {
-            match chars.next() {
-                Some('x') => {
-                    let h1 = chars.next().unwrap_or('0');
-                    let h2 = chars.next().unwrap_or('0');
-                    let mut hex = [0u8; 2];
-                    hex[0] = h1 as u8;
-                    hex[1] = h2 as u8;
-                    if let Ok(hex_str) = std::str::from_utf8(&hex)
-                        && let Ok(b) = u8::from_str_radix(hex_str, 16)
-                    {
-                        bytes.push(b);
-                    }
-                }
-                Some('u') => {
-                    let mut hex = String::with_capacity(4);
-                    for _ in 0..4 {
-                        if let Some(h) = chars.next() {
-                            hex.push(h);
-                        }
-                    }
-                    if let Ok(cp) = u32::from_str_radix(&hex, 16)
-                        && let Some(ch) = char::from_u32(cp)
-                    {
-                        let mut buf = [0u8; 4];
-                        bytes.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-                    }
-                }
-                Some('n') => bytes.push(b'\n'),
-                Some('r') => bytes.push(b'\r'),
-                Some('t') => bytes.push(b'\t'),
-                Some('\\') => bytes.push(b'\\'),
-                Some('\'') => bytes.push(b'\''),
-                Some('"') => bytes.push(b'"'),
-                Some('/') => bytes.push(b'/'),
-                Some(other) => {
-                    let mut buf = [0u8; 4];
-                    bytes.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());
-                }
-                None => break,
-            }
-        } else {
-            let mut buf = [0u8; 4];
-            bytes.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
-        }
+    /// Consumes `digits` hex digits from `chars`, if they are all there.
+    fn hex(chars: &mut std::str::Chars<'_>, digits: usize) -> Option<u32> {
+        let v = u32::from_str_radix(chars.as_str().get(..digits)?, 16).ok()?;
+        chars.nth(digits - 1);
+        Some(v)
     }
-    String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let Some(e) = chars.next() else { break };
+        let decoded = match e {
+            'x' => hex(&mut chars, 2).and_then(char::from_u32),
+            'u' => hex(&mut chars, 4).and_then(|hi| {
+                if !(0xD800..0xDC00).contains(&hi) {
+                    return char::from_u32(hi);
+                }
+                // A high surrogate takes its low half from the next escape.
+                let lo = u32::from_str_radix(chars.as_str().strip_prefix("\\u")?.get(..4)?, 16)
+                    .ok()
+                    .filter(|lo| (0xDC00..0xE000).contains(lo))?;
+                chars.nth(5);
+                char::from_u32(0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00))
+            }),
+            'n' => Some('\n'),
+            'r' => Some('\r'),
+            't' => Some('\t'),
+            'b' => Some('\u{8}'),
+            'f' => Some('\u{c}'),
+            'v' => Some('\u{b}'),
+            '0' => Some('\0'),
+            other => Some(other),
+        };
+        out.extend(decoded);
+    }
+    out
 }
 
 /// Checks HTML content for Google Drive error responses.
@@ -249,8 +239,9 @@ fn extract_subcaption(html: &str) -> Option<String> {
     let class_pos = lower.find("uc-error-subcaption")?;
     let start_tag = html[..class_pos].rfind('<')?;
     let tag_end = html[class_pos..].find('>')? + class_pos + 1;
-    let tag_name = html[start_tag + 1..]
-        .split([' ', '>'])
+    // Taken from `lower`, where the closing tag is searched for.
+    let tag_name = lower[start_tag + 1..]
+        .split(|c: char| c.is_ascii_whitespace() || c == '>')
         .next()
         .unwrap_or("p");
     let close_tag = format!("</{tag_name}>");
@@ -263,45 +254,29 @@ fn extract_subcaption(html: &str) -> Option<String> {
 pub fn extract_ivd_json(html: &str) -> Result<String, GdriveError> {
     check_page_errors(html)?;
 
-    let ivd_pos = html.find("_DRIVE_ivd").ok_or(GdriveError::MissingBlob)?;
-    let after_var = &html[ivd_pos..];
-    let eq_pos = after_var.find('=').ok_or(GdriveError::MissingBlob)? + ivd_pos;
-    let after_eq = &html[eq_pos + 1..];
-
-    // Find opening quote
-    let mut quote_char = None;
-    let mut start_idx = 0;
-    for (i, c) in after_eq.char_indices() {
-        if c == '\'' || c == '"' {
-            quote_char = Some(c);
-            start_idx = eq_pos + 1 + i + 1;
-            break;
-        } else if !c.is_whitespace() {
-            return Err(GdriveError::MissingBlob);
-        }
-    }
-    let quote = quote_char.ok_or(GdriveError::MissingBlob)?;
-
-    // Find closing quote
-    let literal_slice = &html[start_idx..];
-    let mut end_idx = 0;
+    let var = &html[html.find("_DRIVE_ivd").ok_or(GdriveError::MissingBlob)?..];
+    let value = var[var.find('=').ok_or(GdriveError::MissingBlob)? + 1..].trim_start();
+    let quote = value
+        .chars()
+        .next()
+        .filter(|c| matches!(c, '\'' | '"'))
+        .ok_or(GdriveError::MissingBlob)?;
+    let body = &value[1..];
     let mut escaped = false;
-    for (i, c) in literal_slice.char_indices() {
-        if escaped {
-            escaped = false;
-        } else if c == '\\' {
-            escaped = true;
-        } else if c == quote {
-            end_idx = start_idx + i;
-            break;
-        }
-    }
-    if end_idx == 0 {
-        return Err(GdriveError::MissingBlob);
-    }
-
-    let raw = &html[start_idx..end_idx];
-    Ok(unescape_js_string(raw))
+    let end = body
+        .char_indices()
+        .find_map(|(i, c)| {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == quote {
+                return Some(i);
+            }
+            None
+        })
+        .ok_or(GdriveError::MissingBlob)?;
+    Ok(unescape_js_string(&body[..end]))
 }
 
 /// Parses a Google Drive folder HTML page into a structured listing.
@@ -353,46 +328,46 @@ pub fn parse_folder_html(html: &str) -> Result<FolderListing, GdriveError> {
     })
 }
 
+/// Where relative links of the confirmation page point.
+const CONFIRM_BASE: &str = "https://docs.google.com/";
+
 /// Parses an HTML confirmation / virus scan warning page and extracts the download URL.
 pub fn parse_confirm_page(html: &str) -> Result<String, GdriveError> {
     check_page_errors(html)?;
 
-    // 1. Check for form #download-form
-    if let Some(form_pos) = html.find("<form") {
-        let form_slice = &html[form_pos..];
-        if let Some(form_end) = form_slice.find("</form>") {
-            let form_html = &form_slice[..form_end + 7];
-            let is_confirm_form =
-                form_html.contains("download-form") || form_html.contains("uc-download-link");
-            let action_opt = if is_confirm_form {
-                extract_attr(form_html, "action")
-            } else {
-                None
-            };
-            if let Some(action) = action_opt {
-                let mut params = Vec::new();
-                let mut scan = form_html;
-                while let Some(input_pos) = scan.find("<input") {
-                    let input_tail = &scan[input_pos..];
-                    let input_end = input_tail.find('>').unwrap_or(input_tail.len());
-                    let input_tag = &input_tail[..input_end];
-                    let name = extract_attr(input_tag, "name");
-                    let value = extract_attr(input_tag, "value");
-                    if let (Some(n), Some(v)) = (name, value) {
-                        params.push((n, v));
-                    }
-                    scan = &input_tail[input_end..];
-                }
-                if !params.is_empty() {
-                    let query = params
-                        .iter()
-                        .map(|(k, v)| format!("{k}={v}"))
-                        .collect::<Vec<_>>()
-                        .join("&");
-                    let sep = if action.contains('?') { "&" } else { "?" };
-                    return Ok(format!("{action}{sep}{query}"));
-                }
+    // 1. The download form: its action plus its inputs as the query.
+    let mut scan = html;
+    while let Some(form_pos) = scan.find("<form") {
+        let form_slice = &scan[form_pos..];
+        let Some(form_end) = form_slice.find("</form>") else {
+            break;
+        };
+        let form_html = &form_slice[..form_end];
+        scan = &form_slice[form_end..];
+        if !(form_html.contains("download-form") || form_html.contains("uc-download-link")) {
+            continue;
+        }
+        let Some(mut url) = extract_attr(form_html, "action").and_then(|a| absolute(&a)) else {
+            continue;
+        };
+        let mut params = Vec::new();
+        let mut inputs = form_html;
+        while let Some(input_pos) = inputs.find("<input") {
+            let input_tail = &inputs[input_pos..];
+            let input_end = input_tail.find('>').unwrap_or(input_tail.len());
+            let input_tag = &input_tail[..input_end];
+            if let (Some(n), Some(v)) = (
+                extract_attr(input_tag, "name"),
+                extract_attr(input_tag, "value"),
+            ) {
+                params.push((n, v));
             }
+            inputs = &input_tail[input_end..];
+        }
+        if !params.is_empty() {
+            // Encoded, so a token holding `+` or `&` reaches Drive intact.
+            url.query_pairs_mut().extend_pairs(&params);
+            return Ok(url.into());
         }
     }
 
@@ -404,14 +379,9 @@ pub fn parse_confirm_page(html: &str) -> Result<String, GdriveError> {
         let link = &tail[..end];
         if (link.contains("/uc?export=download") || link.contains("/download?"))
             && link.contains("confirm=")
+            && let Some(url) = absolute(&unescape_html(link))
         {
-            let cleaned = unescape_html(link);
-            let full_url = if cleaned.starts_with('/') {
-                format!("https://docs.google.com{cleaned}")
-            } else {
-                cleaned
-            };
-            return Ok(full_url);
+            return Ok(url.into());
         }
         scan = &tail[end..];
     }
@@ -420,13 +390,16 @@ pub fn parse_confirm_page(html: &str) -> Result<String, GdriveError> {
     if let Some(pos) = html.find("\"downloadUrl\":\"") {
         let tail = &html[pos + 15..];
         if let Some(end) = tail.find('"') {
-            let u = &tail[..end];
-            let unescaped = u.replace("\\u003d", "=").replace("\\u0026", "&");
-            return Ok(unescaped);
+            return Ok(unescape_js_string(&tail[..end]));
         }
     }
 
     Err(GdriveError::ConfirmTokenNotFound)
+}
+
+/// `link` as an absolute URL, resolved against [`CONFIRM_BASE`] when relative.
+fn absolute(link: &str) -> Option<url::Url> {
+    url::Url::parse(CONFIRM_BASE).ok()?.join(link).ok()
 }
 
 fn extract_attr(tag: &str, attr: &str) -> Option<String> {
@@ -443,4 +416,44 @@ fn extract_attr(tag: &str, attr: &str) -> Option<String> {
         return Some(unescape_html(&tail[..end]));
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn js_escapes_are_code_points_and_surrogate_pairs_join() {
+        assert_eq!(unescape_js_string(r"caf\xe9"), "café");
+        assert_eq!(unescape_js_string(r"café"), "café");
+        assert_eq!(unescape_js_string(r"😀.png"), "\u{1F600}.png");
+        assert_eq!(unescape_js_string(r"\x5b\x22a\/b\x22\x5d"), r#"["a/b"]"#);
+        // Malformed escapes are dropped, never a panic.
+        assert_eq!(unescape_js_string(r"a\ud83db\x4"), "ab4");
+        assert_eq!(unescape_js_string("end\\"), "end");
+    }
+
+    #[test]
+    fn quota_message_is_read_from_an_upper_case_tag() {
+        let html = r#"<P CLASS="uc-error-subcaption">Quota &amp; more</P>"#;
+        assert_eq!(
+            check_page_errors(html),
+            Err(GdriveError::QuotaExceeded {
+                message: "Quota & more".into()
+            })
+        );
+    }
+
+    #[test]
+    fn confirm_form_values_are_encoded_and_relative_actions_resolved() {
+        let html = r#"<form id="search"><input name="q" value="x"></form>
+            <form id="download-form" action="/uc?export=download" method="get">
+            <input type="hidden" name="id" value="f1">
+            <input type="hidden" name="at" value="a+b&amp;c">
+            </form>"#;
+        assert_eq!(
+            parse_confirm_page(html).unwrap(),
+            "https://docs.google.com/uc?export=download&id=f1&at=a%2Bb%26c"
+        );
+    }
 }

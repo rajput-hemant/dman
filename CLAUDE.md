@@ -11,10 +11,22 @@ JSON-RPC-over-WebSocket API.
    next, and every confirmed design decision.
 2. If `.plan/implementation-plan.md` exists locally, it holds the full plan; if not
    (fresh clone on another device), `PROGRESS.md` contains everything required.
-3. Continue with the first unchecked task under "Next up". Do not re-ask decisions
-   listed as confirmed in `PROGRESS.md`; ask the user only about genuinely new choices.
+3. Work on what the user asks for, or the first unchecked task under "Next up" if any
+   is open. Do not re-ask decisions listed as confirmed in `PROGRESS.md`; ask the user
+   only about genuinely new choices.
 4. After finishing a task: tick it in `PROGRESS.md`, update "Current state", and
    commit code and tracker together.
+
+## Repository layout
+
+- `crates/` holds the Rust workspace; `website/` is the VitePress site and the only
+  user documentation (`website/guide/*.md`, published on GitHub Pages); `docs/` holds
+  maintainer documentation only (`releasing.md`); `skills/` holds the agent skills
+  (`dman`, `release`); `packaging/` holds the Scoop, winget and AUR templates.
+- A change to user-visible behaviour updates the matching page in `website/guide/` in
+  the same commit. Say each thing on one page and link to it from the others; `README.md`
+  stays a short landing page.
+- `main` takes pull requests only: work on a branch and open a PR. Do not push to `main`.
 
 ## Rules
 
@@ -29,8 +41,10 @@ JSON-RPC-over-WebSocket API.
   `cargo test -p dman --no-default-features`. Platform code also needs
   `cargo clippy --workspace --all-targets --target x86_64-pc-windows-gnu -- -D warnings`;
   daemon behaviour changes also `DMAN_TEST_ARIA2=1 DMAN_TEST_YTDLP=1 cargo test -p dman-daemon -- --include-ignored --test-threads=1`.
-- Releases are built by CI (cargo-dist, `dist-workspace.toml`). Do not tag or publish
-  without being asked.
+- The toolchain follows the stable channel (`rust-toolchain.toml`); the minimum
+  supported Rust version is in `rust-version` in `Cargo.toml`.
+- Releases are built by CI (cargo-dist, `dist-workspace.toml`) and follow
+  `docs/releasing.md`. Do not tag or publish without being asked.
 - Commits: one per coherent unit of work (a crate, a feature, a fix) — not per file,
   not per milestone. Conventional Commits format (`feat:`, `fix:`, `refactor:`,
   `docs:`, `test:`, `chore:`, `perf:`, `ci:`; optional scope), imperative subject

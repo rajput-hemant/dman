@@ -6,116 +6,21 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
 use dman_client::{Client, ClientError};
-use dman_config::{Config, DaemonTarget, DiskThreshold, Paths, Secrets};
-use dman_daemon::{DaemonOptions, run};
+use dman_config::{Config, DaemonTarget, DiskThreshold, Secrets};
 use dman_proto::method::{ListParams, RemoveParams};
-use dman_proto::{AddOutcome, AddParams, AddSource, ErrorCode, Job, JobId, JobOptions, JobState};
-use secrecy::SecretString;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
-use tokio::task::JoinHandle;
-use url::Url;
-
-fn aria2_enabled() -> bool {
-    std::env::var("DMAN_TEST_ARIA2").as_deref() == Ok("1")
-}
+use dman_proto::{AddParams, AddSource, ErrorCode, JobId, JobOptions, JobState};
 
 mod support;
-use support::free_port;
-
-// ----- a tiny Range-capable HTTP file server ----------------------------------
-
-async fn serve_files(files: HashMap<String, Vec<u8>>) -> SocketAddr {
-    let files = Arc::new(files);
-    let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = l.local_addr().unwrap();
-    tokio::spawn(async move {
-        while let Ok((s, _)) = l.accept().await {
-            tokio::spawn(handle_http(s, files.clone()));
-        }
-    });
-    addr
-}
-
-async fn handle_http(mut s: TcpStream, files: Arc<HashMap<String, Vec<u8>>>) {
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 2048];
-    while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
-        match s.read(&mut chunk).await {
-            Ok(0) | Err(_) => return,
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
-        }
-    }
-    let head = String::from_utf8_lossy(&buf).to_string();
-    let mut lines = head.lines();
-    let first = lines.next().unwrap_or_default();
-    let mut parts = first.split_whitespace();
-    let method = parts.next().unwrap_or_default().to_owned();
-    let path = parts.next().unwrap_or_default().trim_start_matches('/');
-    let range = lines.find_map(|l| {
-        let (k, v) = l.split_once(':')?;
-        k.trim()
-            .eq_ignore_ascii_case("range")
-            .then(|| v.trim().to_owned())
-    });
-    let Some(data) = files.get(path) else {
-        let _ = s
-            .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
-            .await;
-        return;
-    };
-    let len = data.len();
-    let (status, start, end) = match range.as_deref().and_then(|r| r.strip_prefix("bytes=")) {
-        Some(r) => {
-            let (a, b) = r.split_once('-').unwrap_or((r, ""));
-            let a: usize = a.parse().unwrap_or(0);
-            let b: usize = b.parse().unwrap_or(len - 1).min(len - 1);
-            ("206 Partial Content", a, b)
-        }
-        None => ("200 OK", 0, len - 1),
-    };
-    let body = &data[start..=end];
-    let mut h = format!(
-        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nContent-Type: application/octet-stream\r\nConnection: close\r\n",
-        body.len()
-    );
-    if status.starts_with("206") {
-        h.push_str(&format!("Content-Range: bytes {start}-{end}/{len}\r\n"));
-    }
-    h.push_str("\r\n");
-    if s.write_all(h.as_bytes()).await.is_err() {
-        return;
-    }
-    if method != "HEAD" {
-        for c in body.chunks(16 * 1024) {
-            if s.write_all(c).await.is_err() {
-                return;
-            }
-        }
-    }
-    let _ = s.shutdown().await;
-}
-
-fn content(seed: u8, len: usize) -> Vec<u8> {
-    (0..len)
-        .map(|i| (i as u8).wrapping_mul(31).wrapping_add(seed))
-        .collect()
-}
+use support::{
+    Daemon, added, aria2_enabled, assert_no_aria2, content, free_port, job, serve_files, wait_jobs,
+};
 
 // ----- daemon harness ---------------------------------------------------------
-
-struct Daemon {
-    paths: Paths,
-    url: Url,
-    task: JoinHandle<anyhow::Result<()>>,
-}
 
 fn config(root: &Path, aria2_path: &str, min_free: DiskThreshold) -> Config {
     let mut c = Config::default();
@@ -133,92 +38,6 @@ fn config(root: &Path, aria2_path: &str, min_free: DiskThreshold) -> Config {
     c.aria2.tick_ms = 200;
     c.limits.max_concurrent = 1;
     c
-}
-
-impl Daemon {
-    async fn start(root: &Path, config: Config) -> Self {
-        let paths = Paths::with_root(root);
-        let DaemonTarget::Local { listen, .. } = &config.profiles["local"].daemon else {
-            unreachable!()
-        };
-        let url = Url::parse(&format!("ws://{listen}/api/v1/ws")).unwrap();
-        let task = tokio::spawn(run(DaemonOptions {
-            paths: paths.clone(),
-            config,
-            profile: "local".into(),
-        }));
-        let d = Self { paths, url, task };
-        // Wait until it accepts authenticated connections.
-        for _ in 0..200 {
-            if d.task.is_finished() {
-                break;
-            }
-            if d.try_connect().await.is_ok() {
-                return d;
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        let r = d.task.await;
-        panic!("daemon did not come up: {r:?}");
-    }
-
-    fn token(&self) -> SecretString {
-        Secrets::load(&self.paths)
-            .ok()
-            .and_then(|s| s.get("daemon"))
-            .unwrap_or_else(|| SecretString::from(String::new()))
-    }
-
-    async fn try_connect(&self) -> Result<Client, ClientError> {
-        Client::connect(&self.url, self.token(), "dman-test").await
-    }
-
-    async fn client(&self) -> Client {
-        self.try_connect().await.expect("connect")
-    }
-
-    async fn stop(self, client: &Client) {
-        client.shutdown().await.expect("shutdown call");
-        tokio::time::timeout(Duration::from_secs(30), self.task)
-            .await
-            .expect("daemon did not stop")
-            .expect("join")
-            .expect("daemon result");
-    }
-}
-
-async fn wait_jobs(c: &Client, secs: u64, what: &str, f: impl Fn(&[Job]) -> bool) -> Vec<Job> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(secs);
-    loop {
-        let jobs = c.list(ListParams::default()).await.expect("list");
-        if f(&jobs) {
-            return jobs;
-        }
-        if tokio::time::Instant::now() > deadline {
-            panic!("timed out waiting for {what}: {jobs:#?}");
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
-fn job(jobs: &[Job], id: JobId) -> &Job {
-    jobs.iter()
-        .find(|j| j.id == id)
-        .unwrap_or_else(|| panic!("job {id} missing"))
-}
-
-fn count(jobs: &[Job], s: JobState) -> usize {
-    jobs.iter().filter(|j| j.state == s).count()
-}
-
-fn added(outcomes: &[AddOutcome]) -> Vec<JobId> {
-    outcomes
-        .iter()
-        .map(|o| match o {
-            AddOutcome::Added { id, .. } => *id,
-            AddOutcome::Failed { error } => panic!("add failed: {error}"),
-        })
-        .collect()
 }
 
 // ----- helpers ----------------------------------------------------------------
@@ -667,32 +486,4 @@ async fn magnet_preview_with_local_seeder_then_select_and_rename() {
     d.stop(&c).await;
     drop(seeder);
     assert_no_aria2(root.path());
-}
-
-/// Live (non-zombie) aria2c processes whose command line mentions `root`.
-fn aria2_pids(root: &Path) -> Vec<u32> {
-    let needle = root.display().to_string();
-    let mut out = Vec::new();
-    let Ok(proc_dir) = std::fs::read_dir("/proc") else {
-        return out;
-    };
-    for entry in proc_dir.flatten() {
-        let Ok(pid) = entry.file_name().to_string_lossy().parse::<u32>() else {
-            continue;
-        };
-        let cmd: PathBuf = entry.path().join("cmdline");
-        let stat = std::fs::read_to_string(entry.path().join("stat")).unwrap_or_default();
-        if let Ok(c) = std::fs::read(&cmd) {
-            let c = String::from_utf8_lossy(&c);
-            if c.contains("aria2c") && c.contains(&needle) && !stat.contains(") Z ") {
-                out.push(pid);
-            }
-        }
-    }
-    out
-}
-
-fn assert_no_aria2(root: &Path) {
-    let pids = aria2_pids(root);
-    assert!(pids.is_empty(), "aria2c still running: {pids:?}");
 }

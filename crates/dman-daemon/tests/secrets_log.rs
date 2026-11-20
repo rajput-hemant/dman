@@ -22,12 +22,8 @@ use secrecy::{ExposeSecret, SecretString};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
 
-fn aria2_enabled() -> bool {
-    std::env::var("DMAN_TEST_ARIA2").as_deref() == Ok("1")
-}
-
 mod support;
-use support::free_port;
+use support::{aria2_enabled, free_port};
 
 /// Collects everything the subscriber writes.
 #[derive(Clone, Default)]

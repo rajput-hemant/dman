@@ -742,7 +742,11 @@ impl Inner {
             _ => Err(ProviderError::Mirrors(format!(
                 "{}{}",
                 failures.join("; "),
-                if blocked { " (see docs/search.md)" } else { "" }
+                if blocked {
+                    " (see https://rajput-hemant.github.io/dman/guide/search)"
+                } else {
+                    ""
+                }
             ))),
         }
     }

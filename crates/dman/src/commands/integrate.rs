@@ -372,7 +372,7 @@ itself from the command line. To hand magnet links to dman, make a tiny app:
        duti -s <bundle id> magnet
        duti -s <bundle id> .torrent all
 
-See docs/browser.md for details and for the browser bookmarklet.";
+See https://rajput-hemant.github.io/dman/guide/browser for details and for the browser bookmarklet.";
 
 fn macos(cmd: IntegrateCmd, json: bool) -> Result<i32, CliError> {
     let exe = this_exe()?;

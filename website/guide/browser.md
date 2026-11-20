@@ -19,20 +19,38 @@ dman integrate uninstall    # remove what install wrote, nothing else
 
 The browser (or file manager) then runs `dman handle <link-or-file>`. It starts the daemon
 when needed, adds the link with your default options and shows a desktop notification with
-the result. A link that is already in your downloads is not added again; for a torrent its
+the result, because there is usually no terminal to print to. A link that is already in your downloads is not added again; for a torrent its
 new trackers are added to the existing job.
 
 | Platform | Mechanism |
 | --- | --- |
 | Linux | A `.desktop` file plus `xdg-mime default` |
 | Windows | Registry keys under `HKEY_CURRENT_USER\Software\Classes` |
-| macOS | Manual: `install` prints the steps (a URL scheme needs an application bundle) |
+| macOS | Manual: `install` prints the steps |
+
+- **Linux**: `install` writes `~/.local/share/applications/dman-handler.desktop`
+  (`$XDG_DATA_HOME` is honoured) for `x-scheme-handler/magnet` and `application/x-bittorrent`,
+  makes it the default with `xdg-mime default`, and runs `update-desktop-database` when it is
+  installed. Without `xdg-mime`, choose "dman" in your desktop's default-applications
+  settings. `uninstall` deletes that file only if its content shows dman wrote it; your
+  `mimeapps.list` is left alone, so pick another default afterwards if you like.
+- **Windows**: `install` writes, with `reg.exe`, the keys `magnet` (`URL Protocol`, command
+  `"<path>\dman.exe" handle "%1"`), `dman.torrent` (the same command) and the default value of
+  `.torrent` = `dman.torrent`. `uninstall` deletes those keys only when their command is
+  dman's.
+- **macOS**: a URL scheme can only be registered by an application bundle, so dman does not
+  pretend to do it from the command line. `dman integrate install` prints the steps: an
+  AppleScript application whose `on open location` handler runs `dman handle`, with
+  `CFBundleURLTypes` (`magnet`) and `CFBundleDocumentTypes` (`torrent`) in its `Info.plist`,
+  made the default with a tool such as `duti`.
 
 ## Bookmarklet and userscript (web UI)
 
-The web UI refuses state-changing requests from other websites. A bookmarklet can still
-**open the add page with the link filled in**: `GET /add?uri=...` only fills the form, and
-you confirm with **Add**. Nothing is added without that click.
+The web UI refuses state-changing requests from other websites (see
+[Web UI](./web-ui#access-model)), and a bookmarklet runs in the context of the site you are
+on, so it cannot post to dman directly. It can still **open the add page with the link filled
+in**: `GET /add?uri=...` only fills the form, and you confirm with **Add**, which the page
+sends with its own CSRF token. Nothing is added without that click.
 
 This works as is for the default, login-free web UI on `http://127.0.0.1:6811`; adjust the
 address if you changed `[web]`.
@@ -74,8 +92,9 @@ magnet and `.torrent` link.
 ```
 
 When the web UI requires a login (`require_login`, or a network address), its session cookie
-is `SameSite=Strict`, so the link is not carried over to the login page: use the handler or
-the clipboard instead.
+is `SameSite=Strict`, so the browser does not send it on a page opened from another site: you
+land on the login page and the link is not carried over. Use the handler or the
+[clipboard](#clipboard) instead, or open the add page yourself and paste.
 
 ## Clipboard
 

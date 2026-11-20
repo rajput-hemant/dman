@@ -173,7 +173,7 @@ pub async fn run_with_clock(
         tracing::warn!(
             %listen,
             "API listens beyond loopback WITHOUT TLS: the token and all traffic cross the network in \
-             clear text; configure daemon.tls or use an SSH tunnel (see docs/remote.md)"
+             clear text; configure daemon.tls or use an SSH tunnel (see https://rajput-hemant.github.io/dman/guide/remote)"
         );
     }
 

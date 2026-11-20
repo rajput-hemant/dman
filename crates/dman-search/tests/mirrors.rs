@@ -138,7 +138,7 @@ async fn challenge_page_on_a_403_is_reported_as_blocked_without_mirrors() {
         .await;
     let e = test_provider(&feed("P", &a.uri(), &[])).await.unwrap_err();
     assert!(matches!(e, ProviderError::Blocked(_)), "{e}");
-    assert!(e.to_string().contains("docs/search.md"), "{e}");
+    assert!(e.to_string().contains("guide/search"), "{e}");
 }
 
 #[tokio::test]

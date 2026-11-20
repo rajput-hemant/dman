@@ -146,7 +146,7 @@ Examples:
 Linux: writes ~/.local/share/applications/dman-handler.desktop and makes it the
 default with xdg-mime. Windows: writes HKCU registry entries with reg.exe. macOS
 needs an app bundle for a URL scheme; `install` explains the alternatives.
-Browser bookmarklet and userscript: see docs/browser.md.")]
+Browser bookmarklet and userscript: https://rajput-hemant.github.io/dman/guide/browser")]
     #[command(display_order = 28)]
     Integrate {
         #[command(subcommand)]

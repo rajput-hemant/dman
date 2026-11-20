@@ -27,7 +27,7 @@ pub enum ProviderError {
     #[error("HTTP {status} from {url}")]
     Http { status: u16, url: String },
     #[error(
-        "blocked by an anti-bot challenge page ({0}); try a mirror, a proxy or an indexer manager (docs/search.md)"
+        "blocked by an anti-bot challenge page ({0}); try a mirror, a proxy or an indexer manager (https://rajput-hemant.github.io/dman/guide/search)"
     )]
     Blocked(String),
     #[error("no mirror answered: {0}")]

@@ -9,16 +9,7 @@ dman is a terminal-first download manager for torrents, magnets, Metalink, HTTP/
 
 ## Install
 
-| Platform | Command |
-| --- | --- |
-| macOS, Linux (shell) | `curl --proto '=https' --tlsv1.2 -LsSf https://github.com/rajput-hemant/dman/releases/latest/download/dman-installer.sh \| sh` |
-| Windows (PowerShell) | `powershell -ExecutionPolicy Bypass -c "irm https://github.com/rajput-hemant/dman/releases/latest/download/dman-installer.ps1 \| iex"` |
-| macOS, Linux (brew) | `brew install rajput-hemant/tap/dman` |
-| Windows (scoop) | `scoop bucket add rajput-hemant https://github.com/rajput-hemant/scoop-bucket && scoop install rajput-hemant/dman` |
-| Windows (winget) | `winget install rajput-hemant.dman` |
-| Any (source) | `cargo install --locked dman` |
-
-Homebrew, Scoop, winget and the AUR ship aria2 with dman; the other methods need `aria2c` installed separately. Finish with `dman completions install`.
+Pick a channel from the [install guide](https://rajput-hemant.github.io/dman/guide/install) (shell or PowerShell installer, Homebrew, Scoop, winget, AUR, `cargo install --locked dman`). Homebrew, Scoop, winget and the AUR ship aria2 with dman; the other methods need `aria2c` installed separately. Finish with `dman completions install`.
 
 ## Daemon model
 
@@ -34,6 +25,9 @@ The CLI, TUI and web UI are clients of one background daemon over JSON-RPC, so d
 | `dman resume ID` or `dman resume --all` | resume downloads |
 | `dman remove ID` | remove a download (asks; `--yes` for scripts, `--delete-files` deletes files too) |
 | `dman get ID` | one download's details (`--files`, `--peers`, `--watch`) |
+| `dman wait ID` | block until downloads finish (exit 0 all completed, 8 some failed, 124 on `--timeout`) |
+| `dman set ID` | change a download's options (`--max-download-limit`, `--select`, `--dir`, `--position`, ...) |
+| `dman search WORDS` | search enabled providers (`dman providers enable NAME` first; `--add 1,2` adds results) |
 | `dman serve` | web UI on `http://127.0.0.1:6811/` (`--persist` keeps it on, `--stop` turns it off) |
 | `dman daemon start` | start the background daemon (also stop, restart, status, engine-restart, gen-config) |
 
@@ -42,6 +36,8 @@ The CLI, TUI and web UI are clients of one background daemon over JSON-RPC, so d
 - TUI: interactive browsing, sorting, filtering, file selection - run `dman` with no arguments; `?` lists all keys.
 - CLI: scripts and agents - every command takes the global `--json`; destructive commands need `--yes` when stdin is not a terminal.
 - Web UI: control from a browser or another machine - `dman serve`.
+
+Add also takes a public Google Drive folder link, which becomes one download per file. Exit codes (9 = already in the list, use `--force`; 7 = engine missing) and every other command are in the [CLI guide](https://rajput-hemant.github.io/dman/guide/cli).
 
 ## Examples
 

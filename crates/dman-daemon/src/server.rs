@@ -107,7 +107,6 @@ fn parse<T: DeserializeOwned>(params: Value) -> Result<T, RpcError> {
 fn to_request(method: &str, params: Value) -> Result<Request, WireError> {
     let p = |r: Result<Request, RpcError>| r.map_err(WireError::from);
     Ok(match method {
-        method::JOBS_ADD => p(parse(params).map(Request::Add))?,
         method::JOBS_LIST => p(parse(params).map(Request::List))?,
         method::JOBS_GET => p(parse::<method::IdParams>(params).map(|x| Request::Get(x.id)))?,
         method::JOBS_DETAIL => p(parse::<method::IdParams>(params).map(|x| Request::Detail(x.id)))?,
@@ -199,12 +198,16 @@ pub async fn dispatch(
 /// aria2, outside the job manager so nothing else waits for it) and added as
 /// that torrent: like an uploaded file it gets an info hash, the tracker list,
 /// the seeding policy and duplicate detection, and survives the URL going away.
+/// A Google Drive folder link is listed here too, for the same reason, and
+/// reaches the manager as its files.
 async fn add(state: &Arc<ServerState>, mut p: dman_proto::AddParams) -> Result<Value, RpcError> {
     use base64::Engine as _;
     use dman_proto::{AddOutcome, AddSource};
     let total = p.sources.len();
     let mut failed: Vec<(usize, RpcError)> = Vec::new();
     let mut sources = Vec::with_capacity(total);
+    let mut drive = std::collections::HashMap::new();
+    let mut gdrive = None;
     for (i, src) in std::mem::take(&mut p.sources).into_iter().enumerate() {
         match src {
             AddSource::Uris { uris } if uris.len() == 1 && dman_proto::is_torrent_url(&uris[0]) => {
@@ -221,18 +224,34 @@ async fn add(state: &Arc<ServerState>, mut p: dman_proto::AddParams) -> Result<V
                     Err(e) => failed.push((i, e)),
                 }
             }
-            other => sources.push(other),
+            other => match crate::gdrive::parse_folder_id_from_source(&other) {
+                Some(folder) => match gdrive
+                    .get_or_insert_with(crate::gdrive::GdriveClient::new)
+                    .expand_folder(&folder)
+                    .await
+                {
+                    Ok(files) => {
+                        drive.insert(sources.len(), files);
+                        sources.push(other);
+                    }
+                    Err(e) => failed.push((i, e.into())),
+                },
+                None => sources.push(other),
+            },
         }
     }
     if failed.is_empty() {
         p.sources = sources;
-        return state.manager.call(Request::Add(p)).await;
+        return state.manager.call(Request::Add { params: p, drive }).await;
     }
     let mut added: std::vec::IntoIter<AddOutcome> = if sources.is_empty() {
         Vec::new().into_iter()
     } else {
         p.sources = sources;
-        let v = state.manager.call(Request::Add(p)).await?;
+        let v = state
+            .manager
+            .call(Request::Add { params: p, drive })
+            .await?;
         serde_json::from_value::<Vec<AddOutcome>>(v)
             .map_err(|e| RpcError::new(ErrorCode::General, e.to_string()))?
             .into_iter()

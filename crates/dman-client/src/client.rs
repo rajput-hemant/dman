@@ -329,22 +329,21 @@ macro_rules! typed_api {
         /// `jobs.add`: one outcome per source, in order. The daemon fetches
         /// http(s) `.torrent` URLs before adding them, so this may take a while.
         pub async fn add(&self, params: AddParams) -> Result<Vec<AddOutcome>, ClientError> {
-            // The daemon fetches those files one after another, up to 30 s each.
-            let fetches = params
-                .sources
-                .iter()
-                .filter(|s| {
-                    matches!(s, dman_proto::AddSource::Uris { uris }
-                        if uris.len() == 1 && dman_proto::is_torrent_url(&uris[0]))
-                })
-                .count() as u64;
-            let is_gdrive = params.sources.iter().any(|s| match s {
-                dman_proto::AddSource::Uris { uris } => uris
-                    .iter()
-                    .any(|u| dman_proto::parse_drive_folder_id(u).is_some()),
-                _ => false,
-            });
-            let wait = 15 + 30 * fetches + if is_gdrive { 45 } else { 0 };
+            // The daemon fetches `.torrent` files (up to 30 s each) and lists
+            // Drive folders one after another before adding anything.
+            let (mut fetches, mut folders) = (0, 0);
+            for s in &params.sources {
+                if let dman_proto::AddSource::Uris { uris } = s
+                    && let [uri] = uris.as_slice()
+                {
+                    if dman_proto::is_torrent_url(uri) {
+                        fetches += 1;
+                    } else if dman_proto::parse_drive_folder_id(uri).is_some() {
+                        folders += 1;
+                    }
+                }
+            }
+            let wait = 15 + 30 * fetches + 45 * folders;
             self.call_with_timeout(method::JOBS_ADD, params, Duration::from_secs(wait))
                 .await
         }

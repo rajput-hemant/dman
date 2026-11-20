@@ -24,11 +24,7 @@ use tokio::task::JoinHandle;
 use url::Url;
 
 mod support;
-use support::free_port;
-
-fn aria2_enabled() -> bool {
-    std::env::var("DMAN_TEST_ARIA2").as_deref() == Ok("1")
-}
+use support::{aria2_enabled, free_port};
 
 /// Serves fixed files with `200 OK` (no ranges needed here).
 async fn serve_files(files: HashMap<String, Vec<u8>>) -> SocketAddr {

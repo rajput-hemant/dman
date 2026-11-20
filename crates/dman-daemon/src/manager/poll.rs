@@ -203,9 +203,6 @@ impl Manager {
             let (d, u, transition) = update_entry(e, st, &gid, now);
             down += d;
             up += u;
-            if transition || e.dirty {
-                e.dirty = true;
-            }
             if transition {
                 self.urgent = true;
             }

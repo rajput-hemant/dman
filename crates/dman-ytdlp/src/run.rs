@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::{Notify, mpsc};
 use tokio::task::JoinHandle;
@@ -151,9 +151,10 @@ pub fn spawn(spec: &DownloadSpec, tools: &Tools, job_tag: &str) -> Result<Runnin
     let out_task = {
         let tail = tail.clone();
         tokio::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
+            let mut reader = BufReader::new(stdout);
+            let mut buf = Vec::new();
             let mut item = None;
-            while let Ok(Some(line)) = lines.next_line().await {
+            while let Some(line) = next_line_lossy(&mut reader, &mut buf).await {
                 if let Some(mut p) = parse_progress_line(&line) {
                     p.item = item;
                     let _ = tx.try_send(p);
@@ -171,8 +172,9 @@ pub fn spawn(spec: &DownloadSpec, tools: &Tools, job_tag: &str) -> Result<Runnin
     let err_task = {
         let tail = tail.clone();
         tokio::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
+            let mut reader = BufReader::new(stderr);
+            let mut buf = Vec::new();
+            while let Some(line) = next_line_lossy(&mut reader, &mut buf).await {
                 push_tail(&tail, line);
             }
         })
@@ -224,6 +226,22 @@ pub fn spawn(spec: &DownloadSpec, tools: &Tools, job_tag: &str) -> Result<Runnin
         task: Some(task),
         pgid: pid,
     })
+}
+
+/// The next line of `r` without its line ending, decoded lossily; `None` at
+/// the end or on a read error. yt-dlp may print a title that is not UTF-8
+/// (in the console code page on Windows): `lines()` stops at such a line,
+/// and the pipe nobody reads then stalls yt-dlp or breaks its next write.
+async fn next_line_lossy<R: AsyncBufRead + Unpin>(r: &mut R, buf: &mut Vec<u8>) -> Option<String> {
+    buf.clear();
+    match r.read_until(b'\n', buf).await {
+        Ok(0) | Err(_) => None,
+        Ok(_) => {
+            let line = buf.strip_suffix(b"\n").unwrap_or(buf);
+            let line = line.strip_suffix(b"\r").unwrap_or(line);
+            Some(String::from_utf8_lossy(line).into_owned())
+        }
+    }
 }
 
 fn push_tail(tail: &Mutex<VecDeque<String>>, line: String) {
@@ -389,6 +407,17 @@ mod tests {
 
     fn touch(p: &Path) {
         fs::write(p, b"x").unwrap();
+    }
+
+    #[tokio::test]
+    async fn lines_that_are_not_utf8_do_not_stop_the_reader() {
+        let mut r: &[u8] = b"caf\xe9 title\r\nnext\nlast";
+        let mut buf = Vec::new();
+        let mut got = Vec::new();
+        while let Some(l) = next_line_lossy(&mut r, &mut buf).await {
+            got.push(l);
+        }
+        assert_eq!(got, ["caf\u{fffd} title", "next", "last"]);
     }
 
     #[test]

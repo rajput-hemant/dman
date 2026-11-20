@@ -13,6 +13,7 @@ const DEFAULT_BASE_URL: &str = "https://drive.google.com";
 /// A stalled Drive connection must not keep `dman add` waiting forever.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Resolving every file at once exhausts the connection pool on large folders.
+/// Results keep the listing order, which becomes the queue order of the jobs.
 const MAX_CONCURRENT_RESOLVES: usize = 8;
 const BROWSER_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
@@ -82,14 +83,15 @@ impl GdriveClient {
             .await
             .map_err(|e| GdriveError::Network(e.to_string()))?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
-            || resp.status() == reqwest::StatusCode::FORBIDDEN
-            || resp
-                .url()
-                .domain()
-                .is_some_and(|d| d.starts_with("accounts.google."))
-        {
+        if is_sign_in_wall(&resp) {
             return Err(GdriveError::AuthUnsupported);
+        }
+        if !resp.status().is_success() {
+            // A deleted folder or a mistyped id, not a private one.
+            return Err(GdriveError::Network(format!(
+                "Google Drive answered {} for folder {folder_id}",
+                resp.status()
+            )));
         }
 
         resp.text()
@@ -108,13 +110,7 @@ impl GdriveClient {
             .await
             .map_err(|e| GdriveError::Network(e.to_string()))?;
 
-        if resp.status() == reqwest::StatusCode::UNAUTHORIZED
-            || resp.status() == reqwest::StatusCode::FORBIDDEN
-            || resp
-                .url()
-                .domain()
-                .is_some_and(|d| d.starts_with("accounts.google."))
-        {
+        if is_sign_in_wall(&resp) {
             return Err(GdriveError::AuthUnsupported);
         }
 
@@ -202,7 +198,7 @@ impl GdriveClient {
                 }
             });
             let resolved_files = futures_util::stream::iter(file_futs)
-                .buffer_unordered(MAX_CONCURRENT_RESOLVES)
+                .buffered(MAX_CONCURRENT_RESOLVES)
                 .try_collect::<Vec<_>>()
                 .await?;
             out.extend(resolved_files);
@@ -222,6 +218,17 @@ impl GdriveClient {
             Ok(())
         })
     }
+}
+
+/// Drive answers a private item with 401/403 or a redirect to the sign-in page.
+fn is_sign_in_wall(resp: &reqwest::Response) -> bool {
+    matches!(
+        resp.status(),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+    ) || resp
+        .url()
+        .domain()
+        .is_some_and(|d| d.starts_with("accounts.google."))
 }
 
 /// Two Drive names can sanitize to the same file name in one folder, which would

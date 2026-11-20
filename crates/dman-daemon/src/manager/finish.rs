@@ -120,32 +120,15 @@ impl Manager {
 mod tests {
     use super::*;
     use dman_proto::JobState as S;
-    use dman_proto::{Engine, JobId, JobOptions, SourceKind};
-    use dman_store::Desired;
+    use dman_proto::{Engine, JobId, SourceKind};
 
     fn rec() -> JobRecord {
         JobRecord {
-            id: JobId(1),
-            engine: Engine::Aria2,
-            kind: SourceKind::Torrent,
             name: "n".into(),
             dir: "/d".into(),
-            source: String::new(),
-            options: JobOptions::default(),
-            desired: Desired::Queued,
             state: S::Active,
-            gid: None,
-            info_hash: None,
-            total_bytes: 0,
-            completed_bytes: 0,
-            uploaded_base: 0,
-            uploaded_session: 0,
-            added_at: 0,
-            completed_at: None,
-            queue_key: 0,
             error: Some("boom".into()),
-            has_blob: false,
-            extra: Default::default(),
+            ..JobRecord::new(JobId(1), Engine::Aria2, SourceKind::Torrent, false)
         }
     }
 
